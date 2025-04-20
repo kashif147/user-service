@@ -4,6 +4,8 @@ require("dotenv").config();
 var createError = require("http-errors");
 var express = require("express");
 const cors = require("cors");
+const swaggerUi = require("swagger-ui-express");
+const swaggerSpecs = require("./config/swagger");
 
 const { mongooseConnection } = require("./config/db");
 const session = require("express-session");
@@ -35,6 +37,17 @@ app.use(
 app.set("view engine", "ejs");
 
 app.use(express.static("public"));
+
+// Swagger documentation
+app.use(
+  "/api-docs",
+  swaggerUi.serve,
+  swaggerUi.setup(swaggerSpecs, {
+    explorer: true,
+    customCss: ".swagger-ui .topbar { display: none }",
+    customSiteTitle: "User Service API Documentation",
+  })
+);
 
 app.get("/", (req, res) => {
   res.render("index", { title: "User Service" });
