@@ -14,7 +14,7 @@ const options = {
         description: "Development server",
       },
       {
-        url: "https://your-production-url.com",
+        url: "https://userserviceshell-aqf6f0b8fqgmagch.canadacentral-01.azurewebsites.net",
         description: "Production server",
       },
     ],
