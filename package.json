@@ -1,5 +1,22 @@
 {
+  "name": "user-service",
+  "version": "1.0.0",
+  "description": "This is the user service for  project shell.",
+  "main": "app.js",
+  "scripts": {
+    "start": "node ./bin/user-service",
+    "dev": "nodemon ./bin/user-service"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kashif147/user-service.git"
+  },
   "dependencies": {
     "express": "^5.1.0"
-  }
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
+  },
+  "author": "sadeeq ullah",
+  "license": "MIT"
 }
