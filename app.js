@@ -40,7 +40,7 @@ app.use(express.static("public"));
 
 // Swagger documentation
 app.use(
-  "/api-docs",
+  "/swagger",
   swaggerUi.serve,
   swaggerUi.setup(swaggerSpecs, {
     explorer: true,
