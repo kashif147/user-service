@@ -1,45 +1,30 @@
-const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
+const mongoose = require("mongoose");
 
-const userSchema = new mongoose.Schema(
-  {
-    firstname: {
-      type: String,
-    },
-    lastname: {
-      type: String,
-    },
-    email: {
-      type: String,
-      unique: true,
-    },
-    password: { type: String, default: null },
-    forgotPasswordCode: { type: Number, default: null },
-    passwordResetCodeExpiry: { type: Date, default: null },
+const UserSchema = new mongoose.Schema({
+  userEmail: { type: String, default: null }, // `emails[0]`
+  userFirstName: { type: String, default: null }, // `given_name`
+  userLastName: { type: String, default: null }, // `family_name`
+  userFullName: { type: String, default: null }, //given_name + family_name
+  userMobilePhone: { type: String, default: null }, // `extension_mobilePhone`
+  userMemberNumber: { type: String, default: null }, // `extension_MemberNo`
+  userMicrosoftId: { type: String, default: null }, // `oid`
+  userAuthProvider: { type: String, default: "microsoft" }, // fixed value for tracking auth source
+  userSubject: { type: String, default: null }, // `sub`
+  userAudience: { type: String, default: null }, // `aud`
+  userIssuer: { type: String, default: null }, // `iss`
+  userIssuedAt: { type: Number, default: null }, // `iat`
+  userAuthTime: { type: Number, default: null }, // `auth_time`
+  userTokenVersion: { type: String, default: null }, // `ver`
+  userPolicy: { type: String, default: null }, // `tfp`
+
+  userLastLogin: { type: Date, default: Date.now }, // current timestamp
+
+  tokens: {
+    id_token: { type: String, default: null }, // full ID token from Microsoft
+    refresh_token: { type: String, default: null }, // refresh token
+    id_token_expires_in: { type: Number, default: null }, // token expiry time (optional)
+    refresh_token_expires_in: { type: Number, default: null }, // refresh token expiry (optional)
   },
-  { timestamps: true }
-);
-
-// Pre-save hook to hash password
-userSchema.pre('save', async function (next) {
-  if (!this.isModified('password')) return next();
-  this.password = await bcrypt.hash(this.password, 10);
-  next();
 });
 
-// Encrypt the Password before Updating
-userSchema.pre('findOneAndUpdate', async function (next) {
-  const updatedInfo = this.getUpdate();
-  if (updatedInfo.password) {
-    updatedInfo.password = await bcrypt.hash(updatedInfo.password, 10);
-  }
-  next();
-});
-
-// Check if the password is correct
-userSchema.methods.isValidPassword = async function (password) {
-  const compare = await bcrypt.compare(password, this.password);
-  return compare;
-};
-
-module.exports = mongoose.model('User', userSchema);
+module.exports = mongoose.model("User", UserSchema);

@@ -12,6 +12,7 @@
     "url": "https://github.com/kashif147/user-service.git"
   },
   "dependencies": {
+    "axios": "^1.8.4",
     "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
     "dotenv": "^16.5.0",
