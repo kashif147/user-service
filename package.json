@@ -4,8 +4,8 @@
   "description": "Apis for user-service",
   "main": "app.js",
   "scripts": {
-    "start": "node ./bin/user-service.js",
-    "dev": "nodemon ./bin/user-service.js"
+    "start": "node ./bin/user-service",
+    "dev": "nodemon ./bin/user-service"
   },
   "repository": {
     "type": "git",
