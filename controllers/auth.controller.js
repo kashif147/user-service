@@ -1,11 +1,11 @@
 const User = require("../models/user");
 const MicrosoftAuthHelper = require("../helpers/microsoftAuthHelper");
 const jwt = require("jsonwebtoken");
+const { emitMicrosoftAuthEvent } = require("../rabbitMQ/events/userEvents");
 
 module.exports.handleMicrosoftCallback = async (req, res) => {
   try {
     const { code, codeVerifier } = req.body;
-    console.log("====>", req.body);
     if (!code || !codeVerifier) {
       return res.status(400).json({
         success: false,
@@ -14,6 +14,8 @@ module.exports.handleMicrosoftCallback = async (req, res) => {
     }
 
     const { user } = await MicrosoftAuthHelper.handleMicrosoftAuth(code, codeVerifier);
+
+    await emitMicrosoftAuthEvent(user);
 
     const issuedAtReadable = user.userIssuedAt ? new Date(user.userIssuedAt * 1000).toISOString() : null;
     const authTimeReadable = user.userAuthTime ? new Date(user.userAuthTime * 1000).toISOString() : null;

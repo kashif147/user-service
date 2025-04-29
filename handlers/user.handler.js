@@ -1,4 +1,4 @@
-const User = require('../models/user');
+const User = require("../models/user");
 
 module.exports.readByEmail = (email) =>
   new Promise(async (resolve, reject) => {
@@ -6,7 +6,7 @@ module.exports.readByEmail = (email) =>
       const user = await User.findOne({ email });
       return resolve(user);
     } catch (error) {
-      console.error('UserService [readByEmail] Error:', error);
+      console.error("UserService [readByEmail] Error:", error);
       return reject(error);
     }
   });
@@ -24,7 +24,7 @@ module.exports.addUserBasic = ({ firstname, lastname, email, password }) =>
       console.log(`User Service: Created Local User ===> ${newUser._id}`);
       resolve(newUser);
     } catch (error) {
-      console.log('UserService [createUser] Error:', error);
+      console.log("UserService [createUser] Error:", error);
       reject(error);
     }
   });
@@ -32,11 +32,11 @@ module.exports.addUserBasic = ({ firstname, lastname, email, password }) =>
 module.exports.readById = (id) =>
   new Promise(async (resolve, reject) => {
     try {
-      const user = await User.findById(id).select('-password');
+      const user = await User.findById(id).select("-password");
 
       return resolve(user);
     } catch (error) {
-      console.log('UserService [readById] Error: ', error);
+      console.log("UserService [readById] Error: ", error);
       return reject(error);
     }
   });
@@ -53,7 +53,7 @@ module.exports.updateForgotPasswordCode = (userId, data) =>
       );
       return resolve(user);
     } catch (error) {
-      console.log('UserService [updateForgotPasswordCode] error: ', error);
+      console.log("UserService [updateForgotPasswordCode] error: ", error);
       return reject(error);
     }
   });
@@ -69,7 +69,7 @@ module.exports.updatePassword = (userId, newPassword) =>
       );
       return resolve(user);
     } catch (error) {
-      console.log('Userservice [updatePassword] error :', error);
+      console.log("Userservice [updatePassword] error :", error);
       return reject(error);
     }
   });
@@ -81,7 +81,7 @@ module.exports.validatePassword = (userId, password) =>
       const validation = await foundUser.isValidPassword(password);
       return resolve(validation);
     } catch (error) {
-      console.log('UserService [validatePassword] error: ', error);
+      console.log("UserService [validatePassword] error: ", error);
       return reject(error);
     }
   });
@@ -92,7 +92,7 @@ module.exports.getUserById = (userId) =>
       const user = await User.findById(userId).lean();
       resolve(user);
     } catch (error) {
-      console.log('UserService [getUserById] Error:', error);
+      console.log("UserService [getUserById] Error:", error);
       reject(error);
     }
   });
@@ -103,7 +103,7 @@ module.exports.getAllUsers = () =>
       const users = await User.find().lean();
       resolve(users);
     } catch (error) {
-      console.error('UserService [getAllUsers] Error:', error);
+      console.error("UserService [getAllUsers] Error:", error);
       reject(error);
     }
   });
@@ -112,9 +112,9 @@ module.exports.deleteUser = (userId) =>
   new Promise(async (resolve, reject) => {
     try {
       await User.findByIdAndDelete(userId);
-      resolve('User Deleted');
+      resolve("User Deleted");
     } catch (error) {
-      console.error('UserService [deleteUser] Error:', error);
+      console.error("UserService [deleteUser] Error:", error);
       reject(error);
     }
   });

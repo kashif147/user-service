@@ -64,6 +64,18 @@ app.use((err, req, res, next) => {
   res.fail("Page Not Found");
 });
 
+const { connectRabbitMQ } = require("message-bus");
+
+(async () => {
+  await connectRabbitMQ({
+    amqpUrl: process.env.RABBITMQ_URL || "amqp://localhost",
+    retryAttempts: 10, // Optional
+    retryDelay: 3000, // Optional
+  });
+
+  console.log("🎉 RabbitMQ is ready");
+})();
+
 process.on("SIGINT", async () => {
   process.exit(0);
 });
