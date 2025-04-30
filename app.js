@@ -68,7 +68,7 @@ const { connectRabbitMQ } = require("message-bus");
 
 (async () => {
   await connectRabbitMQ({
-    amqpUrl: process.env.RABBITMQ_URL || "amqp://localhost",
+    amqpUrl: process.env.RABBITMQ_URL,
     retryAttempts: 10, // Optional
     retryDelay: 3000, // Optional
   });
