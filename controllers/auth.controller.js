@@ -12,7 +12,7 @@ module.exports.handleMicrosoftCallback = async (req, res) => {
         message: "Authorization code and codeVerifier are required",
       });
     }
-
+    //
     const { user } = await MicrosoftAuthHelper.handleMicrosoftAuth(code, codeVerifier);
 
     // await emitMicrosoftAuthEvent(user);
