@@ -1,6 +1,3 @@
-# # Docs for the Azure Web Apps Deploy action: https://github.com/Azure/webapps-deploy
-# # More GitHub Actions for Azure: https://github.com/Azure/actions
-
 # name: Build and deploy Node.js app to Azure Web App - userserviceShell
 
 # on:
@@ -13,7 +10,7 @@
 #   build:
 #     runs-on: ubuntu-latest
 #     permissions:
-#       contents: read #This is required for actions/checkout
+#       contents: read
 
 #     steps:
 #       - uses: actions/checkout@v4
@@ -21,7 +18,7 @@
 #       - name: Set up Node.js version
 #         uses: actions/setup-node@v3
 #         with:
-#           node-version: '22.x'
+#           node-version: "22.x"
 
 #       - name: npm install, build, and test
 #         run: |
@@ -42,11 +39,10 @@
 #     runs-on: ubuntu-latest
 #     needs: build
 #     environment:
-#       name: 'Production'
-#       url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
+#       name: "Production"
 #     permissions:
-#       id-token: write #This is required for requesting the JWT
-#       contents: read #This is required for actions/checkout
+#       id-token: write
+#       contents: read
 
 #     steps:
 #       - name: Download artifact from build job
@@ -64,13 +60,17 @@
 #           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_8319C8D731BD4CAA834B2CEFA2485BC1 }}
 #           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_94DBC028654C4F2D935F48961E64C3CC }}
 
-#       - name: 'Deploy to Azure Web App'
+#       - name: "Deploy to Azure Web App"
 #         id: deploy-to-webapp
 #         uses: azure/webapps-deploy@v3
 #         with:
-#           app-name: 'userserviceShell'
-#           slot-name: 'Production'
+#           app-name: "userserviceShell"
+#           slot-name: "Production"
 #           package: .
+#           startup-command: "npm start"
+
+# Docs for the Azure Web Apps Deploy action: https://github.com/Azure/webapps-deploy
+# More GitHub Actions for Azure: https://github.com/Azure/actions
 
 name: Build and deploy Node.js app to Azure Web App - userserviceShell
 
@@ -84,7 +84,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: read #This is required for actions/checkout
 
     steps:
       - uses: actions/checkout@v4
@@ -114,9 +114,10 @@ jobs:
     needs: build
     environment:
       name: "Production"
+      url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
     permissions:
-      id-token: write
-      contents: read
+      id-token: write #This is required for requesting the JWT
+      contents: read #This is required for actions/checkout
 
     steps:
       - name: Download artifact from build job
@@ -130,9 +131,9 @@ jobs:
       - name: Login to Azure
         uses: azure/login@v2
         with:
-          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_D0ED38942FE443F2A04CF1CB42A9175B }}
-          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_8319C8D731BD4CAA834B2CEFA2485BC1 }}
-          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_94DBC028654C4F2D935F48961E64C3CC }}
+          client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_0D7523D6D6D64FCCB7C56C582496431F }}
+          tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_25428B792F7F46F1A83B031740013AEA }}
+          subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_A43E588960F4409891D84A09A6C4D1D1 }}
 
       - name: "Deploy to Azure Web App"
         id: deploy-to-webapp
@@ -141,4 +142,3 @@ jobs:
           app-name: "userserviceShell"
           slot-name: "Production"
           package: .
-          startup-command: "npm start"
