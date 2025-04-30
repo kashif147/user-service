@@ -7,13 +7,14 @@ on:
   workflow_dispatch:
 
 jobs:
-  deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
     permissions:
       contents: read
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
       - name: Set up Node.js
         uses: actions/setup-node@v3
@@ -22,6 +23,13 @@ jobs:
 
       - name: Install dependencies
         run: npm install
+
+      # Optional: include this if you have a build step (e.g., TypeScript or Babel)
+      # - name: Build app
+      #   run: npm run build
+
+      - name: Zip application
+        run: zip -r app.zip .
 
       - name: Login to Azure
         uses: azure/login@v2
@@ -34,5 +42,4 @@ jobs:
         uses: azure/webapps-deploy@v3
         with:
           app-name: "userserviceShell"
-          slot-name: "Production"
-          package: .
+          package: app.zip
