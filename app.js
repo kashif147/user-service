@@ -54,9 +54,6 @@ app.get("/", (req, res) => {
 });
 
 app.use("/api/v1", require("./routes/index"));
-app.get("/admin/host/status", (req, res) => {
-  res.status(200).send("OK");
-});
 
 app.use(function (req, res, next) {
   next(createError(404));
