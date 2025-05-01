@@ -11,8 +11,8 @@ const TOKEN_ENDPOINT = `https://${TENANT_NAME}.b2clogin.com/${TENANT_NAME}.onmic
 
 class MicrosoftAuthHelper {
   static async exchangeCodeForTokens(code, codeVerifier) {
-    console.log("Starting token exchange with Microsoft");
-    console.log("Code received:", code ? "Present" : "Missing");
+    // console.log("Starting token exchange with Microsoft");
+    // console.log("Code received:", code ? "Present" : "Missing");
 
     const data = new URLSearchParams({
       grant_type: "authorization_code",
