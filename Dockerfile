@@ -13,7 +13,7 @@ RUN npm install
 COPY . .
 
 # Expose port (adjust if needed per service)
-EXPOSE 3000
+EXPOSE 3500
 
 
 # Start the app using the actual entry file
