@@ -21,11 +21,7 @@ module.exports.handleMicrosoftCallback = async (req, res) => {
     const issuedAtReadable = user.userIssuedAt ? new Date(user.userIssuedAt * 1000).toISOString() : null;
     const authTimeReadable = user.userAuthTime ? new Date(user.userAuthTime * 1000).toISOString() : null;
     const tokenVersionReadable =
-      user.userTokenVersion === "1.0"
-        ? "Azure AD B2C v1"
-        : user.userTokenVersion === "2.0"
-        ? "Azure AD B2C v2"
-        : user.userTokenVersion;
+      user.userTokenVersion === "1.0" ? "Azure AD B2C v1" : user.userTokenVersion === "2.0" ? "Azure AD B2C v2" : user.userTokenVersion;
 
     const accessToken = jwt.sign(
       {
@@ -43,7 +39,7 @@ module.exports.handleMicrosoftCallback = async (req, res) => {
         },
       },
       process.env.ACCESS_TOKEN_SECRET,
-      { expiresIn: "900s" }
+      { expiresIn: "1y" }
     );
 
     const userResponse = {
