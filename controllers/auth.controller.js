@@ -37,6 +37,7 @@ module.exports.handleMicrosoftCallback = async (req, res) => {
           userAuthTime: authTimeReadable,
           tokenVersion: tokenVersionReadable,
         },
+        userType: "PORTAL",
       },
       process.env.ACCESS_TOKEN_SECRET,
       { expiresIn: "1y" }
