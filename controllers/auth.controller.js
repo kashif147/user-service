@@ -25,7 +25,7 @@ module.exports.handleMicrosoftCallback = async (req, res) => {
 
     const accessToken = jwt.sign(
       {
-        UserInfo: {
+        user: {
           id: user._id,
           userEmail: user.userEmail,
           userFullName: user.userFullName,
@@ -36,8 +36,8 @@ module.exports.handleMicrosoftCallback = async (req, res) => {
           userIssuedAt: issuedAtReadable,
           userAuthTime: authTimeReadable,
           tokenVersion: tokenVersionReadable,
+          userType: "PORTAL",
         },
-        userType: "PORTAL",
       },
       process.env.ACCESS_TOKEN_SECRET,
       { expiresIn: "1y" }
