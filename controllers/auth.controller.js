@@ -23,25 +23,27 @@ module.exports.handleMicrosoftCallback = async (req, res) => {
     const tokenVersionReadable =
       user.userTokenVersion === "1.0" ? "Azure AD B2C v1" : user.userTokenVersion === "2.0" ? "Azure AD B2C v2" : user.userTokenVersion;
 
-    const accessToken = jwt.sign(
-      {
-        user: {
-          id: user._id,
-          userEmail: user.userEmail,
-          userFullName: user.userFullName,
-          userMicrosoftId: user.userMicrosoftId,
-          userMemberNumber: user.userMemberNumber,
-          userMobilePhone: user.userMobilePhone,
-          userPolicy: user.userPolicy,
-          userIssuedAt: issuedAtReadable,
-          userAuthTime: authTimeReadable,
-          tokenVersion: tokenVersionReadable,
-          userType: "PORTAL",
+    const accessToken =
+      "Bearer " +
+      jwt.sign(
+        {
+          user: {
+            id: user._id,
+            userEmail: user.userEmail,
+            userFullName: user.userFullName,
+            userMicrosoftId: user.userMicrosoftId,
+            userMemberNumber: user.userMemberNumber,
+            userMobilePhone: user.userMobilePhone,
+            userPolicy: user.userPolicy,
+            userIssuedAt: issuedAtReadable,
+            userAuthTime: authTimeReadable,
+            tokenVersion: tokenVersionReadable,
+            userType: "PORTAL",
+          },
         },
-      },
-      process.env.ACCESS_TOKEN_SECRET,
-      { expiresIn: "1y" }
-    );
+        process.env.ACCESS_TOKEN_SECRET,
+        { expiresIn: "1y" }
+      );
 
     const userResponse = {
       id: user._id,
