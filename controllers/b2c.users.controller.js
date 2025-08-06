@@ -1,5 +1,4 @@
-const User = require("../models/user");
-const MicrosoftAuthHelper = require("../helpers/microsoftAuthHelper");
+const B2CUsersHandler = require("../handlers/b2c.users.handler");
 const jwt = require("jsonwebtoken");
 const { emitMicrosoftAuthEvent } = require("../rabbitMQ/events/userEvents");
 
@@ -13,7 +12,7 @@ module.exports.handleMicrosoftCallback = async (req, res) => {
       });
     }
     //
-    const { user } = await MicrosoftAuthHelper.handleMicrosoftAuth(code, codeVerifier);
+    const { user } = await B2CUsersHandler.handleB2CAuth(code, codeVerifier);
 
     await emitMicrosoftAuthEvent(user);
     console.log("================================================================>", user);

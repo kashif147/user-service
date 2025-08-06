@@ -1,7 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const authController = require("../controllers/auth.controller");
-const { ensureAuthenticated } = require("../middlewares/auth.mw");
-router.post("/microsoft", authController.handleMicrosoftCallback);
+const b2cUsersController = require("../controllers/b2c.users.controller");
+router.post("/microsoft", b2cUsersController.handleMicrosoftCallback);
 
 module.exports = router;
