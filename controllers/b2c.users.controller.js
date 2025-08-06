@@ -1,6 +1,6 @@
 const B2CUsersHandler = require("../handlers/b2c.users.handler");
 const jwt = require("jsonwebtoken");
-const { emitMicrosoftAuthEvent } = require("../rabbitMQ/events/userEvents");
+// const { emitMicrosoftAuthEvent } = require("../rabbitMQ/events/userEvents");
 
 module.exports.handleMicrosoftCallback = async (req, res) => {
   try {
@@ -14,7 +14,7 @@ module.exports.handleMicrosoftCallback = async (req, res) => {
     //
     const { user } = await B2CUsersHandler.handleB2CAuth(code, codeVerifier);
 
-    await emitMicrosoftAuthEvent(user);
+    // await emitMicrosoftAuthEvent(user);
     console.log("================================================================>", user);
 
     const issuedAtReadable = user.userIssuedAt ? new Date(user.userIssuedAt * 1000).toISOString() : null;
