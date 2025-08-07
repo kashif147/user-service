@@ -53,7 +53,7 @@ app.get("/", (req, res) => {
   res.render("index", { title: "User Service" });
 });
 
-app.use("/api/v1", require("./routes/index"));
+app.use("/", require("./routes/index"));
 
 app.use(function (req, res, next) {
   next(createError(404));

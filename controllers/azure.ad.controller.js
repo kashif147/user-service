@@ -1,23 +1,19 @@
-const B2CUsersHandler = require("../handlers/b2c.users.handler");
+const AzureADHandler = require("../handlers/azure.ad.handler");
 const jwt = require("jsonwebtoken");
-// const { emitMicrosoftAuthEvent } = require("../rabbitMQ/events/userEvents");
 
-module.exports.handleMicrosoftCallback = async (req, res) => {
+module.exports.handleAzureADCallback = async (req, res) => {
   try {
     const { code, codeVerifier } = req.body;
+
     if (!code || !codeVerifier) {
-      return res.status(400).json({
-        success: false,
-        message: "Authorization code and codeVerifier are required",
-      });
+      return res.status(400).json({ success: false, message: "Authorization code and codeVerifier are required" });
     }
-    //
-    const { user } = await B2CUsersHandler.handleB2CAuth(code, codeVerifier);
+
+    const { user } = await AzureADHandler.handleAzureADAuth(code, codeVerifier);
 
     const issuedAtReadable = user.userIssuedAt ? new Date(user.userIssuedAt * 1000).toISOString() : null;
     const authTimeReadable = user.userAuthTime ? new Date(user.userAuthTime * 1000).toISOString() : null;
-    const tokenVersionReadable =
-      user.userTokenVersion === "1.0" ? "Azure AD B2C v1" : user.userTokenVersion === "2.0" ? "Azure AD B2C v2" : user.userTokenVersion;
+    const tokenVersionReadable = user.userTokenVersion || "Azure AD v2";
 
     const accessToken =
       "Bearer " +
@@ -34,7 +30,7 @@ module.exports.handleMicrosoftCallback = async (req, res) => {
             userIssuedAt: issuedAtReadable,
             userAuthTime: authTimeReadable,
             tokenVersion: tokenVersionReadable,
-            userType: "PORTAL",
+            userType: "CRM",
           },
         },
         process.env.ACCESS_TOKEN_SECRET,
@@ -70,12 +66,12 @@ module.exports.handleMicrosoftCallback = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: "Microsoft authentication successful",
+      message: "Azure AD authentication successful",
       user: userResponse,
       accessToken,
     });
   } catch (error) {
-    console.error("Microsoft Auth Error:", error);
+    console.error("Azure AD Auth Error:", error);
     return res.status(500).json({
       success: false,
       message: "Authentication failed",
