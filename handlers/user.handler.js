@@ -1,120 +1,75 @@
 const User = require("../models/user");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
 
-module.exports.readByEmail = (email) =>
-  new Promise(async (resolve, reject) => {
-    try {
-      const user = await User.findOne({ email });
-      return resolve(user);
-    } catch (error) {
-      console.error("UserService [readByEmail] Error:", error);
-      return reject(error);
-    }
-  });
+module.exports.findUserByEmail = async (email) => {
+  return await User.findOne({ userEmail: email }).exec();
+};
 
-module.exports.addUserBasic = ({ firstname, lastname, email, password }) =>
-  new Promise(async (resolve, reject) => {
-    try {
-      const newUser = new User({
-        firstname: firstname.trim(),
-        lastname: lastname.trim(),
-        email: email.toLowerCase().trim(),
-        password: password.trim(),
-      });
-      await newUser.save();
-      console.log(`User Service: Created Local User ===> ${newUser._id}`);
-      resolve(newUser);
-    } catch (error) {
-      console.log("UserService [createUser] Error:", error);
-      reject(error);
-    }
-  });
+module.exports.handleNewUser = async (email, password) => {
+  try {
+    const hashedPwd = await bcrypt.hash(password, 10);
 
-module.exports.readById = (id) =>
-  new Promise(async (resolve, reject) => {
-    try {
-      const user = await User.findById(id).select("-password");
+    const result = await User.create({
+      userEmail: email,
+      password: hashedPwd,
+      userType: "CRM",
+    });
 
-      return resolve(user);
-    } catch (error) {
-      console.log("UserService [readById] Error: ", error);
-      return reject(error);
-    }
-  });
-module.exports.updateForgotPasswordCode = (userId, data) =>
-  new Promise(async (resolve, reject) => {
-    try {
-      const user = await User.findByIdAndUpdate(
-        userId,
-        {
-          forgotPasswordCode: data.forgotPasswordCode,
-          passwordResetCodeExpiry: data.passwordResetCodeExpiry,
+    const token = jwt.sign(
+      {
+        user: {
+          id: result._id,
+          email: result.userEmail,
+          userType: "CRM",
         },
-        { new: true }
-      );
-      return resolve(user);
-    } catch (error) {
-      console.log("UserService [updateForgotPasswordCode] error: ", error);
-      return reject(error);
-    }
-  });
-module.exports.updatePassword = (userId, newPassword) =>
-  new Promise(async (resolve, reject) => {
-    try {
-      const user = await User.findByIdAndUpdate(
-        userId,
-        {
-          password: newPassword,
-        },
-        { new: true }
-      );
-      return resolve(user);
-    } catch (error) {
-      console.log("Userservice [updatePassword] error :", error);
-      return reject(error);
-    }
-  });
+      },
+      process.env.ACCESS_TOKEN_SECRET,
+      { expiresIn: "1d" }
+    );
 
-module.exports.validatePassword = (userId, password) =>
-  new Promise(async (resolve, reject) => {
-    try {
-      const foundUser = await User.findById(userId);
-      const validation = await foundUser.isValidPassword(password);
-      return resolve(validation);
-    } catch (error) {
-      console.log("UserService [validatePassword] error: ", error);
-      return reject(error);
-    }
-  });
+    return {
+      user: {
+        id: result._id,
+        email: result.userEmail,
+        userType: "CRM",
+      },
+      token: `Bearer ${token}`,
+    };
+  } catch (error) {
+    throw new Error(`Error creating user: ${error.message}`);
+  }
+};
 
-module.exports.getUserById = (userId) =>
-  new Promise(async (resolve, reject) => {
-    try {
-      const user = await User.findById(userId).lean();
-      resolve(user);
-    } catch (error) {
-      console.log("UserService [getUserById] Error:", error);
-      reject(error);
-    }
-  });
+module.exports.handleLogin = async (email, password) => {
+  const foundUser = await User.findOne({ userEmail: email }).exec();
 
-module.exports.getAllUsers = () =>
-  new Promise(async (resolve, reject) => {
-    try {
-      const users = await User.find().lean();
-      resolve(users);
-    } catch (error) {
-      console.error("UserService [getAllUsers] Error:", error);
-      reject(error);
-    }
-  });
+  const match = await bcrypt.compare(password, foundUser.password);
+  if (!match) {
+    throw new Error("Invalid credentials");
+  }
 
-module.exports.deleteUser = (userId) =>
-  new Promise(async (resolve, reject) => {
-    try {
-      await User.findByIdAndDelete(userId);
-      resolve("User Deleted");
-    } catch (error) {
-      console.error("UserService [deleteUser] Error:", error);
-      reject(error);
-    }
-  });
+  const accessToken = jwt.sign(
+    {
+      user: {
+        id: foundUser._id,
+        email: foundUser.userEmail,
+        userType: "CRM",
+      },
+    },
+    process.env.ACCESS_TOKEN_SECRET,
+    { expiresIn: "1d" }
+  );
+
+  foundUser.userLastLogin = new Date();
+  await foundUser.save();
+
+  return {
+    user: {
+      id: foundUser._id,
+      email: foundUser.userEmail,
+      userType: "CRM",
+    },
+    token: `Bearer ${accessToken}`,
+  };
+};
