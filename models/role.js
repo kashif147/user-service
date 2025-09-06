@@ -1,16 +1,21 @@
 const mongoose = require("mongoose");
 
 const RoleSchema = new mongoose.Schema({
+  // Tenant isolation - mandatory field
+  tenantId: {
+    type: String,
+    required: true,
+    index: true,
+  },
+
   name: {
     type: String,
     required: true,
-    unique: true,
     trim: true,
   },
   code: {
     type: String,
     required: true,
-    unique: true,
     trim: true,
   },
   description: {
@@ -43,7 +48,15 @@ const RoleSchema = new mongoose.Schema({
     type: Date,
     default: Date.now,
   },
+
+  // Audit fields
+  createdBy: { type: String, default: null },
+  updatedBy: { type: String, default: null },
 });
+
+// Compound indexes for tenant isolation
+RoleSchema.index({ tenantId: 1, code: 1 }, { unique: true }); // Unique role code per tenant
+RoleSchema.index({ tenantId: 1, name: 1 }, { unique: true }); // Unique role name per tenant
 
 RoleSchema.pre("save", function (next) {
   this.updatedAt = Date.now();

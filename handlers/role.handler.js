@@ -178,27 +178,35 @@ const ROLE_DEFINITIONS = [
   },
 ];
 
-module.exports.initializeRoles = async () => {
+module.exports.initializeRoles = async (tenantId) => {
   try {
-    // Check if roles already exist
-    const existingRoles = await Role.countDocuments();
+    // Check if roles already exist for this tenant
+    const existingRoles = await Role.countDocuments({ tenantId });
     if (existingRoles > 0) {
-      console.log("Roles already initialized");
-      return await Role.find({});
+      console.log(`Roles already initialized for tenant ${tenantId}`);
+      return await Role.find({ tenantId });
     }
 
-    // Create all roles
-    const createdRoles = await Role.insertMany(ROLE_DEFINITIONS);
-    console.log(`Initialized ${createdRoles.length} roles`);
+    // Create all roles with tenantId
+    const rolesWithTenant = ROLE_DEFINITIONS.map((role) => ({
+      ...role,
+      tenantId: tenantId,
+      createdBy: "system",
+    }));
+
+    const createdRoles = await Role.insertMany(rolesWithTenant);
+    console.log(
+      `Initialized ${createdRoles.length} roles for tenant ${tenantId}`
+    );
     return createdRoles;
   } catch (error) {
     throw new Error(`Error initializing roles: ${error.message}`);
   }
 };
 
-module.exports.getAllRoles = async (userType = null) => {
+module.exports.getAllRoles = async (tenantId, userType = null) => {
   try {
-    const query = { isActive: true };
+    const query = { tenantId, isActive: true };
     if (userType) {
       query.userType = userType;
     }
@@ -208,9 +216,9 @@ module.exports.getAllRoles = async (userType = null) => {
   }
 };
 
-module.exports.getRoleByCode = async (code) => {
+module.exports.getRoleByCode = async (code, tenantId) => {
   try {
-    const role = await Role.findOne({ code, isActive: true });
+    const role = await Role.findOne({ code, tenantId, isActive: true });
     if (!role) {
       throw new Error("Role not found");
     }
@@ -220,9 +228,9 @@ module.exports.getRoleByCode = async (code) => {
   }
 };
 
-module.exports.getRoleById = async (roleId) => {
+module.exports.getRoleById = async (roleId, tenantId) => {
   try {
-    const role = await Role.findById(roleId);
+    const role = await Role.findOne({ _id: roleId, tenantId });
     if (!role) {
       throw new Error("Role not found");
     }
@@ -232,9 +240,13 @@ module.exports.getRoleById = async (roleId) => {
   }
 };
 
-module.exports.createRole = async (roleData) => {
+module.exports.createRole = async (roleData, tenantId, createdBy) => {
   try {
-    const role = new Role(roleData);
+    const role = new Role({
+      ...roleData,
+      tenantId,
+      createdBy,
+    });
     await role.save();
     return role;
   } catch (error) {
@@ -242,11 +254,11 @@ module.exports.createRole = async (roleData) => {
   }
 };
 
-module.exports.updateRole = async (roleId, updateData) => {
+module.exports.updateRole = async (roleId, updateData, tenantId, updatedBy) => {
   try {
-    const role = await Role.findByIdAndUpdate(
-      roleId,
-      { ...updateData, updatedAt: Date.now() },
+    const role = await Role.findOneAndUpdate(
+      { _id: roleId, tenantId },
+      { ...updateData, updatedAt: Date.now(), updatedBy },
       { new: true }
     );
 
@@ -259,9 +271,9 @@ module.exports.updateRole = async (roleId, updateData) => {
   }
 };
 
-module.exports.deleteRole = async (roleId) => {
+module.exports.deleteRole = async (roleId, tenantId) => {
   try {
-    const role = await Role.findById(roleId);
+    const role = await Role.findOne({ _id: roleId, tenantId });
     if (!role) {
       throw new Error("Role not found");
     }
@@ -270,24 +282,29 @@ module.exports.deleteRole = async (roleId) => {
       throw new Error("Cannot delete system role");
     }
 
-    // Check if any users have this role
-    const usersWithRole = await User.find({ roles: roleId });
+    // Check if any users have this role in this tenant
+    const usersWithRole = await User.find({ roles: roleId, tenantId });
     if (usersWithRole.length > 0) {
       throw new Error("Cannot delete role that is assigned to users");
     }
 
-    await Role.findByIdAndUpdate(roleId, { isActive: false });
+    await Role.findOneAndUpdate({ _id: roleId, tenantId }, { isActive: false });
     return { message: "Role deleted successfully" };
   } catch (error) {
     throw new Error(`Error deleting role: ${error.message}`);
   }
 };
 
-module.exports.updateRolePermissions = async (roleId, permissions) => {
+module.exports.updateRolePermissions = async (
+  roleId,
+  permissions,
+  tenantId,
+  updatedBy
+) => {
   try {
-    const role = await Role.findByIdAndUpdate(
-      roleId,
-      { permissions, updatedAt: Date.now() },
+    const role = await Role.findOneAndUpdate(
+      { _id: roleId, tenantId },
+      { permissions, updatedAt: Date.now(), updatedBy },
       { new: true }
     );
 
@@ -300,10 +317,10 @@ module.exports.updateRolePermissions = async (roleId, permissions) => {
   }
 };
 
-module.exports.assignRoleToUser = async (userId, roleId) => {
+module.exports.assignRoleToUser = async (userId, roleId, tenantId) => {
   try {
-    const user = await User.findById(userId);
-    const role = await Role.findById(roleId);
+    const user = await User.findOne({ _id: userId, tenantId });
+    const role = await Role.findOne({ _id: roleId, tenantId });
 
     if (!user) {
       throw new Error("User not found");
@@ -320,15 +337,15 @@ module.exports.assignRoleToUser = async (userId, roleId) => {
     user.roles.push(roleId);
     await user.save();
 
-    return await User.findById(userId).populate("roles");
+    return await User.findOne({ _id: userId, tenantId }).populate("roles");
   } catch (error) {
     throw new Error(`Error assigning role to user: ${error.message}`);
   }
 };
 
-module.exports.removeRoleFromUser = async (userId, roleId) => {
+module.exports.removeRoleFromUser = async (userId, roleId, tenantId) => {
   try {
-    const user = await User.findById(userId);
+    const user = await User.findOne({ _id: userId, tenantId });
     if (!user) {
       throw new Error("User not found");
     }
@@ -336,15 +353,17 @@ module.exports.removeRoleFromUser = async (userId, roleId) => {
     user.roles = user.roles.filter((role) => role.toString() !== roleId);
     await user.save();
 
-    return await User.findById(userId).populate("roles");
+    return await User.findOne({ _id: userId, tenantId }).populate("roles");
   } catch (error) {
     throw new Error(`Error removing role from user: ${error.message}`);
   }
 };
 
-module.exports.getUserPermissions = async (userId) => {
+module.exports.getUserPermissions = async (userId, tenantId) => {
   try {
-    const user = await User.findById(userId).populate("roles");
+    const user = await User.findOne({ _id: userId, tenantId }).populate(
+      "roles"
+    );
     if (!user) {
       throw new Error("User not found");
     }
@@ -370,9 +389,11 @@ module.exports.getUserPermissions = async (userId) => {
   }
 };
 
-module.exports.getUserRoles = async (userId) => {
+module.exports.getUserRoles = async (userId, tenantId) => {
   try {
-    const user = await User.findById(userId).populate("roles");
+    const user = await User.findOne({ _id: userId, tenantId }).populate(
+      "roles"
+    );
     if (!user) {
       throw new Error("User not found");
     }
@@ -382,17 +403,19 @@ module.exports.getUserRoles = async (userId) => {
   }
 };
 
-module.exports.getUsersByRole = async (roleId) => {
+module.exports.getUsersByRole = async (roleId, tenantId) => {
   try {
-    return await User.find({ roles: roleId }).populate("roles");
+    return await User.find({ roles: roleId, tenantId }).populate("roles");
   } catch (error) {
     throw new Error(`Error fetching users by role: ${error.message}`);
   }
 };
 
-module.exports.hasRole = async (userId, roleCode) => {
+module.exports.hasRole = async (userId, roleCode, tenantId) => {
   try {
-    const user = await User.findById(userId).populate("roles");
+    const user = await User.findOne({ _id: userId, tenantId }).populate(
+      "roles"
+    );
     if (!user) {
       return false;
     }

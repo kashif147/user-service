@@ -1,6 +1,13 @@
 const mongoose = require("mongoose");
 
 const UserSchema = new mongoose.Schema({
+  // Tenant isolation - mandatory field
+  tenantId: {
+    type: String,
+    required: true,
+    index: true,
+  },
+
   userEmail: { type: String, default: null }, // `emails[0]` ADB2C
   userFirstName: { type: String, default: null }, // `given_name` ADB2C
   userLastName: { type: String, default: null }, // `family_name` ADB2C
@@ -38,6 +45,23 @@ const UserSchema = new mongoose.Schema({
     id_token_expires_in: { type: Number, default: null }, // token expiry time (optional)
     refresh_token_expires_in: { type: Number, default: null }, // refresh token expiry (optional)
   },
+
+  // Audit fields
+  createdBy: { type: String, default: null },
+  updatedBy: { type: String, default: null },
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now },
+});
+
+// Compound indexes for tenant isolation
+UserSchema.index({ tenantId: 1, userEmail: 1 }, { unique: true }); // Unique email per tenant
+UserSchema.index({ tenantId: 1, userMicrosoftId: 1 }, { unique: true }); // Unique Microsoft ID per tenant
+UserSchema.index({ tenantId: 1, userSubject: 1 }, { unique: true }); // Unique subject per tenant
+
+// Pre-save middleware to update audit fields
+UserSchema.pre("save", function (next) {
+  this.updatedAt = Date.now();
+  next();
 });
 
 module.exports = mongoose.model("User", UserSchema);

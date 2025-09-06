@@ -4,9 +4,10 @@ const Role = require("../models/role");
  * Assigns default role to a user based on their user type
  * @param {Object} user - The user object
  * @param {string} userType - The user type (PORTAL or CRM)
+ * @param {string} tenantId - The tenant ID for tenant isolation
  * @returns {Promise<void>}
  */
-module.exports.assignDefaultRole = async (user, userType) => {
+module.exports.assignDefaultRole = async (user, userType, tenantId) => {
   try {
     let defaultRoleCode;
 
@@ -21,15 +22,18 @@ module.exports.assignDefaultRole = async (user, userType) => {
 
     const defaultRole = await Role.findOne({
       code: defaultRoleCode,
+      tenantId: tenantId,
       isActive: true,
     });
 
     if (defaultRole) {
       user.roles = [defaultRole._id];
-      console.log(`Assigned ${defaultRoleCode} role to new ${userType} user`);
+      console.log(
+        `Assigned ${defaultRoleCode} role to new ${userType} user in tenant ${tenantId}`
+      );
     } else {
       console.log(
-        `Warning: Default ${userType} role (${defaultRoleCode}) not found, user created without role`
+        `Warning: Default ${userType} role (${defaultRoleCode}) not found for tenant ${tenantId}, user created without role`
       );
     }
   } catch (error) {
@@ -43,12 +47,15 @@ module.exports.assignDefaultRole = async (user, userType) => {
 /**
  * Checks if a user already has any roles assigned
  * @param {string} userId - The user ID
+ * @param {string} tenantId - The tenant ID for tenant isolation
  * @returns {Promise<boolean>}
  */
-module.exports.userHasRoles = async (userId) => {
+module.exports.userHasRoles = async (userId, tenantId) => {
   try {
     const User = require("../models/user");
-    const user = await User.findById(userId).populate("roles");
+    const user = await User.findOne({ _id: userId, tenantId }).populate(
+      "roles"
+    );
     return user && user.roles && user.roles.length > 0;
   } catch (error) {
     console.log("Error checking user roles:", error.message);

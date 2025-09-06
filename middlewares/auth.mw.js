@@ -12,9 +12,22 @@ module.exports.authenticate = async (req, res, next) => {
     const token = authHeader.substring(7); // Remove 'Bearer '
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // Attach user info to request
+    // Validate tenantId is present in token
+    if (!decoded.tid) {
+      return res.status(401).json({ error: "Invalid token: missing tenantId" });
+    }
+
+    // Set request context with tenant isolation
+    req.ctx = {
+      tenantId: decoded.tid,
+      userId: decoded.sub || decoded.id, // Support both sub and id claims
+      roles: decoded.roles || [],
+      permissions: decoded.permissions || [],
+    };
+
+    // Attach user info to request for backward compatibility
     req.user = decoded;
-    req.userId = decoded.id;
+    req.userId = decoded.sub || decoded.id;
 
     next();
   } catch (error) {
@@ -62,4 +75,22 @@ module.exports.requirePermission = (requiredPermissions) => {
 
     next();
   };
+};
+
+// Tenant enforcement middleware - ensures tenantId is present in req.ctx
+module.exports.requireTenant = (req, res, next) => {
+  if (!req.ctx || !req.ctx.tenantId) {
+    return res.status(401).json({ error: "Tenant context required" });
+  }
+  next();
+};
+
+// Helper function to add tenantId to MongoDB queries
+module.exports.withTenant = (tenantId) => {
+  return { tenantId };
+};
+
+// Helper function to add tenantId to MongoDB aggregation pipelines
+module.exports.addTenantMatch = (tenantId) => {
+  return { $match: { tenantId } };
 };

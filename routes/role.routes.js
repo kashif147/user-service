@@ -3,12 +3,14 @@ const router = express.Router();
 const RoleController = require("../controllers/role.controller");
 const {
   authenticate,
+  requireTenant,
   requireRole,
   requirePermission,
 } = require("../middlewares/auth.mw");
 
-// Apply authentication to all routes
+// Apply authentication and tenant enforcement to all routes
 router.use(authenticate);
+router.use(requireTenant);
 
 // Test endpoint for default role assignment (Super User only)
 router.post(

@@ -4,11 +4,11 @@ const bcrypt = require("bcryptjs");
 const jwtHelper = require("../helpers/jwt");
 const { assignDefaultRole } = require("../helpers/roleAssignment");
 
-module.exports.findUserByEmail = async (email) => {
-  return await User.findOne({ userEmail: email }).exec();
+module.exports.findUserByEmail = async (email, tenantId) => {
+  return await User.findOne({ userEmail: email, tenantId }).exec();
 };
 
-module.exports.handleNewUser = async (email, password) => {
+module.exports.handleNewUser = async (email, password, tenantId, createdBy) => {
   try {
     const hashedPwd = await bcrypt.hash(password, 10);
 
@@ -16,10 +16,12 @@ module.exports.handleNewUser = async (email, password) => {
       userEmail: email,
       password: hashedPwd,
       userType: "CRM",
+      tenantId: tenantId,
+      createdBy: createdBy,
     });
 
     // Assign default role to CRM users
-    await assignDefaultRole(result, "CRM");
+    await assignDefaultRole(result, "CRM", tenantId);
 
     // Use the new JWT helper that includes roles and permissions
     const tokenData = await jwtHelper.generateToken(result);
@@ -29,6 +31,7 @@ module.exports.handleNewUser = async (email, password) => {
         id: result._id,
         email: result.userEmail,
         userType: result.userType,
+        tenantId: result.tenantId,
       },
       token: tokenData.token, // This now includes roles and permissions
     };
@@ -37,8 +40,12 @@ module.exports.handleNewUser = async (email, password) => {
   }
 };
 
-module.exports.handleLogin = async (email, password) => {
-  const foundUser = await User.findOne({ userEmail: email }).exec();
+module.exports.handleLogin = async (email, password, tenantId) => {
+  const foundUser = await User.findOne({ userEmail: email, tenantId }).exec();
+
+  if (!foundUser) {
+    throw new Error("Invalid credentials");
+  }
 
   const match = await bcrypt.compare(password, foundUser.password);
   if (!match) {
@@ -56,6 +63,7 @@ module.exports.handleLogin = async (email, password) => {
       id: foundUser._id,
       email: foundUser.userEmail,
       userType: foundUser.userType,
+      tenantId: foundUser.tenantId,
     },
     token: tokenData.token, // This now includes roles and permissions
   };
