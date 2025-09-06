@@ -1,5 +1,7 @@
 var path = require("path");
-require("dotenv").config();
+require("dotenv").config({
+  path: `.env.${process.env.NODE_ENV || "development"}`,
+});
 
 var createError = require("http-errors");
 var express = require("express");
