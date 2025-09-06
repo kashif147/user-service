@@ -4,11 +4,16 @@ const RoleHandler = require("../handlers/role.handler");
 module.exports.generateToken = async (user) => {
   try {
     // Get user permissions based on their roles
-    const permissions = await RoleHandler.getUserPermissions(user._id);
-    const roles = await RoleHandler.getUserRoles(user._id);
+    const permissions = await RoleHandler.getUserPermissions(
+      user._id,
+      user.tenantId
+    );
+    const roles = await RoleHandler.getUserRoles(user._id, user.tenantId);
 
     const tokenPayload = {
-      id: user._id,
+      sub: user._id, // Standard JWT subject claim
+      tid: user.tenantId, // Tenant ID claim for multi-tenancy
+      id: user._id, // Keep for backward compatibility
       email: user.userEmail,
       userType: user.userType,
       roles: roles.map((role) => ({
@@ -34,7 +39,9 @@ module.exports.generateToken = async (user) => {
         "Bearer " +
         jwt.sign(
           {
-            id: user._id,
+            sub: user._id,
+            tid: user.tenantId,
+            id: user._id, // Keep for backward compatibility
             email: user.userEmail,
             userType: user.userType,
           },

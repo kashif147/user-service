@@ -44,14 +44,18 @@ class MicrosoftAuthHelper {
 
   static decodeIdToken(idToken) {
     console.log("Decoding ID token");
-    const payload = JSON.parse(Buffer.from(idToken.split(".")[1], "base64").toString("utf8"));
+    const payload = JSON.parse(
+      Buffer.from(idToken.split(".")[1], "base64").toString("utf8")
+    );
     console.log("Decoded token payload:", payload);
 
     return {
       userEmail: payload.emails?.[0] || null,
       userFirstName: payload.given_name || null,
       userLastName: payload.family_name || null,
-      userFullName: `${payload.given_name || ""} ${payload.family_name || ""}`.trim(),
+      userFullName: `${payload.given_name || ""} ${
+        payload.family_name || ""
+      }`.trim(),
       userMobilePhone: payload.extension_mobilePhone || null,
       userMemberNumber: payload.extension_MemberNo || null,
       userMicrosoftId: payload.oid || null,
@@ -62,6 +66,11 @@ class MicrosoftAuthHelper {
       userAuthTime: payload.auth_time || null,
       userTokenVersion: payload.ver || null,
       userPolicy: payload.tfp || null,
+      // Normalize tenantId from both B2C (extension_tenantId) and Entra (tid) to consistent name
+      tenantId: payload.extension_tenantId || payload.tid || null,
+      // Keep original claims for reference
+      extension_tenantId: payload.extension_tenantId || null,
+      tid: payload.tid || null,
     };
   }
 
@@ -70,15 +79,25 @@ class MicrosoftAuthHelper {
     console.log("User profile:", profile);
 
     const email = profile.userEmail;
+    const tenantId = profile.tenantId;
+
     if (!email) {
       console.log("Email not found in profile");
       throw new Error("Email not found in Microsoft token");
+    }
+
+    if (!tenantId) {
+      console.log("TenantId not found in profile");
+      throw new Error(
+        "TenantId not found in Microsoft token - B2C must include extension_tenantId or Entra must include tid"
+      );
     }
 
     const update = {
       ...profile,
       userAuthProvider: "microsoft",
       userLastLogin: new Date(),
+      tenantId: tenantId,
       tokens: {
         id_token: tokens.id_token || null,
         refresh_token: tokens.refresh_token || null,
@@ -88,7 +107,11 @@ class MicrosoftAuthHelper {
     };
 
     try {
-      let user = await B2CUser.findOne({ userEmail: email });
+      // Find user by email AND tenantId for strict tenant isolation
+      let user = await B2CUser.findOne({
+        userEmail: email,
+        tenantId: tenantId,
+      });
 
       console.log(user ? "Updating existing user" : "Creating new user");
 
