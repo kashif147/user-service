@@ -1,5 +1,7 @@
 const mongoose = require("mongoose");
-require("dotenv").config();
+require("dotenv").config({
+  path: `.env.${process.env.NODE_ENV || "development"}`,
+});
 
 const User = require("../models/user");
 
@@ -7,7 +9,7 @@ async function removeRolesFromUsers(options = {}) {
   const { dryRun = false, force = false, userType = null } = options;
 
   try {
-    await mongoose.connect(process.env.MONGODB_URI);
+    await mongoose.connect(process.env.MONGO_URI);
     console.log("Connected to MongoDB");
 
     if (dryRun) {

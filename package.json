@@ -5,7 +5,17 @@
   "main": "app.js",
   "scripts": {
     "start": "node ./bin/user-service.js",
-    "dev": "nodemon ./bin/user-service.js"
+    "dev": "nodemon ./bin/user-service.js",
+    "start:staging": "NODE_ENV=staging node ./bin/user-service.js",
+    "dev:staging": "NODE_ENV=staging nodemon ./bin/user-service.js",
+    "setup-rbac": "node scripts/setup-rbac.js",
+    "assign-roles": "node scripts/assign-default-roles-enhanced.js",
+    "assign-roles:dry-run": "node scripts/assign-default-roles-enhanced.js --dry-run",
+    "assign-roles:force": "node scripts/assign-default-roles-enhanced.js --force",
+    "remove-roles": "node scripts/remove-roles.js --dry-run",
+    "remove-roles:force": "node scripts/remove-roles.js --force",
+    "test-roles": "node scripts/test-default-roles.js",
+    "test-reo": "node scripts/test-reo-role.js"
   },
   "repository": {
     "type": "git",

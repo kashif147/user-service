@@ -1,5 +1,7 @@
 const mongoose = require("mongoose");
-require("dotenv").config();
+require("dotenv").config({
+  path: `.env.${process.env.NODE_ENV || "development"}`,
+});
 
 const User = require("../models/user");
 const Role = require("../models/role");
@@ -7,7 +9,7 @@ const { assignDefaultRole } = require("../helpers/roleAssignment");
 
 async function testREORoleAssignment() {
   try {
-    await mongoose.connect(process.env.MONGODB_URI);
+    await mongoose.connect(process.env.MONGO_URI);
     console.log("Connected to MongoDB");
 
     // Test 1: Check if REO role exists
