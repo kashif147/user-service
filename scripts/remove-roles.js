@@ -9,7 +9,12 @@ async function removeRolesFromUsers(options = {}) {
   const { dryRun = false, force = false, userType = null } = options;
 
   try {
-    await mongoose.connect(process.env.MONGO_URI);
+    // Build connection string with environment variables
+    const mongoUri =
+      process.env.MONGO_URI ||
+      `mongodb+srv://${process.env.MONGO_USER}:${process.env.MONGO_PASS}@clusterprojectshell.tptnh8w.mongodb.net/${process.env.MONGO_DB}/?retryWrites=true&w=majority&appName=ClusterProjectShell`;
+
+    await mongoose.connect(mongoUri);
     console.log("Connected to MongoDB");
 
     if (dryRun) {
