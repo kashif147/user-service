@@ -9,7 +9,14 @@ const { assignDefaultRole } = require("../helpers/roleAssignment");
 
 async function testDefaultRoleAssignment() {
   try {
-    await mongoose.connect(process.env.MONGO_URI);
+    // Connection options for better Atlas connectivity
+    const options = {
+      serverSelectionTimeoutMS: 30000,
+      connectTimeoutMS: 30000,
+      socketTimeoutMS: 30000,
+    };
+
+    await mongoose.connect(process.env.MONGO_URI, options);
     console.log("Connected to MongoDB");
 
     // Test 1: Check if roles exist

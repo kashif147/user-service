@@ -7,7 +7,14 @@ const RoleHandler = require("../handlers/role.handler");
 
 async function initializeAndTest() {
   try {
-    await mongoose.connect(process.env.MONGO_URI);
+    // Connection options for better Atlas connectivity
+    const options = {
+      serverSelectionTimeoutMS: 30000,
+      connectTimeoutMS: 30000,
+      socketTimeoutMS: 30000,
+    };
+
+    await mongoose.connect(process.env.MONGO_URI, options);
     console.log("Connected to MongoDB");
 
     // Step 1: Initialize roles
