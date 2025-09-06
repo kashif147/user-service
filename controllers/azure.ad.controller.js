@@ -1,17 +1,15 @@
 const AzureADHandler = require("../handlers/azure.ad.handler");
-const jwt = require("jsonwebtoken");
+const jwtHelper = require("../helpers/jwt");
 
 module.exports.handleAzureADCallback = async (req, res) => {
   try {
     const { code, codeVerifier } = req.body;
 
     if (!code || !codeVerifier) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Authorization code and codeVerifier are required",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Authorization code and codeVerifier are required",
+      });
     }
 
     const { user } = await AzureADHandler.handleAzureADAuth(code, codeVerifier);
@@ -24,27 +22,8 @@ module.exports.handleAzureADCallback = async (req, res) => {
       : null;
     const tokenVersionReadable = user.userTokenVersion || "Azure AD v2";
 
-    const accessToken =
-      "Bearer " +
-      jwt.sign(
-        {
-          user: {
-            id: user._id,
-            userEmail: user.userEmail,
-            userFullName: user.userFullName,
-            userMicrosoftId: user.userMicrosoftId,
-            userMemberNumber: user.userMemberNumber,
-            userMobilePhone: user.userMobilePhone,
-            userPolicy: user.userPolicy,
-            userIssuedAt: issuedAtReadable,
-            userAuthTime: authTimeReadable,
-            tokenVersion: tokenVersionReadable,
-            userType: "CRM",
-          },
-        },
-        process.env.ACCESS_TOKEN_SECRET,
-        { expiresIn: "1y" }
-      );
+    // Use the new JWT helper that includes roles and permissions
+    const tokenData = await jwtHelper.generateToken(user);
 
     const userResponse = {
       id: user._id,
@@ -77,7 +56,7 @@ module.exports.handleAzureADCallback = async (req, res) => {
       success: true,
       message: "Azure AD authentication successful",
       user: userResponse,
-      accessToken,
+      accessToken: tokenData.token, // This now includes roles and permissions
     });
   } catch (error) {
     console.error("Azure AD Auth Error:", error);
