@@ -1,6 +1,8 @@
 const axios = require("axios");
 const B2CUser = require("../models/user");
+const Role = require("../models/role");
 const jwt = require("jsonwebtoken");
+const { assignDefaultRole } = require("../helpers/roleAssignment");
 
 const TENANT_NAME = process.env.MS_TENANT_NAME;
 const POLICY = process.env.MS_POLICY;
@@ -44,14 +46,18 @@ class B2CUsersHandler {
 
   static decodeIdToken(idToken) {
     console.log("Decoding ID token");
-    const payload = JSON.parse(Buffer.from(idToken.split(".")[1], "base64").toString("utf8"));
+    const payload = JSON.parse(
+      Buffer.from(idToken.split(".")[1], "base64").toString("utf8")
+    );
     console.log("Decoded token payload:", payload);
 
     return {
       userEmail: payload.emails?.[0] || null,
       userFirstName: payload.given_name || null,
       userLastName: payload.family_name || null,
-      userFullName: `${payload.given_name || ""} ${payload.family_name || ""}`.trim(),
+      userFullName: `${payload.given_name || ""} ${
+        payload.family_name || ""
+      }`.trim(),
       userMobilePhone: payload.extension_mobilePhone || null,
       userMemberNumber: payload.extension_MemberNo || null,
       userMicrosoftId: payload.oid || null,
@@ -78,6 +84,7 @@ class B2CUsersHandler {
     const update = {
       ...profile,
       userAuthProvider: "microsoft",
+      userType: "PORTAL", // Ensure portal users are marked as PORTAL type
       userLastLogin: new Date(),
       tokens: {
         id_token: tokens.id_token || null,
@@ -96,6 +103,9 @@ class B2CUsersHandler {
         user.set(update);
       } else {
         user = new B2CUser(update);
+
+        // Assign default role to new portal users
+        await assignDefaultRole(user, "PORTAL");
       }
 
       await user.save();

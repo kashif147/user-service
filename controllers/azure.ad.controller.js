@@ -6,13 +6,22 @@ module.exports.handleAzureADCallback = async (req, res) => {
     const { code, codeVerifier } = req.body;
 
     if (!code || !codeVerifier) {
-      return res.status(400).json({ success: false, message: "Authorization code and codeVerifier are required" });
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: "Authorization code and codeVerifier are required",
+        });
     }
 
     const { user } = await AzureADHandler.handleAzureADAuth(code, codeVerifier);
 
-    const issuedAtReadable = user.userIssuedAt ? new Date(user.userIssuedAt * 1000).toISOString() : null;
-    const authTimeReadable = user.userAuthTime ? new Date(user.userAuthTime * 1000).toISOString() : null;
+    const issuedAtReadable = user.userIssuedAt
+      ? new Date(user.userIssuedAt * 1000).toISOString()
+      : null;
+    const authTimeReadable = user.userAuthTime
+      ? new Date(user.userAuthTime * 1000).toISOString()
+      : null;
     const tokenVersionReadable = user.userTokenVersion || "Azure AD v2";
 
     const accessToken =

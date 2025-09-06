@@ -1,6 +1,8 @@
 const axios = require("axios");
 const User = require("../models/user");
+const Role = require("../models/role");
 const jwt = require("jsonwebtoken");
+const { assignDefaultRole } = require("../helpers/roleAssignment");
 
 const TENANT_ID = process.env.AZURE_AD_TENANT_ID;
 const CLIENT_ID = process.env.AZURE_AD_CLIENT_ID;
@@ -27,7 +29,9 @@ class AzureADHandler {
     console.log("== Azure AD Token Exchange Request ==");
     console.log("POST:", TOKEN_ENDPOINT);
     console.log("Data:", data.toString());
-    console.log("Headers:", { "Content-Type": "application/x-www-form-urlencoded" });
+    console.log("Headers:", {
+      "Content-Type": "application/x-www-form-urlencoded",
+    });
     console.log("=======================================");
 
     try {
@@ -41,7 +45,10 @@ class AzureADHandler {
 
       if (error.response) {
         console.error("Azure AD Error Status:", error.response.status);
-        console.error("Azure AD Error Data:", JSON.stringify(error.response.data, null, 2));
+        console.error(
+          "Azure AD Error Data:",
+          JSON.stringify(error.response.data, null, 2)
+        );
       } else {
         console.error("No response from Azure:", error);
       }
@@ -51,13 +58,17 @@ class AzureADHandler {
   }
 
   static decodeIdToken(idToken) {
-    const payload = JSON.parse(Buffer.from(idToken.split(".")[1], "base64").toString("utf8"));
+    const payload = JSON.parse(
+      Buffer.from(idToken.split(".")[1], "base64").toString("utf8")
+    );
 
     return {
       userEmail: payload.email || payload.preferred_username || null,
       userFirstName: payload.given_name || null,
       userLastName: payload.family_name || null,
-      userFullName: `${payload.given_name || ""} ${payload.family_name || ""}`.trim(),
+      userFullName: `${payload.given_name || ""} ${
+        payload.family_name || ""
+      }`.trim(),
       userMobilePhone: payload.phone_number || null,
       userMemberNumber: null,
       userMicrosoftId: payload.oid || payload.sub || null,
@@ -81,7 +92,10 @@ class AzureADHandler {
 
       return response.data;
     } catch (error) {
-      console.error("Failed to fetch user info from Microsoft Graph:", error.message);
+      console.error(
+        "Failed to fetch user info from Microsoft Graph:",
+        error.message
+      );
       return {};
     }
   }
@@ -108,6 +122,9 @@ class AzureADHandler {
       user.set(update);
     } else {
       user = new User(update);
+
+      // Assign default role to new CRM users
+      await assignDefaultRole(user, "CRM");
     }
 
     await user.save();

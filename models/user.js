@@ -20,6 +20,18 @@ const UserSchema = new mongoose.Schema({
   userLastLogin: { type: Date, default: Date.now }, // current timestamp
   password: { type: String },
 
+  // RBAC fields
+  roles: [
+    {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Role",
+    },
+  ],
+  isActive: {
+    type: Boolean,
+    default: true,
+  },
+
   tokens: {
     id_token: { type: String, default: null }, // full ID token from Microsoft
     refresh_token: { type: String, default: null }, // refresh token

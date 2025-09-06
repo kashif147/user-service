@@ -1,6 +1,8 @@
 const User = require("../models/user");
+const Role = require("../models/role");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const { assignDefaultRole } = require("../helpers/roleAssignment");
 
 module.exports.findUserByEmail = async (email) => {
   return await User.findOne({ userEmail: email }).exec();
@@ -15,6 +17,9 @@ module.exports.handleNewUser = async (email, password) => {
       password: hashedPwd,
       userType: "CRM",
     });
+
+    // Assign default role to CRM users
+    await assignDefaultRole(result, "CRM");
 
     const token = jwt.sign(
       {
