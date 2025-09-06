@@ -1,5 +1,5 @@
 const B2CUsersHandler = require("../handlers/b2c.users.handler");
-const jwt = require("jsonwebtoken");
+const jwtHelper = require("../helpers/jwt");
 // const { emitMicrosoftAuthEvent } = require("../rabbitMQ/events/userEvents");
 
 module.exports.handleMicrosoftCallback = async (req, res) => {
@@ -27,27 +27,8 @@ module.exports.handleMicrosoftCallback = async (req, res) => {
         ? "Azure AD B2C v2"
         : user.userTokenVersion;
 
-    const accessToken =
-      "Bearer " +
-      jwt.sign(
-        {
-          user: {
-            id: user._id,
-            userEmail: user.userEmail,
-            userFullName: user.userFullName,
-            userMicrosoftId: user.userMicrosoftId,
-            userMemberNumber: user.userMemberNumber,
-            userMobilePhone: user.userMobilePhone,
-            userPolicy: user.userPolicy,
-            userIssuedAt: issuedAtReadable,
-            userAuthTime: authTimeReadable,
-            tokenVersion: tokenVersionReadable,
-            userType: "PORTAL",
-          },
-        },
-        process.env.ACCESS_TOKEN_SECRET,
-        { expiresIn: "1y" }
-      );
+    // Use the new JWT helper that includes roles and permissions
+    const tokenData = await jwtHelper.generateToken(user);
 
     const userResponse = {
       id: user._id,
@@ -80,7 +61,7 @@ module.exports.handleMicrosoftCallback = async (req, res) => {
       success: true,
       message: "Microsoft authentication successful",
       user: userResponse,
-      accessToken,
+      accessToken: tokenData.token, // This now includes roles and permissions
     });
   } catch (error) {
     console.error("Microsoft Auth Error:", error);

@@ -1,7 +1,7 @@
 const User = require("../models/user");
 const Role = require("../models/role");
 const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
+const jwtHelper = require("../helpers/jwt");
 const { assignDefaultRole } = require("../helpers/roleAssignment");
 
 module.exports.findUserByEmail = async (email) => {
@@ -21,25 +21,16 @@ module.exports.handleNewUser = async (email, password) => {
     // Assign default role to CRM users
     await assignDefaultRole(result, "CRM");
 
-    const token = jwt.sign(
-      {
-        user: {
-          id: result._id,
-          email: result.userEmail,
-          userType: "CRM",
-        },
-      },
-      process.env.ACCESS_TOKEN_SECRET,
-      { expiresIn: "1d" }
-    );
+    // Use the new JWT helper that includes roles and permissions
+    const tokenData = await jwtHelper.generateToken(result);
 
     return {
       user: {
         id: result._id,
         email: result.userEmail,
-        userType: "CRM",
+        userType: result.userType,
       },
-      token: `Bearer ${token}`,
+      token: tokenData.token, // This now includes roles and permissions
     };
   } catch (error) {
     throw new Error(`Error creating user: ${error.message}`);
@@ -54,17 +45,8 @@ module.exports.handleLogin = async (email, password) => {
     throw new Error("Invalid credentials");
   }
 
-  const accessToken = jwt.sign(
-    {
-      user: {
-        id: foundUser._id,
-        email: foundUser.userEmail,
-        userType: "CRM",
-      },
-    },
-    process.env.ACCESS_TOKEN_SECRET,
-    { expiresIn: "1d" }
-  );
+  // Use the new JWT helper that includes roles and permissions
+  const tokenData = await jwtHelper.generateToken(foundUser);
 
   foundUser.userLastLogin = new Date();
   await foundUser.save();
@@ -73,8 +55,8 @@ module.exports.handleLogin = async (email, password) => {
     user: {
       id: foundUser._id,
       email: foundUser.userEmail,
-      userType: "CRM",
+      userType: foundUser.userType,
     },
-    token: `Bearer ${accessToken}`,
+    token: tokenData.token, // This now includes roles and permissions
   };
 };
