@@ -1,12 +1,31 @@
 const jwt = require("jsonwebtoken");
 const User = require("../models/user");
+const { AppError } = require("../errors/AppError");
+const {
+  ROLE_HIERARCHY,
+  getHighestRoleLevel,
+  hasMinimumRole,
+  isSuperUser,
+} = require("../config/roleHierarchy");
 
 module.exports.authenticate = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return res.status(401).json({ error: "Access token required" });
+      const authError = AppError.badRequest("Authorization header required", {
+        tokenError: true,
+        missingHeader: true,
+      });
+      return res.status(authError.status).json({
+        error: {
+          message: authError.message,
+          code: authError.code,
+          status: authError.status,
+          tokenError: authError.tokenError,
+          missingHeader: authError.missingHeader,
+        },
+      });
     }
 
     const token = authHeader.substring(7); // Remove 'Bearer '
@@ -14,7 +33,19 @@ module.exports.authenticate = async (req, res, next) => {
 
     // Validate tenantId is present in token
     if (!decoded.tid) {
-      return res.status(401).json({ error: "Invalid token: missing tenantId" });
+      const authError = AppError.badRequest("Invalid token: missing tenantId", {
+        tokenError: true,
+        missingTenantId: true,
+      });
+      return res.status(authError.status).json({
+        error: {
+          message: authError.message,
+          code: authError.code,
+          status: authError.status,
+          tokenError: authError.tokenError,
+          missingTenantId: authError.missingTenantId,
+        },
+      });
     }
 
     // Set request context with tenant isolation
@@ -28,26 +59,82 @@ module.exports.authenticate = async (req, res, next) => {
     // Attach user info to request for backward compatibility
     req.user = decoded;
     req.userId = decoded.sub || decoded.id;
+    req.tenantId = decoded.tid;
+    req.roles = decoded.roles || [];
+    req.permissions = decoded.permissions || [];
 
     next();
   } catch (error) {
-    return res.status(401).json({ error: "Invalid token" });
+    console.error("JWT Verification Error:", error.message);
+    const authError = AppError.badRequest("Invalid token", {
+      tokenError: true,
+      jwtError: error.message,
+    });
+    return res.status(authError.status).json({
+      error: {
+        message: authError.message,
+        code: authError.code,
+        status: authError.status,
+        tokenError: authError.tokenError,
+        jwtError: authError.jwtError,
+      },
+    });
   }
 };
 
+// Helper function to check if user has any of the specified roles
+function hasAnyRole(userRoles, requiredRoles) {
+  if (!userRoles || !Array.isArray(userRoles)) return false;
+  return requiredRoles.some((role) => userRoles.includes(role));
+}
+
+// Helper function to check if user has specific role
+function hasRole(userRoles, requiredRole) {
+  if (!userRoles || !Array.isArray(userRoles)) return false;
+  return userRoles.includes(requiredRole);
+}
+
 module.exports.requireRole = (requiredRoles) => {
   return (req, res, next) => {
-    if (!req.user) {
-      return res.status(401).json({ error: "Authentication required" });
+    if (!req.ctx || !req.ctx.roles) {
+      const authError = AppError.badRequest("Authentication required", {
+        authError: true,
+        missingRoles: true,
+      });
+      return res.status(authError.status).json({
+        error: {
+          message: authError.message,
+          code: authError.code,
+          status: authError.status,
+          authError: authError.authError,
+          missingRoles: authError.missingRoles,
+        },
+      });
     }
 
-    const userRoles = req.user.roles.map((role) => role.code);
-    const hasRequiredRole = requiredRoles.some((role) =>
-      userRoles.includes(role)
-    );
+    // Super User has access to everything
+    if (isSuperUser(req.ctx.roles)) {
+      return next();
+    }
+
+    const hasRequiredRole = hasAnyRole(req.ctx.roles, requiredRoles);
 
     if (!hasRequiredRole) {
-      return res.status(403).json({ error: "Insufficient permissions" });
+      const forbiddenError = AppError.badRequest("Insufficient permissions", {
+        forbidden: true,
+        userRoles: req.ctx.roles,
+        requiredRoles: requiredRoles,
+      });
+      return res.status(forbiddenError.status).json({
+        error: {
+          message: forbiddenError.message,
+          code: forbiddenError.code,
+          status: forbiddenError.status,
+          forbidden: forbiddenError.forbidden,
+          userRoles: forbiddenError.userRoles,
+          requiredRoles: forbiddenError.requiredRoles,
+        },
+      });
     }
 
     next();
@@ -56,31 +143,117 @@ module.exports.requireRole = (requiredRoles) => {
 
 module.exports.requirePermission = (requiredPermissions) => {
   return (req, res, next) => {
-    if (!req.user) {
-      return res.status(401).json({ error: "Authentication required" });
+    if (!req.ctx || !req.ctx.permissions) {
+      const authError = AppError.badRequest("Authentication required", {
+        authError: true,
+        missingPermissions: true,
+      });
+      return res.status(authError.status).json({
+        error: {
+          message: authError.message,
+          code: authError.code,
+          status: authError.status,
+          authError: authError.authError,
+          missingPermissions: authError.missingPermissions,
+        },
+      });
     }
 
     // Super User has all permissions
-    if (req.user.permissions.includes("*")) {
+    if (isSuperUser(req.ctx.roles)) {
       return next();
     }
 
-    const hasRequiredPermission = requiredPermissions.some((permission) =>
-      req.user.permissions.includes(permission)
+    const hasRequiredPermission = requiredPermissions.some(
+      (permission) =>
+        req.ctx.permissions.includes(permission) ||
+        req.ctx.permissions.includes("*")
     );
 
     if (!hasRequiredPermission) {
-      return res.status(403).json({ error: "Insufficient permissions" });
+      const forbiddenError = AppError.badRequest("Insufficient permissions", {
+        forbidden: true,
+        userPermissions: req.ctx.permissions,
+        requiredPermissions: requiredPermissions,
+      });
+      return res.status(forbiddenError.status).json({
+        error: {
+          message: forbiddenError.message,
+          code: forbiddenError.code,
+          status: forbiddenError.status,
+          forbidden: forbiddenError.forbidden,
+          userPermissions: forbiddenError.userPermissions,
+          requiredPermissions: forbiddenError.requiredPermissions,
+        },
+      });
     }
 
     next();
   };
 };
 
+// Middleware to require minimum role level
+module.exports.requireMinRole = (minRole) => {
+  return (req, res, next) => {
+    if (!req.ctx || !req.ctx.roles) {
+      const authError = AppError.badRequest("Authentication required", {
+        authError: true,
+        missingRoles: true,
+      });
+      return res.status(authError.status).json({
+        error: {
+          message: authError.message,
+          code: authError.code,
+          status: authError.status,
+          authError: authError.authError,
+          missingRoles: authError.missingRoles,
+        },
+      });
+    }
+
+    // Super User has access to everything
+    if (isSuperUser(req.ctx.roles)) {
+      return next();
+    }
+
+    if (hasMinimumRole(req.ctx.roles, minRole)) {
+      return next();
+    }
+
+    const forbiddenError = AppError.badRequest("Insufficient permissions", {
+      forbidden: true,
+      userRoles: req.ctx.roles,
+      minimumRole: minRole,
+    });
+    return res.status(forbiddenError.status).json({
+      error: {
+        message: forbiddenError.message,
+        code: forbiddenError.code,
+        status: forbiddenError.status,
+        forbidden: forbiddenError.forbidden,
+        userRoles: forbiddenError.userRoles,
+        minimumRole: forbiddenError.minimumRole,
+      },
+    });
+  };
+};
+
 // Tenant enforcement middleware - ensures tenantId is present in req.ctx
 module.exports.requireTenant = (req, res, next) => {
   if (!req.ctx || !req.ctx.tenantId) {
-    return res.status(401).json({ error: "Tenant context required" });
+    const authError = AppError.badRequest("Tenant context required", {
+      authError: true,
+      missingTenant: true,
+    });
+    return res.status(authError.status).json({
+      error: {
+        message: authError.message,
+        code: authError.code,
+        status: authError.status,
+        authError: authError.authError,
+        missingTenant: authError.missingTenant,
+      },
+    });
   }
   next();
 };
@@ -94,3 +267,10 @@ module.exports.withTenant = (tenantId) => {
 module.exports.addTenantMatch = (tenantId) => {
   return { $match: { tenantId } };
 };
+
+// Utility functions
+module.exports.hasRole = hasRole;
+module.exports.hasAnyRole = hasAnyRole;
+module.exports.isSuperUser = isSuperUser;
+module.exports.getUserRoleLevel = getHighestRoleLevel;
+module.exports.hasMinRole = hasMinimumRole;

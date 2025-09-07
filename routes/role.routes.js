@@ -7,6 +7,7 @@ const {
   requireRole,
   requirePermission,
 } = require("../middlewares/auth.mw");
+const PERMISSIONS = require("@membership/shared-constants/permissions");
 
 // Apply authentication and tenant enforcement to all routes
 router.use(authenticate);
@@ -30,12 +31,12 @@ router.post(
 router.post("/roles", requireRole(["SU"]), RoleController.createRole);
 router.get(
   "/roles",
-  requirePermission(["read:roles"]),
+  requirePermission([PERMISSIONS.ROLE.READ]),
   RoleController.getAllRoles
 );
 router.get(
   "/roles/:id",
-  requirePermission(["read:roles"]),
+  requirePermission([PERMISSIONS.ROLE.READ]),
   RoleController.getRoleById
 );
 router.put("/roles/:id", requireRole(["SU"]), RoleController.updateRole);
@@ -63,29 +64,29 @@ router.post(
 // User information endpoints
 router.get(
   "/users/:userId/roles",
-  requirePermission(["read:users"]),
+  requirePermission([PERMISSIONS.USER.READ]),
   RoleController.getUserRoles
 );
 router.get(
   "/users/:userId/permissions",
-  requirePermission(["read:users"]),
+  requirePermission([PERMISSIONS.USER.READ]),
   RoleController.getUserPermissions
 );
 router.get(
   "/users/:userId/has-role/:roleCode",
-  requirePermission(["read:users"]),
+  requirePermission([PERMISSIONS.USER.READ]),
   RoleController.hasRole
 );
 router.get(
   "/users",
-  requirePermission(["read:users"]),
+  requirePermission([PERMISSIONS.USER.READ]),
   RoleController.getAllUsers
 );
 
 // Get users by role
 router.get(
   "/roles/:roleId/users",
-  requirePermission(["read:users"]),
+  requirePermission([PERMISSIONS.USER.READ]),
   RoleController.getUsersByRole
 );
 
