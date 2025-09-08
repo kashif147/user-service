@@ -1,6 +1,46 @@
 const AzureADHandler = require("../handlers/azure.ad.handler");
 const jwtHelper = require("../helpers/jwt");
 
+// Handle GET request from Azure redirect
+module.exports.handleAzureADRedirect = async (req, res) => {
+  try {
+    const { code, state, error } = req.query;
+
+    if (error) {
+      return res.status(400).json({
+        success: false,
+        message: "Azure AD authentication error",
+        error: error,
+      });
+    }
+
+    if (!code) {
+      return res.status(400).json({
+        success: false,
+        message: "Authorization code is required",
+      });
+    }
+
+    // For GET requests, we need to get the codeVerifier from session or return an error
+    // Since PKCE requires the codeVerifier, we'll return an error asking for POST request
+    return res.status(400).json({
+      success: false,
+      message: "Please use POST request with codeVerifier",
+      code: code,
+      state: state,
+      instructions:
+        "Send POST request to /auth/azure-crm with both 'code' and 'codeVerifier' in request body",
+    });
+  } catch (error) {
+    console.error("Azure AD Redirect Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Authentication failed",
+      error: error.message,
+    });
+  }
+};
+
 module.exports.handleAzureADCallback = async (req, res) => {
   try {
     const { code, codeVerifier } = req.body;
