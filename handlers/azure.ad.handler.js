@@ -103,58 +103,101 @@ class AzureADHandler {
   }
 
   static async findOrCreateUser(profile, tokens) {
-    const email = profile.userEmail;
-    const tenantId = profile.tenantId;
-    
-    if (!email) throw new Error("Email not found in Azure AD token");
-    if (!tenantId) throw new Error("Tenant ID not found in Azure AD token");
+    try {
+      console.log("=== findOrCreateUser: Starting ===");
+      const email = profile.userEmail;
+      const tenantId = profile.tenantId;
 
-    const update = {
-      ...profile,
-      userAuthProvider: "azure-ad",
-      userType: "CRM",
-      userLastLogin: new Date(),
-      tenantId: tenantId,
-      tokens: {
-        id_token: tokens.id_token || null,
-        refresh_token: tokens.refresh_token || null,
-        id_token_expires_in: tokens.expires_in || null,
-        refresh_token_expires_in: tokens.refresh_token_expires_in || null,
-      },
-    };
+      console.log("Email:", email);
+      console.log("TenantId:", tenantId);
 
-    // Find user by email AND tenantId for strict tenant isolation
-    let user = await User.findOne({ userEmail: email, tenantId: tenantId });
-    if (user) {
-      user.set(update);
-    } else {
-      user = new User(update);
+      if (!email) throw new Error("Email not found in Azure AD token");
+      if (!tenantId) throw new Error("Tenant ID not found in Azure AD token");
 
-      // Assign default role to new CRM users with tenantId
-      await assignDefaultRole(user, "CRM", tenantId);
+      const update = {
+        ...profile,
+        userAuthProvider: "azure-ad",
+        userType: "CRM",
+        userLastLogin: new Date(),
+        tenantId: tenantId,
+        tokens: {
+          id_token: tokens.id_token || null,
+          refresh_token: tokens.refresh_token || null,
+          id_token_expires_in: tokens.expires_in || null,
+          refresh_token_expires_in: tokens.refresh_token_expires_in || null,
+        },
+      };
+
+      console.log("Searching for existing user...");
+      // Find user by email AND tenantId for strict tenant isolation
+      let user = await User.findOne({ userEmail: email, tenantId: tenantId });
+
+      if (user) {
+        console.log("Found existing user, updating...");
+        user.set(update);
+      } else {
+        console.log("Creating new user...");
+        user = new User(update);
+
+        console.log("Assigning default role to new CRM user...");
+        // Assign default role to new CRM users with tenantId
+        await assignDefaultRole(user, "CRM", tenantId);
+      }
+
+      console.log("Saving user to database...");
+      await user.save();
+      console.log("User saved successfully, ID:", user._id);
+
+      return user;
+    } catch (error) {
+      console.error("=== findOrCreateUser Error ===");
+      console.error("Error in findOrCreateUser:", error.message);
+      console.error("Error stack:", error.stack);
+      throw error;
     }
-
-    await user.save();
-    return user;
   }
 
   static async handleAzureADAuth(code, codeVerifier) {
-    const tokens = await this.exchangeCodeForTokens(code, codeVerifier);
-    const baseProfile = this.decodeIdToken(tokens.id_token);
-    const graphProfile = await this.getUserInfoFromGraph(tokens.access_token);
+    try {
+      console.log("=== Azure AD Handler: Starting Authentication ===");
+      console.log("Code present:", !!code);
+      console.log("CodeVerifier present:", !!codeVerifier);
 
-    const combinedProfile = {
-      ...baseProfile,
-      userDisplayName: graphProfile.displayName || baseProfile.userFullName,
-      userJobTitle: graphProfile.jobTitle || null,
-      userDepartment: graphProfile.department || null,
-      userOfficeLocation: graphProfile.officeLocation || null,
-      userMobilePhone: graphProfile.mobilePhone || baseProfile.userMobilePhone,
-      userPrincipalName: graphProfile.userPrincipalName || null,
-    };
+      console.log("Step 1: Exchanging code for tokens...");
+      const tokens = await this.exchangeCodeForTokens(code, codeVerifier);
+      console.log("Token exchange successful");
 
-    const user = await this.findOrCreateUser(combinedProfile, tokens);
-    return { user, tokens };
+      console.log("Step 2: Decoding ID token...");
+      const baseProfile = this.decodeIdToken(tokens.id_token);
+      console.log("ID token decoded, email:", baseProfile.userEmail);
+
+      console.log("Step 3: Fetching user info from Graph API...");
+      const graphProfile = await this.getUserInfoFromGraph(tokens.access_token);
+      console.log("Graph API call completed");
+
+      const combinedProfile = {
+        ...baseProfile,
+        userDisplayName: graphProfile.displayName || baseProfile.userFullName,
+        userJobTitle: graphProfile.jobTitle || null,
+        userDepartment: graphProfile.department || null,
+        userOfficeLocation: graphProfile.officeLocation || null,
+        userMobilePhone:
+          graphProfile.mobilePhone || baseProfile.userMobilePhone,
+        userPrincipalName: graphProfile.userPrincipalName || null,
+      };
+
+      console.log("Step 4: Finding or creating user...");
+      const user = await this.findOrCreateUser(combinedProfile, tokens);
+      console.log("User processed successfully, ID:", user._id);
+
+      console.log("=== Azure AD Handler: Authentication Completed ===");
+      return { user, tokens };
+    } catch (error) {
+      console.error("=== Azure AD Handler Error ===");
+      console.error("Error in handleAzureADAuth:", error.message);
+      console.error("Error stack:", error.stack);
+      throw error;
+    }
   }
 }
 
