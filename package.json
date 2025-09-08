@@ -15,7 +15,10 @@
     "remove-roles": "node scripts/remove-roles.js --dry-run",
     "remove-roles:force": "node scripts/remove-roles.js --force",
     "test-roles": "node scripts/test-default-roles.js",
-    "test-reo": "node scripts/test-reo-role.js"
+    "test-reo": "node scripts/test-reo-role.js",
+    "test-auth": "node scripts/test-auth.js",
+    "test-auth-quick": "node scripts/quick-auth-test.js",
+    "generate-pkce": "node scripts/generate-pkce.js"
   },
   "repository": {
     "type": "git",
