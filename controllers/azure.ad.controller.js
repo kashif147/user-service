@@ -43,16 +43,22 @@ module.exports.handleAzureADRedirect = async (req, res) => {
 
 module.exports.handleAzureADCallback = async (req, res) => {
   try {
+    console.log("=== Azure AD Callback Started ===");
+    console.log("Request body:", JSON.stringify(req.body, null, 2));
+
     const { code, codeVerifier } = req.body;
 
     if (!code || !codeVerifier) {
+      console.log("Missing code or codeVerifier");
       return res.status(400).json({
         success: false,
         message: "Authorization code and codeVerifier are required",
       });
     }
 
+    console.log("Starting Azure AD authentication...");
     const { user } = await AzureADHandler.handleAzureADAuth(code, codeVerifier);
+    console.log("Azure AD authentication successful, user ID:", user._id);
 
     const issuedAtReadable = user.userIssuedAt
       ? new Date(user.userIssuedAt * 1000).toISOString()
@@ -62,8 +68,10 @@ module.exports.handleAzureADCallback = async (req, res) => {
       : null;
     const tokenVersionReadable = user.userTokenVersion || "Azure AD v2";
 
+    console.log("Generating JWT token...");
     // Use the new JWT helper that includes roles and permissions
     const tokenData = await jwtHelper.generateToken(user);
+    console.log("JWT token generated successfully");
 
     const userResponse = {
       id: user._id,
@@ -92,6 +100,7 @@ module.exports.handleAzureADCallback = async (req, res) => {
       },
     };
 
+    console.log("=== Azure AD Callback Completed Successfully ===");
     return res.status(200).json({
       success: true,
       message: "Azure AD authentication successful",
@@ -99,7 +108,10 @@ module.exports.handleAzureADCallback = async (req, res) => {
       accessToken: tokenData.token, // This now includes roles and permissions
     });
   } catch (error) {
-    console.error("Azure AD Auth Error:", error);
+    console.error("=== Azure AD Auth Error ===");
+    console.error("Error message:", error.message);
+    console.error("Error stack:", error.stack);
+    console.error("Error details:", error);
     return res.status(500).json({
       success: false,
       message: "Authentication failed",
