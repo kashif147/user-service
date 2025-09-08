@@ -139,9 +139,9 @@ class AzureADHandler {
         console.log("Creating new user...");
         user = new User(update);
 
-        console.log("Assigning default role to new CRM user...");
-        // Assign default role to new CRM users with tenantId
-        await assignDefaultRole(user, "CRM", tenantId);
+        console.log("Skipping role assignment for debugging...");
+        // Temporarily bypass role assignment to test token generation
+        // await assignDefaultRole(user, "CRM", tenantId);
       }
 
       console.log("Saving user to database...");
