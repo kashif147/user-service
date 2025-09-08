@@ -146,3 +146,94 @@ module.exports.validateInternalJWT = async (req, res) => {
     });
   }
 };
+
+/**
+ * External service token validation endpoint
+ * Simplified endpoint for other services to validate tokens
+ */
+module.exports.validateTokenForService = async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({
+        success: false,
+        error: "Bearer token required",
+        code: "MISSING_TOKEN",
+      });
+    }
+
+    const token = authHeader.substring(7);
+
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+      // Return minimal user context for external services
+      res.json({
+        success: true,
+        valid: true,
+        user: {
+          id: decoded.sub || decoded.id,
+          tenantId: decoded.tid,
+          email: decoded.email,
+          userType: decoded.userType,
+          roles: decoded.roles || [],
+          permissions: decoded.permissions || [],
+        },
+        expiresAt: new Date(decoded.exp * 1000).toISOString(),
+      });
+    } catch (jwtError) {
+      res.status(401).json({
+        success: false,
+        valid: false,
+        error: "Invalid or expired token",
+        code: "INVALID_TOKEN",
+      });
+    }
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: "Internal server error",
+      code: "SERVER_ERROR",
+    });
+  }
+};
+
+/**
+ * Generate test token for development/testing
+ */
+module.exports.generateTestToken = async (req, res) => {
+  try {
+    const {
+      userId = "test-user",
+      tenantId = "test-tenant",
+      email = "test@example.com",
+    } = req.body;
+
+    const testPayload = {
+      sub: userId,
+      tid: tenantId,
+      id: userId,
+      email: email,
+      userType: "member",
+      roles: [{ id: "role1", code: "MEMBER", name: "Member" }],
+      permissions: ["read:profile", "update:profile"],
+    };
+
+    const token = jwt.sign(testPayload, process.env.JWT_SECRET, {
+      expiresIn: "24h",
+    });
+
+    res.json({
+      success: true,
+      token: `Bearer ${token}`,
+      payload: testPayload,
+      expiresIn: "24h",
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+};

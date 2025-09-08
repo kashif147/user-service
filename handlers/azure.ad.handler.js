@@ -79,6 +79,8 @@ class AzureADHandler {
       userAuthTime: payload.auth_time || null,
       userTokenVersion: payload.ver || "2.0",
       userPolicy: null,
+      // Extract tenant ID for proper tenant isolation
+      tenantId: payload.tid || null,
     };
   }
 
@@ -102,13 +104,17 @@ class AzureADHandler {
 
   static async findOrCreateUser(profile, tokens) {
     const email = profile.userEmail;
+    const tenantId = profile.tenantId;
+    
     if (!email) throw new Error("Email not found in Azure AD token");
+    if (!tenantId) throw new Error("Tenant ID not found in Azure AD token");
 
     const update = {
       ...profile,
       userAuthProvider: "azure-ad",
       userType: "CRM",
       userLastLogin: new Date(),
+      tenantId: tenantId,
       tokens: {
         id_token: tokens.id_token || null,
         refresh_token: tokens.refresh_token || null,
@@ -117,14 +123,15 @@ class AzureADHandler {
       },
     };
 
-    let user = await User.findOne({ userEmail: email });
+    // Find user by email AND tenantId for strict tenant isolation
+    let user = await User.findOne({ userEmail: email, tenantId: tenantId });
     if (user) {
       user.set(update);
     } else {
       user = new User(update);
 
-      // Assign default role to new CRM users
-      await assignDefaultRole(user, "CRM");
+      // Assign default role to new CRM users with tenantId
+      await assignDefaultRole(user, "CRM", tenantId);
     }
 
     await user.save();

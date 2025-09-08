@@ -104,8 +104,8 @@ class B2CUsersHandler {
       } else {
         user = new B2CUser(update);
 
-        // Assign default role to new portal users
-        await assignDefaultRole(user, "PORTAL");
+        // Assign default role to new portal users with tenantId
+        await assignDefaultRole(user, "PORTAL", tenantId);
       }
 
       await user.save();
