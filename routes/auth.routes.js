@@ -4,8 +4,14 @@ const b2cUsersController = require("../controllers/b2c.users.controller");
 const azureADController = require("../controllers/azure.ad.controller");
 const userController = require("../controllers/user.controller");
 
-router.post("/azure-portal", b2cUsersController.handleMicrosoftCallback);
+// Azure AD routes - handle both GET (redirect) and POST (callback)
+router.get("/azure-crm", azureADController.handleAzureADRedirect);
 router.post("/azure-crm", azureADController.handleAzureADCallback);
+
+// Azure B2C routes - handle both GET (redirect) and POST (callback)
+router.get("/azure-portal", b2cUsersController.handleMicrosoftRedirect);
+router.post("/azure-portal", b2cUsersController.handleMicrosoftCallback);
+
 router.post("/general-crm/register", userController.handleRegistration);
 router.post("/general-crm/login", userController.handleLogin);
 

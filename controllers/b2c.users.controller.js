@@ -2,6 +2,46 @@ const B2CUsersHandler = require("../handlers/b2c.users.handler");
 const jwtHelper = require("../helpers/jwt");
 // const { emitMicrosoftAuthEvent } = require("../rabbitMQ/events/userEvents");
 
+// Handle GET request from Azure B2C redirect
+module.exports.handleMicrosoftRedirect = async (req, res) => {
+  try {
+    const { code, state, error } = req.query;
+
+    if (error) {
+      return res.status(400).json({
+        success: false,
+        message: "Azure B2C authentication error",
+        error: error,
+      });
+    }
+
+    if (!code) {
+      return res.status(400).json({
+        success: false,
+        message: "Authorization code is required",
+      });
+    }
+
+    // For GET requests, we need to get the codeVerifier from session or return an error
+    // Since PKCE requires the codeVerifier, we'll return an error asking for POST request
+    return res.status(400).json({
+      success: false,
+      message: "Please use POST request with codeVerifier",
+      code: code,
+      state: state,
+      instructions:
+        "Send POST request to /auth/azure-portal with both 'code' and 'codeVerifier' in request body",
+    });
+  } catch (error) {
+    console.error("Azure B2C Redirect Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Authentication failed",
+      error: error.message,
+    });
+  }
+};
+
 module.exports.handleMicrosoftCallback = async (req, res) => {
   try {
     const { code, codeVerifier } = req.body;
