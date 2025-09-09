@@ -104,12 +104,8 @@ class AzureADHandler {
 
   static async findOrCreateUser(profile, tokens) {
     try {
-      console.log("=== findOrCreateUser: Starting ===");
       const email = profile.userEmail;
       const tenantId = profile.tenantId;
-
-      console.log("Email:", email);
-      console.log("TenantId:", tenantId);
 
       if (!email) throw new Error("Email not found in Azure AD token");
       if (!tenantId) throw new Error("Tenant ID not found in Azure AD token");
@@ -128,31 +124,26 @@ class AzureADHandler {
         },
       };
 
-      console.log("Searching for existing user...");
       // Find user by email AND tenantId for strict tenant isolation
       let user = await User.findOne({ userEmail: email, tenantId: tenantId });
 
       if (user) {
-        console.log("Found existing user, updating...");
+        console.log(`Updating existing CRM user: ${email}`);
         user.set(update);
       } else {
-        console.log("Creating new user...");
+        console.log(`Creating new CRM user: ${email}`);
         user = new User(update);
 
-        console.log("Skipping role assignment for debugging...");
-        // Temporarily bypass role assignment to test token generation
-        // await assignDefaultRole(user, "CRM", tenantId);
+        // Assign default role to new CRM users with tenantId
+        await assignDefaultRole(user, "CRM", tenantId);
       }
 
-      console.log("Saving user to database...");
       await user.save();
-      console.log("User saved successfully, ID:", user._id);
+      console.log(`User processed successfully: ${email}`);
 
       return user;
     } catch (error) {
-      console.error("=== findOrCreateUser Error ===");
       console.error("Error in findOrCreateUser:", error.message);
-      console.error("Error stack:", error.stack);
       throw error;
     }
   }
