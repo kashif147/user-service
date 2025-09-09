@@ -152,6 +152,9 @@
 
           if (data.success) {
             pkceData = data;
+            // Store PKCE data in localStorage for persistence across redirects
+            localStorage.setItem("pkceData", JSON.stringify(data));
+
             document.getElementById("pkceResult").style.display = "block";
             document.getElementById("pkceResult").textContent =
               `Code Verifier: ${data.codeVerifier.substring(0, 20)}...\n` +
@@ -234,6 +237,9 @@
               `Roles: ${data.user.roles ? data.user.roles.length : 0} assigned`;
 
             document.getElementById("validateBtn").disabled = false;
+
+            // Clear PKCE data from localStorage after successful authentication
+            localStorage.removeItem("pkceData");
           } else {
             document.getElementById("completeResult").className =
               "result error";
@@ -300,6 +306,59 @@
       // Initialize page
       window.onload = function () {
         loadConfig();
+
+        // Restore PKCE data from localStorage if available
+        const storedPkceData = localStorage.getItem("pkceData");
+        if (storedPkceData) {
+          try {
+            pkceData = JSON.parse(storedPkceData);
+            console.log("Restored PKCE data from localStorage");
+
+            // Show PKCE info
+            document.getElementById("pkceResult").style.display = "block";
+            document.getElementById("pkceResult").textContent =
+              `Code Verifier: ${pkceData.codeVerifier.substring(0, 20)}...\n` +
+              `Code Challenge: ${pkceData.codeChallenge.substring(
+                0,
+                20
+              )}...\n` +
+              `State: ${pkceData.state}\n` +
+              `B2C Auth URL: ${pkceData.authorizationUrls.azureB2C}`;
+
+            document.getElementById("authBtn").disabled = false;
+          } catch (error) {
+            console.error("Failed to restore PKCE data:", error);
+            localStorage.removeItem("pkceData");
+          }
+        }
+
+        // Check if we have a code in the URL (from Azure B2C redirect)
+        const urlParams = new URLSearchParams(window.location.search);
+        const code = urlParams.get("code");
+        const state = urlParams.get("state");
+
+        if (code) {
+          console.log(
+            "Authorization code received from URL:",
+            code.substring(0, 50) + "..."
+          );
+          document.getElementById("authCode").value = code;
+
+          // Enable complete button if we have both code and PKCE data
+          if (pkceData) {
+            document.getElementById("completeBtn").disabled = false;
+          }
+
+          // Show success message
+          document.getElementById("completeResult").style.display = "block";
+          document.getElementById("completeResult").className =
+            "result success";
+          document.getElementById("completeResult").textContent =
+            `✅ Authorization code received!\n\n` +
+            `Code: ${code.substring(0, 50)}...\n` +
+            `State: ${state}\n\n` +
+            `Click "Complete Authentication" to finish the process.`;
+        }
       };
     </script>
   </body>
