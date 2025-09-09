@@ -13,8 +13,15 @@ const TOKEN_ENDPOINT = `https://${TENANT_NAME}.b2clogin.com/${TENANT_NAME}.onmic
 
 class B2CUsersHandler {
   static async exchangeCodeForTokens(code, codeVerifier) {
-    // console.log("Starting token exchange with Microsoft");
-    // console.log("Code received:", code ? "Present" : "Missing");
+    console.log("=== Token Exchange Debug ===");
+    console.log("Token Endpoint:", TOKEN_ENDPOINT);
+    console.log("Client ID:", CLIENT_ID);
+    console.log("Redirect URI:", REDIRECT_URI);
+    console.log("Code (first 50 chars):", code.substring(0, 50) + "...");
+    console.log(
+      "Code Verifier (first 20 chars):",
+      codeVerifier.substring(0, 20) + "..."
+    );
 
     const data = new URLSearchParams({
       grant_type: "authorization_code",
@@ -22,15 +29,19 @@ class B2CUsersHandler {
       code,
       redirect_uri: REDIRECT_URI,
       code_verifier: codeVerifier,
-      scope: "openid profile offline_access",
+      scope: "openid offline_access",
     });
 
+    console.log("Request data:", data.toString());
+
     try {
+      console.log("🔄 Sending token exchange request...");
       const response = await axios.post(TOKEN_ENDPOINT, data.toString(), {
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
       });
 
-      console.log("Token exchange successful");
+      console.log("✅ Token exchange successful");
+      console.log("Response status:", response.status);
       console.log("Tokens received:", {
         id_token: response.data.id_token ? "Present" : "Missing",
         refresh_token: response.data.refresh_token ? "Present" : "Missing",
@@ -38,8 +49,10 @@ class B2CUsersHandler {
 
       return response.data;
     } catch (error) {
-      console.log("Token exchange failed:", error.message);
+      console.log("❌ Token exchange failed:", error.message);
+      console.log("Error status:", error.response?.status);
       console.log("Error details:", error.response?.data);
+      console.log("Full error:", error);
       throw error;
     }
   }
@@ -50,6 +63,11 @@ class B2CUsersHandler {
       Buffer.from(idToken.split(".")[1], "base64").toString("utf8")
     );
     console.log("Decoded token payload:", payload);
+    console.log("Available tenant ID fields:", {
+      tenantId: payload.tenantId,
+      extension_tenantId: payload.extension_tenantId,
+      tid: payload.tid,
+    });
 
     return {
       userEmail: payload.emails?.[0] || null,
@@ -68,6 +86,12 @@ class B2CUsersHandler {
       userAuthTime: payload.auth_time || null,
       userTokenVersion: payload.ver || null,
       userPolicy: payload.tfp || null,
+      // Extract tenant ID for proper tenant isolation
+      tenantId:
+        payload.tenantId ||
+        payload.extension_tenantId ||
+        payload.tid ||
+        "39866a06-30bc-4a89-80c6-9dd9357dd453", // Default tenant
     };
   }
 
@@ -76,9 +100,16 @@ class B2CUsersHandler {
     console.log("User profile:", profile);
 
     const email = profile.userEmail;
+    const tenantId = profile.tenantId;
+
     if (!email) {
       console.log("Email not found in profile");
       throw new Error("Email not found in Microsoft token");
+    }
+
+    if (!tenantId) {
+      console.log("Tenant ID not found in profile");
+      throw new Error("Tenant ID not found in Microsoft token");
     }
 
     const update = {
@@ -86,6 +117,7 @@ class B2CUsersHandler {
       userAuthProvider: "microsoft",
       userType: "PORTAL", // Ensure portal users are marked as PORTAL type
       userLastLogin: new Date(),
+      tenantId: tenantId,
       tokens: {
         id_token: tokens.id_token || null,
         refresh_token: tokens.refresh_token || null,
@@ -95,7 +127,11 @@ class B2CUsersHandler {
     };
 
     try {
-      let user = await B2CUser.findOne({ userEmail: email });
+      // Find user by email AND tenantId for strict tenant isolation
+      let user = await B2CUser.findOne({
+        userEmail: email,
+        tenantId: tenantId,
+      });
 
       console.log(user ? "Updating existing user" : "Creating new user");
 

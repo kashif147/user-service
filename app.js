@@ -52,6 +52,20 @@ app.use(
 );
 
 app.get("/", (req, res) => {
+  // Check if this is an Azure B2C callback with authorization code
+  if (req.query.code && req.query.state) {
+    console.log("=== Azure B2C Callback at Root ===");
+    console.log("Code received:", req.query.code.substring(0, 50) + "...");
+    console.log("State:", req.query.state);
+    console.log("Redirecting to /auth/microsoft for proper handling");
+
+    // Redirect to the proper auth endpoint
+    return res.redirect(
+      `/auth/microsoft?code=${req.query.code}&state=${req.query.state}`
+    );
+  }
+
+  // Regular homepage
   res.render("index", { title: "User Service" });
 });
 
