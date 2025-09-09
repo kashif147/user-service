@@ -36,19 +36,9 @@ module.exports.handleMicrosoftRedirect = async (req, res) => {
     );
     console.log("State:", state);
 
-    // For GET requests, we need to get the codeVerifier from session or return an error
-    // Since PKCE requires the codeVerifier, we'll return an error asking for POST request
-    console.log(
-      "⚠️ GET request received - PKCE requires POST with codeVerifier"
-    );
-    return res.status(400).json({
-      success: false,
-      message: "Please use POST request with codeVerifier",
-      code: code,
-      state: state,
-      instructions:
-        "Send POST request to /auth/azure-portal with both 'code' and 'codeVerifier' in request body",
-    });
+    // For GET requests, redirect back to test page with the code so user can copy it
+    console.log("✅ GET request received - redirecting to test page with code");
+    return res.redirect(`/b2c-test.html?code=${code}&state=${state}`);
   } catch (error) {
     console.error("Azure B2C Redirect Error:", error);
     return res.status(500).json({
