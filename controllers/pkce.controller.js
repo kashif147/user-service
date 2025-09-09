@@ -47,14 +47,14 @@ module.exports.generatePKCE = async (req, res) => {
     const policy = process.env.MS_POLICY || "B2C_1_signup_signin";
     const b2cClientId = process.env.MS_CLIENT_ID || "your-b2c-client-id";
     const b2cRedirectUri =
-      process.env.MS_REDIRECT_URI || "http://localhost:3000";
+      process.env.MS_REDIRECT_URI || "http://localhost:3000/auth/azure-portal";
 
     const b2cAuthUrl =
       `https://${tenantName}.b2clogin.com/${tenantName}.onmicrosoft.com/${policy}/oauth2/v2.0/authorize?` +
       `client_id=${b2cClientId}&` +
       `response_type=code&` +
       `redirect_uri=${encodeURIComponent(b2cRedirectUri)}&` +
-      `scope=${encodeURIComponent("openid profile offline_access")}&` +
+      `scope=${encodeURIComponent("openid offline_access")}&` +
       `state=${state}&` +
       `code_challenge=${codeChallenge}&` +
       `code_challenge_method=S256`;
@@ -73,7 +73,7 @@ module.exports.generatePKCE = async (req, res) => {
         step1: "Use the authorization URL to authenticate with Azure AD",
         step2: "Copy the 'code' parameter from the redirect URL",
         step3: "Use the code and codeVerifier in your token exchange request",
-        step4: "Send POST request to /auth/azure-crm or /auth/azure-portal",
+        step4: "Send POST request to /auth/azure-portal",
       },
     });
   } catch (error) {

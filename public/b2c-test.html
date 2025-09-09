@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Azure B2C Authentication Test</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+        background-color: #f5f5f5;
+      }
+      .container {
+        background: white;
+        padding: 30px;
+        border-radius: 10px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      }
+      h1 {
+        color: #0078d4;
+        text-align: center;
+      }
+      .section {
+        margin: 20px 0;
+        padding: 20px;
+        border: 1px solid #ddd;
+        border-radius: 5px;
+        background-color: #f9f9f9;
+      }
+      button {
+        background-color: #0078d4;
+        color: white;
+        padding: 10px 20px;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 16px;
+        margin: 10px 5px;
+      }
+      button:hover {
+        background-color: #106ebe;
+      }
+      button:disabled {
+        background-color: #ccc;
+        cursor: not-allowed;
+      }
+      input {
+        width: 100%;
+        padding: 10px;
+        margin: 5px 0;
+        border: 1px solid #ddd;
+        border-radius: 5px;
+        box-sizing: border-box;
+      }
+      .result {
+        margin: 10px 0;
+        padding: 15px;
+        border-radius: 5px;
+        white-space: pre-wrap;
+        font-family: monospace;
+        font-size: 12px;
+      }
+      .success {
+        background-color: #d4edda;
+        border: 1px solid #c3e6cb;
+        color: #155724;
+      }
+      .error {
+        background-color: #f8d7da;
+        border: 1px solid #f5c6cb;
+        color: #721c24;
+      }
+      .info {
+        background-color: #d1ecf1;
+        border: 1px solid #bee5eb;
+        color: #0c5460;
+      }
+      .config {
+        background-color: #fff3cd;
+        border: 1px solid #ffeaa7;
+        color: #856404;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>🔐 Azure B2C Authentication Test</h1>
+
+      <div class="section">
+        <h3>📋 Configuration</h3>
+        <div class="result config" id="config">Loading configuration...</div>
+      </div>
+
+      <div class="section">
+        <h3>🔑 Step 1: Generate PKCE Parameters</h3>
+        <button onclick="generatePKCE()">Generate PKCE</button>
+        <div class="result info" id="pkceResult" style="display: none"></div>
+      </div>
+
+      <div class="section">
+        <h3>🌐 Step 2: Start Authentication</h3>
+        <button onclick="startAuth()" id="authBtn" disabled>
+          Start B2C Authentication
+        </button>
+        <div class="result info" id="authResult" style="display: none"></div>
+      </div>
+
+      <div class="section">
+        <h3>🔄 Step 3: Complete Authentication</h3>
+        <p>
+          After completing authentication, you'll be redirected back with a
+          code. Copy the code from the URL and paste it below:
+        </p>
+        <input
+          type="text"
+          id="authCode"
+          placeholder="Paste authorization code here..."
+        />
+        <button onclick="completeAuth()" id="completeBtn" disabled>
+          Complete Authentication
+        </button>
+        <div class="result" id="completeResult" style="display: none"></div>
+      </div>
+
+      <div class="section">
+        <h3>🔍 Step 4: Test Token Validation</h3>
+        <button onclick="validateToken()" id="validateBtn" disabled>
+          Validate Token
+        </button>
+        <div class="result" id="validateResult" style="display: none"></div>
+      </div>
+    </div>
+
+    <script>
+      const BASE_URL = "http://localhost:3000";
+      let pkceData = null;
+      let authResult = null;
+
+      // Load configuration
+      async function loadConfig() {
+        const configDiv = document.getElementById("config");
+        configDiv.textContent = `Base URL: ${BASE_URL}\nEndpoint: ${BASE_URL}/auth/azure-portal\nPKCE Endpoint: ${BASE_URL}/pkce/generate`;
+      }
+
+      // Generate PKCE parameters
+      async function generatePKCE() {
+        try {
+          const response = await fetch(`${BASE_URL}/pkce/generate`);
+          const data = await response.json();
+
+          if (data.success) {
+            pkceData = data;
+            document.getElementById("pkceResult").style.display = "block";
+            document.getElementById("pkceResult").textContent =
+              `Code Verifier: ${data.codeVerifier.substring(0, 20)}...\n` +
+              `Code Challenge: ${data.codeChallenge.substring(0, 20)}...\n` +
+              `State: ${data.state}\n` +
+              `B2C Auth URL: ${data.authorizationUrls.azureB2C}`;
+
+            document.getElementById("authBtn").disabled = false;
+          } else {
+            throw new Error(data.message || "Failed to generate PKCE");
+          }
+        } catch (error) {
+          document.getElementById("pkceResult").style.display = "block";
+          document.getElementById("pkceResult").className = "result error";
+          document.getElementById(
+            "pkceResult"
+          ).textContent = `Error: ${error.message}`;
+        }
+      }
+
+      // Start authentication
+      function startAuth() {
+        if (pkceData && pkceData.authorizationUrls.azureB2C) {
+          document.getElementById("authResult").style.display = "block";
+          document.getElementById("authResult").className = "result info";
+          document.getElementById("authResult").textContent =
+            `Opening authentication URL...\n` +
+            `URL: ${pkceData.authorizationUrls.azureB2C}\n\n` +
+            `After authentication, you'll be redirected back with a code.\n` +
+            `Copy the 'code' parameter from the URL and paste it in Step 3.`;
+
+          // Open auth URL in new window
+          window.open(pkceData.authorizationUrls.azureB2C, "_blank");
+
+          document.getElementById("completeBtn").disabled = false;
+        }
+      }
+
+      // Complete authentication
+      async function completeAuth() {
+        const authCode = document.getElementById("authCode").value.trim();
+
+        if (!authCode) {
+          alert("Please enter the authorization code");
+          return;
+        }
+
+        if (!pkceData) {
+          alert("Please generate PKCE parameters first");
+          return;
+        }
+
+        try {
+          const response = await fetch(`${BASE_URL}/auth/azure-portal`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              code: authCode,
+              codeVerifier: pkceData.codeVerifier,
+            }),
+          });
+
+          const data = await response.json();
+
+          document.getElementById("completeResult").style.display = "block";
+
+          if (response.ok && data.success) {
+            authResult = data;
+            document.getElementById("completeResult").className =
+              "result success";
+            document.getElementById("completeResult").textContent =
+              `✅ Authentication Successful!\n\n` +
+              `User Email: ${data.user.userEmail}\n` +
+              `User Type: ${data.user.userType}\n` +
+              `Auth Provider: ${data.user.userAuthProvider}\n` +
+              `Tenant ID: ${data.user.tenantId}\n` +
+              `Has Access Token: ${!!data.accessToken}\n` +
+              `Roles: ${data.user.roles ? data.user.roles.length : 0} assigned`;
+
+            document.getElementById("validateBtn").disabled = false;
+          } else {
+            document.getElementById("completeResult").className =
+              "result error";
+            document.getElementById("completeResult").textContent =
+              `❌ Authentication Failed!\n\n` +
+              `Status: ${response.status}\n` +
+              `Message: ${data.message || "Unknown error"}\n` +
+              `Error: ${data.error || "No error details"}`;
+          }
+        } catch (error) {
+          document.getElementById("completeResult").style.display = "block";
+          document.getElementById("completeResult").className = "result error";
+          document.getElementById(
+            "completeResult"
+          ).textContent = `Network Error: ${error.message}`;
+        }
+      }
+
+      // Validate token
+      async function validateToken() {
+        if (!authResult || !authResult.accessToken) {
+          alert("No access token available");
+          return;
+        }
+
+        try {
+          const response = await fetch(`${BASE_URL}/token/validate-jwt`, {
+            headers: {
+              Authorization: authResult.accessToken,
+            },
+          });
+
+          const data = await response.json();
+
+          document.getElementById("validateResult").style.display = "block";
+
+          if (response.ok && data.isValid) {
+            document.getElementById("validateResult").className =
+              "result success";
+            document.getElementById("validateResult").textContent =
+              `✅ Token Validation Successful!\n\n` +
+              `Valid: ${data.isValid}\n` +
+              `Token Type: ${data.tokenType}\n` +
+              `Expired: ${data.isExpired}\n` +
+              `Validation: ${JSON.stringify(data.validation, null, 2)}`;
+          } else {
+            document.getElementById("validateResult").className =
+              "result error";
+            document.getElementById("validateResult").textContent =
+              `❌ Token Validation Failed!\n\n` +
+              `Status: ${response.status}\n` +
+              `Valid: ${data.isValid}\n` +
+              `Error: ${data.message || "Unknown error"}`;
+          }
+        } catch (error) {
+          document.getElementById("validateResult").style.display = "block";
+          document.getElementById("validateResult").className = "result error";
+          document.getElementById(
+            "validateResult"
+          ).textContent = `Network Error: ${error.message}`;
+        }
+      }
+
+      // Initialize page
+      window.onload = function () {
+        loadConfig();
+      };
+    </script>
+  </body>
+</html>
