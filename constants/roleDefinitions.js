@@ -2,7 +2,7 @@
 const PERMISSIONS = require("@membership/shared-constants/permissions");
 
 const ROLE_DEFINITIONS = [
-  // System Role
+  // System Roles
   {
     name: "Super User",
     code: "SU",
@@ -10,6 +10,22 @@ const ROLE_DEFINITIONS = [
       "Super User with full system access and role management capabilities",
     userType: "SYSTEM",
     permissions: ["*"], // Full access
+    isSystemRole: true,
+  },
+  {
+    name: "Assistant Super User",
+    code: "ASU",
+    description:
+      "Assistant Super User with tenant-scoped role and permission management",
+    userType: "SYSTEM",
+    permissions: [
+      "USER_READ",
+      "USER_WRITE",
+      "USER_MANAGE_ROLES",
+      "ROLE_READ",
+      "ROLE_WRITE",
+      "ROLE_PERMISSION_ASSIGN",
+    ],
     isSystemRole: true,
   },
   // Portal Roles

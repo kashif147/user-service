@@ -1,0 +1,532 @@
+const jwt = require("jsonwebtoken");
+const { AppError } = require("../errors/AppError");
+const {
+  ROLE_HIERARCHY,
+  getHighestRoleLevel,
+  hasMinimumRole,
+  isSuperUser,
+  getRolesAtOrAbove,
+} = require("../config/roleHierarchy");
+const PERMISSIONS = require("../constants/permissions");
+const PolicyCache = require("./policyCache");
+
+/**
+ * Centralized RBAC Policy Evaluation Service
+ *
+ * This service implements a Policy Decision Point (PDP) that evaluates
+ * authorization requests from various clients (mobile, web, microservices)
+ * and returns policy decisions without exposing authorization logic.
+ */
+
+// Initialize cache
+const cache = new PolicyCache({
+  enabled: process.env.REDIS_ENABLED !== "false",
+  ttl: parseInt(process.env.POLICY_CACHE_TTL) || 300, // 5 minutes
+  prefix: "policy:",
+});
+
+// Initialize cache on startup
+cache.initialize().catch((err) => {
+  console.error("Failed to initialize policy cache:", err);
+});
+
+/**
+ * Policy Decision Point - Main authorization evaluation function
+ * @param {Object} request - Authorization request
+ * @param {string} request.token - JWT token
+ * @param {string} request.resource - Resource being accessed
+ * @param {string} request.action - Action being performed
+ * @param {Object} request.context - Additional context (optional)
+ * @returns {Object} Policy decision
+ */
+const evaluatePolicy = async (request) => {
+  try {
+    const { token, resource, action, context = {} } = request;
+
+    // Step 1: Check cache first
+    const tokenHash = token.substring(0, 8);
+    const cacheKey = cache.generateKey(tokenHash, resource, action, context);
+    const cachedResult = await cache.get(cacheKey);
+
+    if (cachedResult) {
+      return {
+        ...cachedResult,
+        cached: true,
+      };
+    }
+
+    // Step 2: Validate and decode JWT token
+    const tokenValidation = await validateToken(token);
+    if (!tokenValidation.valid) {
+      const result = {
+        decision: "DENY",
+        reason: "INVALID_TOKEN",
+        error: tokenValidation.error,
+        timestamp: new Date().toISOString(),
+      };
+
+      // Cache negative results for shorter time
+      await cache.set(cacheKey, result, 60); // 1 minute
+      return result;
+    }
+
+    const user = tokenValidation.user;
+
+    // Step 3: Extract authorization context
+    const authContext = {
+      userId: user.id,
+      tenantId: user.tenantId,
+      userType: user.userType,
+      roles: user.roles || [],
+      permissions: user.permissions || [],
+      resource,
+      action,
+      ...context,
+    };
+
+    // Step 4: Apply policy rules
+    const policyDecision = await applyPolicyRules(authContext);
+
+    const result = {
+      decision: policyDecision.decision,
+      reason: policyDecision.reason,
+      user: {
+        id: user.id,
+        tenantId: user.tenantId,
+        userType: user.userType,
+        roles: user.roles,
+        permissions: user.permissions,
+      },
+      resource,
+      action,
+      timestamp: new Date().toISOString(),
+      expiresAt: tokenValidation.expiresAt,
+    };
+
+    // Step 5: Cache the result
+    await cache.set(cacheKey, result);
+
+    return result;
+  } catch (error) {
+    console.error("Policy evaluation error:", error);
+    return {
+      decision: "DENY",
+      reason: "EVALUATION_ERROR",
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    };
+  }
+};
+
+/**
+ * Validate JWT token
+ * @param {string} token - JWT token
+ * @returns {Object} Token validation result
+ */
+const validateToken = async (token) => {
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    // Check expiration
+    const now = Math.floor(Date.now() / 1000);
+    if (decoded.exp && decoded.exp < now) {
+      return { valid: false, error: "Token expired" };
+    }
+
+    return {
+      valid: true,
+      user: {
+        id: decoded.sub || decoded.id,
+        tenantId: decoded.tid,
+        email: decoded.email,
+        userType: decoded.userType,
+        roles: decoded.roles || [],
+        permissions: decoded.permissions || [],
+      },
+      expiresAt: new Date(decoded.exp * 1000).toISOString(),
+    };
+  } catch (error) {
+    return { valid: false, error: error.message };
+  }
+};
+
+/**
+ * Apply policy rules to determine authorization decision
+ * @param {Object} context - Authorization context
+ * @returns {Object} Policy decision
+ */
+const applyPolicyRules = async (context) => {
+  const { roles, permissions, resource, action, tenantId } = context;
+
+  // Rule 1: Super User bypasses all authorization
+  if (isSuperUser(roles)) {
+    return {
+      decision: "PERMIT",
+      reason: "SUPER_USER_BYPASS",
+    };
+  }
+
+  // Rule 2: Tenant isolation check
+  if (!tenantId) {
+    return {
+      decision: "DENY",
+      reason: "MISSING_TENANT_CONTEXT",
+    };
+  }
+
+  // Rule 3: Resource-specific policy evaluation
+  const resourcePolicy = await evaluateResourcePolicy(context);
+  if (resourcePolicy.decision !== "PERMIT") {
+    return resourcePolicy;
+  }
+
+  // Rule 4: Action-specific policy evaluation
+  const actionPolicy = await evaluateActionPolicy(context);
+  if (actionPolicy.decision !== "PERMIT") {
+    return actionPolicy;
+  }
+
+  // Rule 5: Permission-based evaluation
+  const permissionPolicy = await evaluatePermissionPolicy(context);
+  if (permissionPolicy.decision !== "PERMIT") {
+    return permissionPolicy;
+  }
+
+  // Default: Permit if all checks pass
+  return {
+    decision: "PERMIT",
+    reason: "POLICY_SATISFIED",
+  };
+};
+
+/**
+ * Evaluate resource-specific policies
+ * @param {Object} context - Authorization context
+ * @returns {Object} Policy decision
+ */
+const evaluateResourcePolicy = async (context) => {
+  const { resource, userType, roles } = context;
+
+  // Resource access matrix
+  const resourceAccessMatrix = {
+    // Portal access
+    portal: {
+      allowedUserTypes: ["CRM", "MEMBER"],
+      allowedRoles: ["*"], // All roles can access portal
+    },
+    // CRM access
+    crm: {
+      allowedUserTypes: ["CRM"],
+      allowedRoles: [
+        "SU",
+        "GS",
+        "DGS",
+        "DIR",
+        "DPRS",
+        "ADIR",
+        "AM",
+        "DAM",
+        "MO",
+        "AMO",
+      ],
+    },
+    // Admin panel
+    admin: {
+      allowedUserTypes: ["CRM"],
+      allowedRoles: ["SU", "GS", "DGS"],
+    },
+    // API endpoints
+    api: {
+      allowedUserTypes: ["CRM", "MEMBER"],
+      allowedRoles: ["*"],
+    },
+    // Role management
+    role: {
+      allowedUserTypes: ["CRM"],
+      allowedRoles: [
+        "SU",
+        "GS",
+        "DGS",
+        "DIR",
+        "DPRS",
+        "ADIR",
+        "AM",
+        "DAM",
+        "MO",
+        "AMO",
+      ],
+    },
+    // User management
+    user: {
+      allowedUserTypes: ["CRM"],
+      allowedRoles: [
+        "SU",
+        "GS",
+        "DGS",
+        "DIR",
+        "DPRS",
+        "ADIR",
+        "AM",
+        "DAM",
+        "MO",
+        "AMO",
+      ],
+    },
+  };
+
+  const resourceConfig = resourceAccessMatrix[resource];
+  if (!resourceConfig) {
+    return {
+      decision: "DENY",
+      reason: "UNKNOWN_RESOURCE",
+    };
+  }
+
+  // Check user type
+  if (!resourceConfig.allowedUserTypes.includes(userType)) {
+    return {
+      decision: "DENY",
+      reason: "INVALID_USER_TYPE",
+    };
+  }
+
+  // Check roles (if not wildcard)
+  if (resourceConfig.allowedRoles[0] !== "*") {
+    const hasRequiredRole = roles.some((role) =>
+      resourceConfig.allowedRoles.includes(role.code)
+    );
+
+    if (!hasRequiredRole) {
+      return {
+        decision: "DENY",
+        reason: "INSUFFICIENT_ROLE",
+      };
+    }
+  }
+
+  return {
+    decision: "PERMIT",
+    reason: "RESOURCE_ACCESS_GRANTED",
+  };
+};
+
+/**
+ * Evaluate action-specific policies
+ * @param {Object} context - Authorization context
+ * @returns {Object} Policy decision
+ */
+const evaluateActionPolicy = async (context) => {
+  const { action, roles, resource } = context;
+
+  // Action-specific role requirements
+  const actionRequirements = {
+    read: {
+      minRoleLevel: 1, // Any authenticated user
+    },
+    write: {
+      minRoleLevel: 30, // IO level and above
+    },
+    delete: {
+      minRoleLevel: 60, // MO level and above
+    },
+    admin: {
+      minRoleLevel: 80, // DIR level and above
+    },
+    super_admin: {
+      minRoleLevel: 100, // SU only
+    },
+  };
+
+  const requirement = actionRequirements[action];
+  if (!requirement) {
+    return {
+      decision: "DENY",
+      reason: "UNKNOWN_ACTION",
+    };
+  }
+
+  // Check minimum role level
+  const userMaxLevel = getHighestRoleLevel(roles.map((r) => r.code));
+  if (userMaxLevel < requirement.minRoleLevel) {
+    return {
+      decision: "DENY",
+      reason: "INSUFFICIENT_ROLE_LEVEL",
+    };
+  }
+
+  return {
+    decision: "PERMIT",
+    reason: "ACTION_AUTHORIZED",
+  };
+};
+
+/**
+ * Evaluate permission-based policies
+ * @param {Object} context - Authorization context
+ * @returns {Object} Policy decision
+ */
+const evaluatePermissionPolicy = async (context) => {
+  const { permissions, resource, action } = context;
+
+  // Permission mapping
+  const permissionMap = {
+    portal: {
+      read: PERMISSIONS.PORTAL.PROFILE_READ,
+      write: PERMISSIONS.PORTAL.PROFILE_WRITE,
+    },
+    crm: {
+      read: PERMISSIONS.CRM.MEMBER_READ,
+      write: PERMISSIONS.CRM.MEMBER_WRITE,
+      delete: PERMISSIONS.CRM.MEMBER_DELETE,
+    },
+    user: {
+      read: PERMISSIONS.USER.READ,
+      write: PERMISSIONS.USER.WRITE,
+      delete: PERMISSIONS.USER.DELETE,
+    },
+    role: {
+      read: PERMISSIONS.ROLE.READ,
+      write: PERMISSIONS.ROLE.WRITE,
+      delete: PERMISSIONS.ROLE.DELETE,
+    },
+  };
+
+  const requiredPermission = permissionMap[resource]?.[action];
+  if (!requiredPermission) {
+    // If no specific permission required, allow
+    return {
+      decision: "PERMIT",
+      reason: "NO_PERMISSION_REQUIRED",
+    };
+  }
+
+  // Check if user has required permission
+  const hasPermission =
+    permissions.includes(requiredPermission) || permissions.includes("*");
+
+  if (!hasPermission) {
+    return {
+      decision: "DENY",
+      reason: "MISSING_PERMISSION",
+    };
+  }
+
+  return {
+    decision: "PERMIT",
+    reason: "PERMISSION_GRANTED",
+  };
+};
+
+/**
+ * Batch policy evaluation for multiple requests
+ * @param {Array} requests - Array of authorization requests
+ * @returns {Array} Array of policy decisions
+ */
+const evaluateBatchPolicy = async (requests) => {
+  const results = await Promise.all(
+    requests.map((request) => evaluatePolicy(request))
+  );
+  return results;
+};
+
+/**
+ * Get user's effective permissions for a resource
+ * @param {string} token - JWT token
+ * @param {string} resource - Resource name
+ * @returns {Object} Effective permissions
+ */
+const getEffectivePermissions = async (token, resource) => {
+  try {
+    const tokenValidation = await validateToken(token);
+    if (!tokenValidation.valid) {
+      return {
+        success: false,
+        error: tokenValidation.error,
+      };
+    }
+
+    const user = tokenValidation.user;
+    const { roles, permissions } = user;
+
+    // Super User has all permissions
+    if (isSuperUser(roles)) {
+      return {
+        success: true,
+        permissions: ["*"],
+        roles: roles,
+        reason: "SUPER_USER",
+      };
+    }
+
+    // Get resource-specific permissions
+    const resourcePermissions = getResourcePermissions(
+      resource,
+      roles,
+      permissions
+    );
+
+    return {
+      success: true,
+      permissions: resourcePermissions,
+      roles: roles,
+      userType: user.userType,
+      tenantId: user.tenantId,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error.message,
+    };
+  }
+};
+
+/**
+ * Get permissions for a specific resource
+ * @param {string} resource - Resource name
+ * @param {Array} roles - User roles
+ * @param {Array} permissions - User permissions
+ * @returns {Array} Resource-specific permissions
+ */
+const getResourcePermissions = (resource, roles, permissions) => {
+  const resourcePermissionMap = {
+    portal: [
+      PERMISSIONS.PORTAL.ACCESS,
+      PERMISSIONS.PORTAL.PROFILE_READ,
+      PERMISSIONS.PORTAL.PROFILE_WRITE,
+    ],
+    crm: [
+      PERMISSIONS.CRM.ACCESS,
+      PERMISSIONS.CRM.MEMBER_READ,
+      PERMISSIONS.CRM.MEMBER_WRITE,
+      PERMISSIONS.CRM.MEMBER_DELETE,
+    ],
+    user: [
+      PERMISSIONS.USER.READ,
+      PERMISSIONS.USER.WRITE,
+      PERMISSIONS.USER.DELETE,
+      PERMISSIONS.USER.MANAGE_ROLES,
+    ],
+    role: [
+      PERMISSIONS.ROLE.READ,
+      PERMISSIONS.ROLE.WRITE,
+      PERMISSIONS.ROLE.DELETE,
+    ],
+  };
+
+  const resourcePermissions = resourcePermissionMap[resource] || [];
+
+  // Filter permissions user actually has
+  return resourcePermissions.filter(
+    (permission) =>
+      permissions.includes(permission) || permissions.includes("*")
+  );
+};
+
+module.exports = {
+  evaluatePolicy,
+  evaluateBatchPolicy,
+  getEffectivePermissions,
+  validateToken,
+  applyPolicyRules,
+  cache, // Export cache for management
+};

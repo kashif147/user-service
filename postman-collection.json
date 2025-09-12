@@ -1,0 +1,1194 @@
+{
+  "info": {
+    "name": "User Service API - Tenant & Permission Management",
+    "description": "Complete API collection for testing tenant management, permission management, and ASU role functionality",
+    "version": "1.0.0",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "suToken",
+      "value": "your_super_user_jwt_token_here",
+      "type": "string"
+    },
+    {
+      "key": "asuToken",
+      "value": "your_assistant_super_user_jwt_token_here",
+      "type": "string"
+    },
+    {
+      "key": "tenantId",
+      "value": "your_tenant_id_here",
+      "type": "string"
+    },
+    {
+      "key": "userId",
+      "value": "your_user_id_here",
+      "type": "string"
+    },
+    {
+      "key": "roleId",
+      "value": "your_role_id_here",
+      "type": "string"
+    },
+    {
+      "key": "permissionId",
+      "value": "your_permission_id_here",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Azure AD - CRM Login (GET Redirect)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/azure-crm?code=authorization_code_from_azure&state=state_value",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "azure-crm"],
+              "query": [
+                {
+                  "key": "code",
+                  "value": "authorization_code_from_azure",
+                  "description": "Authorization code from Azure AD redirect"
+                },
+                {
+                  "key": "state",
+                  "value": "state_value",
+                  "description": "State parameter from Azure AD"
+                }
+              ]
+            },
+            "description": "This endpoint handles Azure AD redirects. Use POST /auth/azure-crm for actual authentication."
+          }
+        },
+        {
+          "name": "Azure AD - CRM Login (POST Callback)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"authorization_code_from_azure\",\n  \"codeVerifier\": \"pkce_code_verifier_from_client\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/azure-crm",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "azure-crm"]
+            },
+            "description": "Exchange Azure AD authorization code for JWT token. Requires PKCE code verifier."
+          }
+        },
+        {
+          "name": "Azure B2C - Portal Login (GET Redirect)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/azure-portal?code=authorization_code_from_b2c&state=state_value",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "azure-portal"],
+              "query": [
+                {
+                  "key": "code",
+                  "value": "authorization_code_from_b2c",
+                  "description": "Authorization code from Azure B2C redirect"
+                },
+                {
+                  "key": "state",
+                  "value": "state_value",
+                  "description": "State parameter from Azure B2C"
+                }
+              ]
+            },
+            "description": "This endpoint handles Azure B2C redirects. Use POST /auth/azure-portal for actual authentication."
+          }
+        },
+        {
+          "name": "Azure B2C - Portal Login (POST Callback)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"authorization_code_from_b2c\",\n  \"codeVerifier\": \"pkce_code_verifier_from_client\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/azure-portal",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "azure-portal"]
+            },
+            "description": "Exchange Azure B2C authorization code for JWT token. Requires PKCE code verifier."
+          }
+        },
+        {
+          "name": "General CRM - Email/Password Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@example.com\",\n  \"password\": \"password123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/general-crm/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "general-crm", "login"]
+            },
+            "description": "Traditional email/password login for CRM users"
+          }
+        },
+        {
+          "name": "General CRM - Email/Password Register",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"newuser@example.com\",\n  \"password\": \"password123\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/general-crm/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "general-crm", "register"]
+            },
+            "description": "Traditional email/password registration for CRM users"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Tenant Management (SU Only)",
+      "item": [
+        {
+          "name": "Create Tenant",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{suToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Acme Corporation\",\n  \"code\": \"ACME\",\n  \"description\": \"Acme Corporation tenant\",\n  \"domain\": \"acme.com\",\n  \"contactEmail\": \"admin@acme.com\",\n  \"contactPhone\": \"+1-555-0123\",\n  \"address\": {\n    \"street\": \"123 Business St\",\n    \"city\": \"New York\",\n    \"state\": \"NY\",\n    \"zipCode\": \"10001\",\n    \"country\": \"US\"\n  },\n  \"settings\": {\n    \"maxUsers\": 500,\n    \"allowSelfRegistration\": true,\n    \"sessionTimeout\": 24,\n    \"passwordPolicy\": {\n      \"minLength\": 8,\n      \"requireUppercase\": true,\n      \"requireLowercase\": true,\n      \"requireNumbers\": true,\n      \"requireSpecialChars\": true\n    }\n  },\n  \"subscription\": {\n    \"plan\": \"PREMIUM\",\n    \"autoRenew\": true\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/tenants",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tenants"]
+            }
+          }
+        },
+        {
+          "name": "Get All Tenants",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{suToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/tenants?status=ACTIVE&plan=PREMIUM",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tenants"],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "ACTIVE"
+                },
+                {
+                  "key": "plan",
+                  "value": "PREMIUM"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Tenant by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{suToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/tenants/{{tenantId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tenants", "{{tenantId}}"]
+            }
+          }
+        },
+        {
+          "name": "Get Tenant by Code",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{suToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/tenants/code/ACME",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tenants", "code", "ACME"]
+            }
+          }
+        },
+        {
+          "name": "Get Tenant by Domain",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{suToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/tenants/domain/acme.com",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tenants", "domain", "acme.com"]
+            }
+          }
+        },
+        {
+          "name": "Update Tenant",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{suToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Acme Corporation Updated\",\n  \"description\": \"Updated description\",\n  \"settings\": {\n    \"maxUsers\": 1000\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/tenants/{{tenantId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tenants", "{{tenantId}}"]
+            }
+          }
+        },
+        {
+          "name": "Update Tenant Status",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{suToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"ACTIVE\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/tenants/{{tenantId}}/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tenants", "{{tenantId}}", "status"]
+            }
+          }
+        },
+        {
+          "name": "Get Tenant Statistics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{suToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/tenants/{{tenantId}}/stats",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tenants", "{{tenantId}}", "stats"]
+            }
+          }
+        },
+        {
+          "name": "Delete Tenant",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{suToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/tenants/{{tenantId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tenants", "{{tenantId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Permission Management (SU Only)",
+      "item": [
+        {
+          "name": "Initialize Default Permissions",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{suToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/permissions/initialize",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "permissions", "initialize"]
+            }
+          }
+        },
+        {
+          "name": "Create Permission",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{suToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Custom Permission\",\n  \"code\": \"CUSTOM_PERMISSION\",\n  \"description\": \"Custom permission for testing\",\n  \"resource\": \"custom\",\n  \"action\": \"read\",\n  \"category\": \"API\",\n  \"level\": 25\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/permissions",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "permissions"]
+            }
+          }
+        },
+        {
+          "name": "Get All Permissions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{suToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/permissions?category=USER&level=30",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "permissions"],
+              "query": [
+                {
+                  "key": "category",
+                  "value": "USER"
+                },
+                {
+                  "key": "level",
+                  "value": "30"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Permission by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{suToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/permissions/{{permissionId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "permissions", "{{permissionId}}"]
+            }
+          }
+        },
+        {
+          "name": "Get Permission by Code",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{suToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/permissions/code/USER_READ",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "permissions", "code", "USER_READ"]
+            }
+          }
+        },
+        {
+          "name": "Get Permissions by Resource",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{suToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/permissions/resource/user",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "permissions", "resource", "user"]
+            }
+          }
+        },
+        {
+          "name": "Get Permissions by Category",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{suToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/permissions/category/USER",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "permissions", "category", "USER"]
+            }
+          }
+        },
+        {
+          "name": "Update Permission",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{suToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Permission Name\",\n  \"description\": \"Updated description\",\n  \"level\": 35\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/permissions/{{permissionId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "permissions", "{{permissionId}}"]
+            }
+          }
+        },
+        {
+          "name": "Get Permission Statistics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{suToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/permissions/stats",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "permissions", "stats"]
+            }
+          }
+        },
+        {
+          "name": "Delete Permission",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{suToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/permissions/{{permissionId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "permissions", "{{permissionId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Role Management (SU Only)",
+      "item": [
+        {
+          "name": "Initialize Roles",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{suToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/roles/initialize",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "roles", "initialize"]
+            }
+          }
+        },
+        {
+          "name": "Create Role",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{suToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Custom Role\",\n  \"code\": \"CUSTOM_ROLE\",\n  \"description\": \"Custom role for testing\",\n  \"userType\": \"CRM\",\n  \"permissions\": [\"USER_READ\", \"USER_WRITE\"]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/roles",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "roles"]
+            }
+          }
+        },
+        {
+          "name": "Get All Roles",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{suToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/roles?userType=CRM",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "roles"],
+              "query": [
+                {
+                  "key": "userType",
+                  "value": "CRM"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Role by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{suToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/roles/{{roleId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "roles", "{{roleId}}"]
+            }
+          }
+        },
+        {
+          "name": "Update Role",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{suToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Role Name\",\n  \"description\": \"Updated description\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/roles/{{roleId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "roles", "{{roleId}}"]
+            }
+          }
+        },
+        {
+          "name": "Update Role Permissions (SU)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{suToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"permissions\": [\"USER_READ\", \"USER_WRITE\", \"USER_MANAGE_ROLES\"]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/roles/{{roleId}}/permissions",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "roles", "{{roleId}}", "permissions"]
+            }
+          }
+        },
+        {
+          "name": "Assign Role to User (SU)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{suToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{userId}}\",\n  \"roleId\": \"{{roleId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/users/assign-role",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "users", "assign-role"]
+            }
+          }
+        },
+        {
+          "name": "Remove Role from User (SU)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{suToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{userId}}\",\n  \"roleId\": \"{{roleId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/users/remove-role",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "users", "remove-role"]
+            }
+          }
+        },
+        {
+          "name": "Assign Multiple Roles to User (SU)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{suToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{userId}}\",\n  \"roleIds\": [\"{{roleId}}\", \"role_id_2\", \"role_id_3\"]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/users/assign-roles-batch",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "users", "assign-roles-batch"]
+            }
+          }
+        },
+        {
+          "name": "Remove Multiple Roles from User (SU)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{suToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{userId}}\",\n  \"roleIds\": [\"{{roleId}}\", \"role_id_2\", \"role_id_3\"]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/users/remove-roles-batch",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "users", "remove-roles-batch"]
+            }
+          }
+        },
+        {
+          "name": "Get User Roles",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{suToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/users/{{userId}}/roles",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "users", "{{userId}}", "roles"]
+            }
+          }
+        },
+        {
+          "name": "Get User Permissions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{suToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/users/{{userId}}/permissions",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "users", "{{userId}}", "permissions"]
+            }
+          }
+        },
+        {
+          "name": "Check User Has Role",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{suToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/users/{{userId}}/has-role/SU",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "users", "{{userId}}", "has-role", "SU"]
+            }
+          }
+        },
+        {
+          "name": "Get All Users",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{suToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/users",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "users"]
+            }
+          }
+        },
+        {
+          "name": "Get Users by Role",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{suToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/roles/{{roleId}}/users",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "roles", "{{roleId}}", "users"]
+            }
+          }
+        },
+        {
+          "name": "Delete Role",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{suToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/roles/{{roleId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "roles", "{{roleId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Tenant-Scoped Management (ASU Only)",
+      "item": [
+        {
+          "name": "Assign Role to User (ASU)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{asuToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{userId}}\",\n  \"roleId\": \"{{roleId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/tenant/users/assign-role",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tenant", "users", "assign-role"]
+            }
+          }
+        },
+        {
+          "name": "Remove Role from User (ASU)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{asuToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{userId}}\",\n  \"roleId\": \"{{roleId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/tenant/users/remove-role",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tenant", "users", "remove-role"]
+            }
+          }
+        },
+        {
+          "name": "Assign Permissions to Role (ASU)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{asuToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"permissions\": [\"USER_READ\", \"USER_WRITE\", \"ROLE_READ\"]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/tenant/roles/{{roleId}}/permissions",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tenant", "roles", "{{roleId}}", "permissions"]
+            }
+          }
+        },
+        {
+          "name": "Get Users in Tenant (ASU)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{asuToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/tenant/users",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tenant", "users"]
+            }
+          }
+        },
+        {
+          "name": "Get Roles in Tenant (ASU)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{asuToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/tenant/roles?userType=CRM",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tenant", "roles"],
+              "query": [
+                {
+                  "key": "userType",
+                  "value": "CRM"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Available Permissions (ASU)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{asuToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/tenant/permissions?category=USER",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tenant", "permissions"],
+              "query": [
+                {
+                  "key": "category",
+                  "value": "USER"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Policy Evaluation",
+      "item": [
+        {
+          "name": "Evaluate Single Policy",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{suToken}}\",\n  \"resource\": \"user\",\n  \"action\": \"read\",\n  \"context\": {\n    \"userId\": \"{{userId}}\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/policy/evaluate",
+              "host": ["{{baseUrl}}"],
+              "path": ["policy", "evaluate"]
+            }
+          }
+        },
+        {
+          "name": "Evaluate Batch Policy",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requests\": [\n    {\n      \"token\": \"{{suToken}}\",\n      \"resource\": \"user\",\n      \"action\": \"read\"\n    },\n    {\n      \"token\": \"{{suToken}}\",\n      \"resource\": \"role\",\n      \"action\": \"write\"\n    },\n    {\n      \"token\": \"{{asuToken}}\",\n      \"resource\": \"tenant\",\n      \"action\": \"read\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/policy/evaluate-batch",
+              "host": ["{{baseUrl}}"],
+              "path": ["policy", "evaluate-batch"]
+            }
+          }
+        },
+        {
+          "name": "Quick Authorization Check",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{suToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/policy/check/user/read",
+              "host": ["{{baseUrl}}"],
+              "path": ["policy", "check", "user", "read"]
+            }
+          }
+        },
+        {
+          "name": "Get Effective Permissions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{suToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/policy/permissions/user",
+              "host": ["{{baseUrl}}"],
+              "path": ["policy", "permissions", "user"]
+            }
+          }
+        },
+        {
+          "name": "Get Policy Info",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/policy/info",
+              "host": ["{{baseUrl}}"],
+              "path": ["policy", "info"]
+            }
+          }
+        },
+        {
+          "name": "Policy Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/policy/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["policy", "health"]
+            }
+          }
+        },
+        {
+          "name": "Get Cache Statistics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/policy/cache/stats",
+              "host": ["{{baseUrl}}"],
+              "path": ["policy", "cache", "stats"]
+            }
+          }
+        },
+        {
+          "name": "Clear Policy Cache",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/policy/cache",
+              "host": ["{{baseUrl}}"],
+              "path": ["policy", "cache"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -25,10 +25,13 @@ module.exports.generatePKCE = async (req, res) => {
       .replace(/=/g, "");
 
     // Generate authorization URLs with real values
-    const tenantId = process.env.AZURE_AD_TENANT_ID || "your-tenant-id";
-    const clientId = process.env.AZURE_AD_CLIENT_ID || "your-client-id";
+    const tenantId =
+      process.env.AZURE_AD_TENANT_ID || "39866a06-30bc-4a89-80c6-9dd9357dd453";
+    const clientId =
+      process.env.AZURE_AD_CLIENT_ID || "ad25f823-e2d3-43e2-bea5-a9e6c9b0dbae";
     const redirectUri =
-      process.env.AZURE_AD_REDIRECT_URI || "http://localhost:3000";
+      process.env.AZURE_AD_REDIRECT_URI ||
+      "http://localhost:3000/auth/azure-crm";
     const scope = "openid profile email offline_access";
     const state = Math.random().toString(36).substring(7);
 
@@ -43,14 +46,14 @@ module.exports.generatePKCE = async (req, res) => {
       `code_challenge_method=S256`;
 
     // B2C authorization URL
-    const tenantName = process.env.MS_TENANT_NAME || "your-b2c-tenant";
-    const policy = process.env.MS_POLICY || "B2C_1_signup_signin";
-    const b2cClientId = process.env.MS_CLIENT_ID || "your-b2c-client-id";
-    const b2cRedirectUri =
-      process.env.MS_REDIRECT_URI || "http://localhost:3000/auth/azure-portal";
+    const b2cTenantId = process.env.MS_TENANT_NAME || "projectshellAB2C";
+    const policy = process.env.MS_POLICY || "B2C_1_projectshell";
+    const b2cClientId =
+      process.env.MS_CLIENT_ID || "e3688a2f-3956-42f9-8c98-6fea7a60a5b4";
+    const b2cRedirectUri = "http://localhost:3000/";
 
     const b2cAuthUrl =
-      `https://${tenantName}.b2clogin.com/${tenantName}.onmicrosoft.com/${policy}/oauth2/v2.0/authorize?` +
+      `https://${b2cTenantId}.b2clogin.com/${b2cTenantId}.onmicrosoft.com/${policy}/oauth2/v2.0/authorize?` +
       `client_id=${b2cClientId}&` +
       `response_type=code&` +
       `redirect_uri=${encodeURIComponent(b2cRedirectUri)}&` +
@@ -70,10 +73,12 @@ module.exports.generatePKCE = async (req, res) => {
         azureB2C: b2cAuthUrl,
       },
       instructions: {
-        step1: "Use the authorization URL to authenticate with Azure AD",
+        step1:
+          "Use the authorization URL to authenticate with Azure AD or Azure B2C",
         step2: "Copy the 'code' parameter from the redirect URL",
-        step3: "Use the code and codeVerifier in your token exchange request",
-        step4: "Send POST request to /auth/azure-portal",
+        step3:
+          "Use the code and codeVerifier in your token exchange request. The response will include an 'accessToken' field containing the Bearer token for API authentication (works for both Azure AD and Azure B2C)",
+        step4: "Send POST request to /auth/azure-portal or /auth/azure-b2c",
       },
     });
   } catch (error) {

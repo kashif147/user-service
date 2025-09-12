@@ -15,19 +15,20 @@ module.exports.handleMicrosoftRedirect = async (req, res) => {
 
     if (error) {
       console.log("❌ Azure B2C Error:", error);
-      return res.status(400).json({
-        success: false,
-        message: "Azure B2C authentication error",
-        error: error,
-      });
+      // Redirect back to the test page with the error
+      const redirectUrl = `http://localhost:3000/b2c-test.html?error=${encodeURIComponent(
+        error
+      )}&state=${encodeURIComponent(state || "")}`;
+      return res.redirect(redirectUrl);
     }
 
     if (!code) {
       console.log("❌ No authorization code received");
-      return res.status(400).json({
-        success: false,
-        message: "Authorization code is required",
-      });
+      // Redirect back to the test page with error
+      const redirectUrl = `http://localhost:3000/b2c-test.html?error=${encodeURIComponent(
+        "No authorization code received"
+      )}&state=${encodeURIComponent(state || "")}`;
+      return res.redirect(redirectUrl);
     }
 
     console.log(
