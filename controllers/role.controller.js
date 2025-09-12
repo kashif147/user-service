@@ -6,7 +6,7 @@ module.exports.initializeRoles = async (req, res) => {
   try {
     const tenantId = req.ctx.tenantId;
     const roles = await RoleHandler.initializeRoles(tenantId);
-    res.success("Roles initialized successfully", roles);
+    res.success(roles);
   } catch (error) {
     res.fail(error.message);
   }
@@ -18,7 +18,7 @@ module.exports.createRole = async (req, res) => {
     const tenantId = req.ctx.tenantId;
     const createdBy = req.ctx.userId;
     const role = await RoleHandler.createRole(req.body, tenantId, createdBy);
-    res.success("Role created successfully", role);
+    res.success(role);
   } catch (error) {
     res.fail(error.message);
   }
@@ -29,7 +29,7 @@ module.exports.getAllRoles = async (req, res) => {
     const { userType } = req.query;
     const tenantId = req.ctx.tenantId;
     const roles = await RoleHandler.getAllRoles(tenantId, userType);
-    res.success("Roles fetched successfully", roles);
+    res.success(roles);
   } catch (error) {
     res.fail(error.message);
   }
@@ -39,7 +39,7 @@ module.exports.getRoleById = async (req, res) => {
   try {
     const tenantId = req.ctx.tenantId;
     const role = await RoleHandler.getRoleById(req.params.id, tenantId);
-    res.success("Role fetched successfully", role);
+    res.success(role);
   } catch (error) {
     res.fail(error.message);
   }
@@ -55,7 +55,7 @@ module.exports.updateRole = async (req, res) => {
       tenantId,
       updatedBy
     );
-    res.success("Role updated successfully", role);
+    res.success(role);
   } catch (error) {
     res.fail(error.message);
   }
@@ -82,19 +82,67 @@ module.exports.updateRolePermissions = async (req, res) => {
       tenantId,
       updatedBy
     );
-    res.success("Role permissions updated successfully", role);
+    res.success(role);
   } catch (error) {
     res.fail(error.message);
   }
 };
 
 // User role management
-module.exports.assignRoleToUser = async (req, res) => {
+// Batch role management (Super User only)
+module.exports.assignRolesToUser = async (req, res) => {
   try {
-    const { userId, roleId } = req.body;
+    const { userId, roleIds } = req.body;
     const tenantId = req.ctx.tenantId;
-    const user = await RoleHandler.assignRoleToUser(userId, roleId, tenantId);
-    res.success("Role assigned to user successfully", user);
+
+    if (!Array.isArray(roleIds) || roleIds.length === 0) {
+      return res.fail("roleIds must be a non-empty array");
+    }
+
+    const result = await RoleHandler.assignRolesToUser(
+      userId,
+      roleIds,
+      tenantId
+    );
+
+    res.success("Roles assigned to user successfully", {
+      user: result.user,
+      summary: {
+        assignedRoles: result.assignedRoles,
+        alreadyAssignedRoles: result.alreadyAssignedRoles,
+        assignedRoleIds: result.assignedRoleIds,
+        alreadyAssignedRoleIds: result.alreadyAssignedRoleIds,
+      },
+    });
+  } catch (error) {
+    res.fail(error.message);
+  }
+};
+
+module.exports.removeRolesFromUser = async (req, res) => {
+  try {
+    const { userId, roleIds } = req.body;
+    const tenantId = req.ctx.tenantId;
+
+    if (!Array.isArray(roleIds) || roleIds.length === 0) {
+      return res.fail("roleIds must be a non-empty array");
+    }
+
+    const result = await RoleHandler.removeRolesFromUser(
+      userId,
+      roleIds,
+      tenantId
+    );
+
+    res.success("Roles removed from user successfully", {
+      user: result.user,
+      summary: {
+        removedRoles: result.removedRoles,
+        notAssignedRoles: result.notAssignedRoles,
+        removedRoleIds: result.removedRoleIds,
+        notAssignedRoleIds: result.notAssignedRoleIds,
+      },
+    });
   } catch (error) {
     res.fail(error.message);
   }
@@ -105,7 +153,7 @@ module.exports.removeRoleFromUser = async (req, res) => {
     const { userId, roleId } = req.body;
     const tenantId = req.ctx.tenantId;
     const user = await RoleHandler.removeRoleFromUser(userId, roleId, tenantId);
-    res.success("Role removed from user successfully", user);
+    res.success(user);
   } catch (error) {
     res.fail(error.message);
   }
@@ -115,7 +163,7 @@ module.exports.getUserRoles = async (req, res) => {
   try {
     const tenantId = req.ctx.tenantId;
     const roles = await RoleHandler.getUserRoles(req.params.userId, tenantId);
-    res.success("User roles fetched successfully", roles);
+    res.success(roles);
   } catch (error) {
     res.fail(error.message);
   }
@@ -128,7 +176,7 @@ module.exports.getUserPermissions = async (req, res) => {
       req.params.userId,
       tenantId
     );
-    res.success("User permissions fetched successfully", permissions);
+    res.success(permissions);
   } catch (error) {
     res.fail(error.message);
   }
@@ -138,7 +186,7 @@ module.exports.getUsersByRole = async (req, res) => {
   try {
     const tenantId = req.ctx.tenantId;
     const users = await RoleHandler.getUsersByRole(req.params.roleId, tenantId);
-    res.success("Users fetched successfully", users);
+    res.success(users);
   } catch (error) {
     res.fail(error.message);
   }
@@ -150,7 +198,7 @@ module.exports.getAllUsers = async (req, res) => {
     const users = await User.find({ tenantId })
       .populate("roles")
       .select("-password -tokens");
-    res.success("Users fetched successfully", users);
+    res.success(users);
   } catch (error) {
     res.fail(error.message);
   }
@@ -215,7 +263,7 @@ module.exports.hasRole = async (req, res) => {
     const { userId, roleCode } = req.params;
     const tenantId = req.ctx.tenantId;
     const hasRole = await RoleHandler.hasRole(userId, roleCode, tenantId);
-    res.success("Role check completed", { hasRole });
+    res.success({ hasRole });
   } catch (error) {
     res.fail(error.message);
   }

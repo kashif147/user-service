@@ -141,29 +141,102 @@ module.exports.updateRolePermissions = async (
   }
 };
 
-module.exports.assignRoleToUser = async (userId, roleId, tenantId) => {
+module.exports.assignRolesToUser = async (userId, roleIds, tenantId) => {
   try {
     const user = await User.findOne({ _id: userId, tenantId });
-    const role = await Role.findOne({ _id: roleId, tenantId });
 
     if (!user) {
       throw new Error("User not found");
     }
-    if (!role) {
-      throw new Error("Role not found");
+
+    // Validate all roles exist and belong to the tenant
+    const roles = await Role.find({
+      _id: { $in: roleIds },
+      tenantId,
+      isActive: true,
+    });
+
+    if (roles.length !== roleIds.length) {
+      const foundRoleIds = roles.map((role) => role._id.toString());
+      const missingRoleIds = roleIds.filter((id) => !foundRoleIds.includes(id));
+      throw new Error(`Roles not found: ${missingRoleIds.join(", ")}`);
     }
 
-    // Check if user already has this role
-    if (user.roles.includes(roleId)) {
-      throw new Error("User already has this role");
+    // Check which roles user already has
+    const existingRoleIds = user.roles.map((roleId) => roleId.toString());
+    const newRoleIds = roleIds.filter(
+      (roleId) => !existingRoleIds.includes(roleId)
+    );
+    const alreadyAssignedRoleIds = roleIds.filter((roleId) =>
+      existingRoleIds.includes(roleId)
+    );
+
+    if (newRoleIds.length === 0) {
+      throw new Error("User already has all the specified roles");
     }
 
-    user.roles.push(roleId);
+    // Add new roles to user
+    user.roles.push(...newRoleIds);
     await user.save();
 
-    return await User.findOne({ _id: userId, tenantId }).populate("roles");
+    // Get updated user with populated roles
+    const updatedUser = await User.findOne({ _id: userId, tenantId }).populate(
+      "roles"
+    );
+
+    return {
+      user: updatedUser,
+      assignedRoles: newRoleIds.length,
+      alreadyAssignedRoles: alreadyAssignedRoleIds.length,
+      assignedRoleIds: newRoleIds,
+      alreadyAssignedRoleIds: alreadyAssignedRoleIds,
+    };
   } catch (error) {
-    throw new Error(`Error assigning role to user: ${error.message}`);
+    throw new Error(`Error assigning roles to user: ${error.message}`);
+  }
+};
+
+module.exports.removeRolesFromUser = async (userId, roleIds, tenantId) => {
+  try {
+    const user = await User.findOne({ _id: userId, tenantId });
+
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    // Check which roles user actually has
+    const existingRoleIds = user.roles.map((roleId) => roleId.toString());
+    const rolesToRemove = roleIds.filter((roleId) =>
+      existingRoleIds.includes(roleId)
+    );
+    const notAssignedRoleIds = roleIds.filter(
+      (roleId) => !existingRoleIds.includes(roleId)
+    );
+
+    if (rolesToRemove.length === 0) {
+      throw new Error("User doesn't have any of the specified roles");
+    }
+
+    // Remove roles from user
+    user.roles = user.roles.filter(
+      (roleId) => !roleIds.includes(roleId.toString())
+    );
+    await user.save();
+
+    // Get updated user with populated roles
+    const updatedUser = await User.findOne({ _id: userId, tenantId }).populate(
+      "roles"
+    );
+
+    return {
+      user: updatedUser,
+      removedRoles: rolesToRemove.length,
+      notAssignedRoles: notAssignedRoleIds.length,
+      removedRoleIds: rolesToRemove,
+      notAssignedRoleIds: notAssignedRoleIds,
+    };
+  } catch (error) {
+    throw new Error(`Error removing roles from user: ${error.message}`);
   }
 };
 

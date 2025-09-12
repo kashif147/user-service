@@ -21,16 +21,12 @@ module.exports.handleAzureADRedirect = async (req, res) => {
       });
     }
 
-    // For GET requests, we need to get the codeVerifier from session or return an error
-    // Since PKCE requires the codeVerifier, we'll return an error asking for POST request
-    return res.status(400).json({
-      success: false,
-      message: "Please use POST request with codeVerifier",
-      code: code,
-      state: state,
-      instructions:
-        "Send POST request to /auth/azure-crm with both 'code' and 'codeVerifier' in request body",
-    });
+    // Redirect back to the test page with the authorization code
+    // The test page will automatically complete the authentication
+    const redirectUrl = `http://localhost:3000/azure-ad-test.html?code=${encodeURIComponent(
+      code
+    )}&state=${encodeURIComponent(state)}`;
+    return res.redirect(redirectUrl);
   } catch (error) {
     console.error("Azure AD Redirect Error:", error);
     return res.status(500).json({

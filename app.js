@@ -57,11 +57,11 @@ app.get("/", (req, res) => {
     console.log("=== Azure B2C Callback at Root ===");
     console.log("Code received:", req.query.code.substring(0, 50) + "...");
     console.log("State:", req.query.state);
-    console.log("Redirecting to /auth/microsoft for proper handling");
+    console.log("Redirecting to /auth/azure-portal for proper handling");
 
     // Redirect to the proper auth endpoint
     return res.redirect(
-      `/auth/microsoft?code=${req.query.code}&state=${req.query.state}`
+      `/auth/azure-portal?code=${req.query.code}&state=${req.query.state}`
     );
   }
 

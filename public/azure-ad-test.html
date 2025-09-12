@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Azure B2C Authentication Test</title>
+    <title>Azure AD Authentication Test</title>
     <style>
       body {
         font-family: Arial, sans-serif;
@@ -49,104 +49,93 @@
       input {
         width: 100%;
         padding: 10px;
-        margin: 5px 0;
+        margin: 10px 0;
         border: 1px solid #ddd;
         border-radius: 5px;
-        box-sizing: border-box;
+        font-size: 14px;
       }
       .result {
-        margin: 10px 0;
         padding: 15px;
+        margin: 10px 0;
         border-radius: 5px;
         white-space: pre-wrap;
         font-family: monospace;
         font-size: 12px;
+        display: none;
       }
-      .success {
+      .result.success {
         background-color: #d4edda;
         border: 1px solid #c3e6cb;
         color: #155724;
       }
-      .error {
+      .result.error {
         background-color: #f8d7da;
         border: 1px solid #f5c6cb;
         color: #721c24;
       }
-      .info {
+      .result.info {
         background-color: #d1ecf1;
         border: 1px solid #bee5eb;
         color: #0c5460;
-      }
-      .config {
-        background-color: #fff3cd;
-        border: 1px solid #ffeaa7;
-        color: #856404;
       }
     </style>
   </head>
   <body>
     <div class="container">
-      <h1>🔐 Azure B2C Authentication Test</h1>
+      <h1>🔐 Azure AD Authentication Test</h1>
 
       <div class="section">
-        <h3>📋 Configuration</h3>
-        <div class="result config" id="config">Loading configuration...</div>
-      </div>
-
-      <div class="section">
-        <h3>🔑 Step 1: Generate PKCE Parameters</h3>
+        <h3>Step 1: Generate PKCE Parameters</h3>
         <button onclick="generatePKCE()">Generate PKCE</button>
-        <div class="result info" id="pkceResult" style="display: none"></div>
+        <div id="pkceResult" class="result"></div>
       </div>
 
       <div class="section">
-        <h3>🌐 Step 2: Start Authentication</h3>
-        <button onclick="startAuth()" id="authBtn" disabled>
-          Start B2C Authentication
+        <h3>Step 2: Start Authentication</h3>
+        <button id="authBtn" onclick="startAuth()" disabled>
+          Start Azure AD Authentication
         </button>
-        <div class="result info" id="authResult" style="display: none"></div>
+        <div id="authResult" class="result"></div>
       </div>
 
       <div class="section">
-        <h3>🔄 Step 3: Complete Authentication</h3>
+        <h3>Step 3: Complete Authentication</h3>
         <p>
-          After completing authentication, you'll be redirected back with a
-          code. Copy the code from the URL and paste it below:
+          After authentication, copy the 'code' parameter from the redirect URL:
         </p>
         <input
           type="text"
           id="authCode"
           placeholder="Paste authorization code here..."
         />
-        <button onclick="completeAuth()" id="completeBtn" disabled>
+        <button id="completeBtn" onclick="completeAuth()" disabled>
           Complete Authentication
         </button>
-        <div class="result" id="completeResult" style="display: none"></div>
+        <div id="completeResult" class="result"></div>
       </div>
 
       <div class="section">
-        <h3>🔍 Step 4: Test Token Validation</h3>
-        <button onclick="validateToken()" id="validateBtn" disabled>
-          Validate Token
+        <h3>Step 4: Validate Token</h3>
+        <button id="validateBtn" onclick="validateToken()" disabled>
+          Validate Access Token
         </button>
-        <div class="result" id="validateResult" style="display: none"></div>
+        <div id="validateResult" class="result"></div>
       </div>
     </div>
 
     <script>
-      const BASE_URL = "http://localhost:3000";
+      const BASE_URL = window.location.origin;
       let pkceData = null;
       let authResult = null;
-
-      // Load configuration
-      async function loadConfig() {
-        const configDiv = document.getElementById("config");
-        configDiv.textContent = `Base URL: ${BASE_URL}\nEndpoint: ${BASE_URL}/auth/azure-portal\nPKCE Endpoint: ${BASE_URL}/pkce/generate`;
-      }
 
       // Generate PKCE parameters
       async function generatePKCE() {
         try {
+          document.getElementById("pkceResult").style.display = "block";
+          document.getElementById("pkceResult").className = "result info";
+          document.getElementById("pkceResult").textContent =
+            "Generating PKCE parameters...";
+
           const response = await fetch(`${BASE_URL}/pkce/generate`);
           const data = await response.json();
 
@@ -160,7 +149,7 @@
               `Code Verifier: ${data.codeVerifier.substring(0, 20)}...\n` +
               `Code Challenge: ${data.codeChallenge.substring(0, 20)}...\n` +
               `State: ${data.state}\n` +
-              `B2C Auth URL: ${data.authorizationUrls.azureB2C}`;
+              `Azure AD Auth URL: ${data.authorizationUrls.azureAD}`;
 
             document.getElementById("authBtn").disabled = false;
           } else {
@@ -177,17 +166,17 @@
 
       // Start authentication
       function startAuth() {
-        if (pkceData && pkceData.authorizationUrls.azureB2C) {
+        if (pkceData && pkceData.authorizationUrls.azureAD) {
           document.getElementById("authResult").style.display = "block";
           document.getElementById("authResult").className = "result info";
           document.getElementById("authResult").textContent =
-            `Opening authentication URL...\n` +
-            `URL: ${pkceData.authorizationUrls.azureB2C}\n\n` +
+            `Opening Azure AD authentication URL...\n` +
+            `URL: ${pkceData.authorizationUrls.azureAD}\n\n` +
             `After authentication, you'll be redirected back with a code.\n` +
-            `Copy the 'code' parameter from the URL and paste it in Step 3.`;
+            `The page will automatically complete the authentication.`;
 
-          // Open auth URL in new window
-          window.open(pkceData.authorizationUrls.azureB2C, "_blank");
+          // Open auth URL in same window to capture the redirect
+          window.location.href = pkceData.authorizationUrls.azureAD;
 
           document.getElementById("completeBtn").disabled = false;
         }
@@ -208,7 +197,7 @@
         }
 
         try {
-          const response = await fetch(`${BASE_URL}/auth/azure-portal`, {
+          const response = await fetch(`${BASE_URL}/auth/azure-crm`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -228,11 +217,10 @@
             document.getElementById("completeResult").className =
               "result success";
             document.getElementById("completeResult").textContent =
-              `✅ Authentication Successful!\n\n` +
+              `✅ Azure AD Authentication Successful!\n\n` +
               `User Email: ${data.user.userEmail}\n` +
               `User Type: ${data.user.userType}\n` +
               `Auth Provider: ${data.user.userAuthProvider}\n` +
-              `Tenant ID: ${data.user.tenantId}\n` +
               `Has Access Token: ${!!data.accessToken}\n` +
               `Roles: ${
                 data.user.roles ? data.user.roles.length : 0
@@ -255,7 +243,6 @@
               `Error: ${data.error || "No error details"}`;
           }
         } catch (error) {
-          document.getElementById("completeResult").style.display = "block";
           document.getElementById("completeResult").className = "result error";
           document.getElementById(
             "completeResult"
@@ -271,9 +258,11 @@
         }
 
         try {
-          const response = await fetch(`${BASE_URL}/token/validate-jwt`, {
+          const response = await fetch(`${BASE_URL}/auth/validate`, {
+            method: "POST",
             headers: {
-              Authorization: authResult.accessToken,
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${authResult.accessToken}`,
             },
           });
 
@@ -281,26 +270,26 @@
 
           document.getElementById("validateResult").style.display = "block";
 
-          if (response.ok && data.isValid) {
+          if (response.ok) {
             document.getElementById("validateResult").className =
               "result success";
             document.getElementById("validateResult").textContent =
               `✅ Token Validation Successful!\n\n` +
-              `Valid: ${data.isValid}\n` +
-              `Token Type: ${data.tokenType}\n` +
-              `Expired: ${data.isExpired}\n` +
-              `Validation: ${JSON.stringify(data.validation, null, 2)}`;
+              `User ID: ${data.userId}\n` +
+              `Email: ${data.email}\n` +
+              `Roles: ${data.roles ? data.roles.join(", ") : "None"}\n` +
+              `Permissions: ${
+                data.permissions ? data.permissions.length : 0
+              } assigned`;
           } else {
             document.getElementById("validateResult").className =
               "result error";
             document.getElementById("validateResult").textContent =
               `❌ Token Validation Failed!\n\n` +
               `Status: ${response.status}\n` +
-              `Valid: ${data.isValid}\n` +
-              `Error: ${data.message || "Unknown error"}`;
+              `Message: ${data.message || "Unknown error"}`;
           }
         } catch (error) {
-          document.getElementById("validateResult").style.display = "block";
           document.getElementById("validateResult").className = "result error";
           document.getElementById(
             "validateResult"
@@ -308,18 +297,38 @@
         }
       }
 
-      // Initialize page
+      // Load PKCE data from localStorage on page load
       window.onload = function () {
-        loadConfig();
+        // Check if we have a code in the URL (from Azure AD redirect)
+        const urlParams = new URLSearchParams(window.location.search);
+        const authCode = urlParams.get("code");
+        const state = urlParams.get("state");
 
-        // Restore PKCE data from localStorage if available
-        const storedPkceData = localStorage.getItem("pkceData");
-        if (storedPkceData) {
+        if (authCode && state) {
+          // We have an authorization code, try to complete authentication automatically
+          const savedPKCE = localStorage.getItem("pkceData");
+          if (savedPKCE) {
+            try {
+              pkceData = JSON.parse(savedPKCE);
+
+              // Check if the state matches
+              if (pkceData.state === state) {
+                // Auto-complete authentication
+                document.getElementById("authCode").value = authCode;
+                completeAuth();
+                return;
+              }
+            } catch (error) {
+              localStorage.removeItem("pkceData");
+            }
+          }
+        }
+
+        // Normal PKCE data loading
+        const savedPKCE = localStorage.getItem("pkceData");
+        if (savedPKCE) {
           try {
-            pkceData = JSON.parse(storedPkceData);
-            console.log("Restored PKCE data from localStorage");
-
-            // Show PKCE info
+            pkceData = JSON.parse(savedPKCE);
             document.getElementById("pkceResult").style.display = "block";
             document.getElementById("pkceResult").textContent =
               `Code Verifier: ${pkceData.codeVerifier.substring(0, 20)}...\n` +
@@ -328,65 +337,12 @@
                 20
               )}...\n` +
               `State: ${pkceData.state}\n` +
-              `B2C Auth URL: ${pkceData.authorizationUrls.azureB2C}`;
-
+              `Azure AD Auth URL: ${pkceData.authorizationUrls.azureAD}`;
             document.getElementById("authBtn").disabled = false;
+            document.getElementById("completeBtn").disabled = false;
           } catch (error) {
-            console.error("Failed to restore PKCE data:", error);
             localStorage.removeItem("pkceData");
           }
-        }
-
-        // Check if we have a code in the URL (from Azure B2C redirect)
-        const urlParams = new URLSearchParams(window.location.search);
-        const code = urlParams.get("code");
-        const state = urlParams.get("state");
-        const error = urlParams.get("error");
-
-        if (error) {
-          console.log("❌ Azure B2C Error:", error);
-          document.getElementById("completeResult").style.display = "block";
-          document.getElementById("completeResult").className = "result error";
-          document.getElementById("completeResult").textContent =
-            `❌ Azure B2C Authentication Error!\n\n` +
-            `Error: ${error}\n` +
-            `State: ${state || "N/A"}\n\n` +
-            `This usually means the redirect URI is not registered in Azure B2C.`;
-          return;
-        }
-
-        if (code) {
-          console.log(
-            "Authorization code received from URL:",
-            code.substring(0, 50) + "..."
-          );
-          document.getElementById("authCode").value = code;
-
-          // Enable complete button if we have both code and PKCE data
-          if (pkceData) {
-            document.getElementById("completeBtn").disabled = false;
-
-            // Automatically complete authentication if we have both code and PKCE data
-            if (pkceData.state === state) {
-              console.log(
-                "✅ State matches, automatically completing authentication..."
-              );
-              completeAuth();
-              return;
-            } else {
-              console.log("⚠️ State mismatch, manual completion required");
-            }
-          }
-
-          // Show success message
-          document.getElementById("completeResult").style.display = "block";
-          document.getElementById("completeResult").className =
-            "result success";
-          document.getElementById("completeResult").textContent =
-            `✅ Authorization code received!\n\n` +
-            `Code: ${code.substring(0, 50)}...\n` +
-            `State: ${state}\n\n` +
-            `Click "Complete Authentication" to finish the process.`;
         }
       };
     </script>

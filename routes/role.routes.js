@@ -6,7 +6,7 @@ const {
   requireTenant,
   requireRole,
   requirePermission,
-} = require("../middlewares/auth.mw");
+} = require("../middlewares/auth");
 const PERMISSIONS = require("@membership/shared-constants/permissions");
 
 // Apply authentication and tenant enforcement to all routes
@@ -29,31 +29,27 @@ router.post(
 
 // Role CRUD operations
 router.post("/roles", requireRole(["SU"]), RoleController.createRole);
-router.get(
-  "/roles",
-  requirePermission([PERMISSIONS.ROLE.READ]),
-  RoleController.getAllRoles
-);
+router.get("/roles", requireRole(["SU", "ASU"]), RoleController.getAllRoles);
 router.get(
   "/roles/:id",
-  requirePermission([PERMISSIONS.ROLE.READ]),
+  requireRole(["SU", "ASU"]),
   RoleController.getRoleById
 );
 router.put("/roles/:id", requireRole(["SU"]), RoleController.updateRole);
 router.delete("/roles/:id", requireRole(["SU"]), RoleController.deleteRole);
 
-// Role permissions (Super User only)
+// Role permissions (Super User only - ASU uses tenant-scoped endpoint)
 router.put(
   "/roles/:id/permissions",
   requireRole(["SU"]),
   RoleController.updateRolePermissions
 );
 
-// User role management (Super User only)
+// User role management (Super User only - ASU uses tenant-scoped endpoint)
 router.post(
   "/users/assign-role",
   requireRole(["SU"]),
-  RoleController.assignRoleToUser
+  RoleController.assignRolesToUser
 );
 router.post(
   "/users/remove-role",
@@ -61,32 +57,40 @@ router.post(
   RoleController.removeRoleFromUser
 );
 
-// User information endpoints
+// Batch role management (Super User only)
+router.post(
+  "/users/assign-roles-batch",
+  requireRole(["SU"]),
+  RoleController.assignRolesToUser
+);
+router.post(
+  "/users/remove-roles-batch",
+  requireRole(["SU"]),
+  RoleController.removeRolesFromUser
+);
+
+// User information endpoints (ASU can read users in their tenant)
 router.get(
   "/users/:userId/roles",
-  requirePermission([PERMISSIONS.USER.READ]),
+  requireRole(["SU", "ASU"]),
   RoleController.getUserRoles
 );
 router.get(
   "/users/:userId/permissions",
-  requirePermission([PERMISSIONS.USER.READ]),
+  requireRole(["SU", "ASU"]),
   RoleController.getUserPermissions
 );
 router.get(
   "/users/:userId/has-role/:roleCode",
-  requirePermission([PERMISSIONS.USER.READ]),
+  requireRole(["SU", "ASU"]),
   RoleController.hasRole
 );
-router.get(
-  "/users",
-  requirePermission([PERMISSIONS.USER.READ]),
-  RoleController.getAllUsers
-);
+router.get("/users", requireRole(["SU", "ASU"]), RoleController.getAllUsers);
 
-// Get users by role
+// Get users by role (ASU can read users in their tenant)
 router.get(
   "/roles/:roleId/users",
-  requirePermission([PERMISSIONS.USER.READ]),
+  requireRole(["SU", "ASU"]),
   RoleController.getUsersByRole
 );
 

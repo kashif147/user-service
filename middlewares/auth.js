@@ -5,29 +5,35 @@ const {
   getHighestRoleLevel,
   hasMinimumRole,
   isSuperUser,
+  isAssistantSuperUser,
+  isSystemAdmin,
 } = require("../config/roleHierarchy");
 
-async function ensureAuthenticated(req, res, next) {
-  const header = req.headers.authorization || req.headers.Authorization;
-  if (!header?.startsWith("Bearer ")) {
-    const authError = AppError.badRequest("Authorization header required", {
-      tokenError: true,
-      missingHeader: true,
-    });
-    return res.status(authError.status).json({
-      error: {
-        message: authError.message,
-        code: authError.code,
-        status: authError.status,
-        tokenError: authError.tokenError,
-        missingHeader: authError.missingHeader,
-      },
-    });
-  }
-
-  const token = header.split(" ")[1];
-
+/**
+ * Unified JWT Authentication Middleware
+ * Handles JWT token verification and sets request context
+ */
+const authenticate = async (req, res, next) => {
   try {
+    const authHeader = req.headers.authorization || req.headers.Authorization;
+
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      const authError = AppError.badRequest("Authorization header required", {
+        tokenError: true,
+        missingHeader: true,
+      });
+      return res.status(authError.status).json({
+        error: {
+          message: authError.message,
+          code: authError.code,
+          status: authError.status,
+          tokenError: authError.tokenError,
+          missingHeader: authError.missingHeader,
+        },
+      });
+    }
+
+    const token = authHeader.substring(7); // Remove 'Bearer '
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     // Validate tenantId is present in token
@@ -50,7 +56,7 @@ async function ensureAuthenticated(req, res, next) {
     // Set request context with tenant isolation
     req.ctx = {
       tenantId: decoded.tid,
-      userId: decoded.sub || decoded.id,
+      userId: decoded.sub || decoded.id, // Support both sub and id claims
       roles: decoded.roles || [],
       permissions: decoded.permissions || [],
     };
@@ -62,12 +68,12 @@ async function ensureAuthenticated(req, res, next) {
     req.roles = decoded.roles || [];
     req.permissions = decoded.permissions || [];
 
-    return next();
-  } catch (e) {
-    console.error("JWT failed:", e.message);
+    next();
+  } catch (error) {
+    console.error("JWT Verification Error:", error.message);
     const authError = AppError.badRequest("Invalid token", {
       tokenError: true,
-      jwtError: e.message,
+      jwtError: error.message,
     });
     return res.status(authError.status).json({
       error: {
@@ -79,24 +85,37 @@ async function ensureAuthenticated(req, res, next) {
       },
     });
   }
-}
+};
 
 // Helper function to check if user has any of the specified roles
 function hasAnyRole(userRoles, requiredRoles) {
   if (!userRoles || !Array.isArray(userRoles)) return false;
-  return requiredRoles.some((role) => userRoles.includes(role));
+
+  // Handle both role objects and role codes
+  const userRoleCodes = userRoles.map((role) =>
+    typeof role === "string" ? role : role.code
+  );
+
+  return requiredRoles.some((role) => userRoleCodes.includes(role));
 }
 
 // Helper function to check if user has specific role
 function hasRole(userRoles, requiredRole) {
   if (!userRoles || !Array.isArray(userRoles)) return false;
-  return userRoles.includes(requiredRole);
+
+  // Handle both role objects and role codes
+  const userRoleCodes = userRoles.map((role) =>
+    typeof role === "string" ? role : role.code
+  );
+
+  return userRoleCodes.includes(requiredRole);
 }
 
-// Helper function to check if user has Super User role (full access)
-// Note: isSuperUser is now imported from roleHierarchy.js
-
-function authorizeAny(...roles) {
+/**
+ * Role-based Authorization Middleware
+ * Requires user to have any of the specified roles
+ */
+const requireRole = (requiredRoles) => {
   return (req, res, next) => {
     if (!req.ctx || !req.ctx.roles) {
       const authError = AppError.badRequest("Authentication required", {
@@ -119,31 +138,95 @@ function authorizeAny(...roles) {
       return next();
     }
 
-    if (hasAnyRole(req.ctx.roles, roles)) {
+    const hasRequiredRole = hasAnyRole(req.ctx.roles, requiredRoles);
+
+    if (!hasRequiredRole) {
+      const forbiddenError = AppError.badRequest("Insufficient permissions", {
+        forbidden: true,
+        userRoles: req.ctx.roles,
+        requiredRoles: requiredRoles,
+      });
+      return res.status(forbiddenError.status).json({
+        error: {
+          message: forbiddenError.message,
+          code: forbiddenError.code,
+          status: forbiddenError.status,
+          forbidden: forbiddenError.forbidden,
+          userRoles: forbiddenError.userRoles,
+          requiredRoles: forbiddenError.requiredRoles,
+        },
+      });
+    }
+
+    next();
+  };
+};
+
+/**
+ * Permission-based Authorization Middleware
+ * Requires user to have any of the specified permissions
+ */
+const requirePermission = (requiredPermissions) => {
+  return (req, res, next) => {
+    if (!req.ctx || !req.ctx.permissions) {
+      const authError = AppError.badRequest("Authentication required", {
+        authError: true,
+        missingPermissions: true,
+      });
+      return res.status(authError.status).json({
+        error: {
+          message: authError.message,
+          code: authError.code,
+          status: authError.status,
+          authError: authError.authError,
+          missingPermissions: authError.missingPermissions,
+        },
+      });
+    }
+
+    // Super User has all permissions
+    if (isSuperUser(req.ctx.roles)) {
       return next();
     }
 
-    const forbiddenError = AppError.badRequest("Insufficient permissions", {
-      forbidden: true,
-      userRoles: req.ctx.roles,
-      requiredRoles: roles,
-    });
-    return res.status(forbiddenError.status).json({
-      error: {
-        message: forbiddenError.message,
-        code: forbiddenError.code,
-        status: forbiddenError.status,
-        forbidden: forbiddenError.forbidden,
-        userRoles: forbiddenError.userRoles,
-        requiredRoles: forbiddenError.requiredRoles,
-      },
-    });
+    // Assistant Super User has specific permissions
+    if (isAssistantSuperUser(req.ctx.roles)) {
+      return next();
+    }
+
+    const hasRequiredPermission = requiredPermissions.some(
+      (permission) =>
+        req.ctx.permissions.includes(permission) ||
+        req.ctx.permissions.includes("*")
+    );
+
+    if (!hasRequiredPermission) {
+      const forbiddenError = AppError.badRequest("Insufficient permissions", {
+        forbidden: true,
+        userPermissions: req.ctx.permissions,
+        requiredPermissions: requiredPermissions,
+      });
+      return res.status(forbiddenError.status).json({
+        error: {
+          message: forbiddenError.message,
+          code: forbiddenError.code,
+          status: forbiddenError.status,
+          forbidden: forbiddenError.forbidden,
+          userPermissions: forbiddenError.userPermissions,
+          requiredPermissions: forbiddenError.requiredPermissions,
+        },
+      });
+    }
+
+    next();
   };
-}
+};
 
-// Role hierarchy is now imported from ../config/roleHierarchy.js
-
-function authorizeMin(minRole) {
+/**
+ * Minimum Role Level Authorization Middleware
+ * Requires user to have minimum role level
+ */
+const requireMinRole = (minRole) => {
   return (req, res, next) => {
     if (!req.ctx || !req.ctx.roles) {
       const authError = AppError.badRequest("Authentication required", {
@@ -186,183 +269,66 @@ function authorizeMin(minRole) {
       },
     });
   };
-}
+};
 
-// Permission-based authorization middleware
-function requirePermission(permission) {
-  return (req, res, next) => {
-    if (!req.ctx || !req.ctx.permissions) {
-      const authError = AppError.badRequest("Authentication required", {
-        authError: true,
-        missingPermissions: true,
-      });
-      return res.status(authError.status).json({
-        error: {
-          message: authError.message,
-          code: authError.code,
-          status: authError.status,
-          authError: authError.authError,
-          missingPermissions: authError.missingPermissions,
-        },
-      });
-    }
-
-    // Super User has all permissions
-    if (isSuperUser(req.ctx.roles)) {
-      return next();
-    }
-
-    // Check if user has the required permission
-    if (
-      req.ctx.permissions.includes(permission) ||
-      req.ctx.permissions.includes("*")
-    ) {
-      return next();
-    }
-
-    const forbiddenError = AppError.badRequest("Insufficient permissions", {
-      forbidden: true,
-      userPermissions: req.ctx.permissions,
-      requiredPermission: permission,
+/**
+ * Tenant Enforcement Middleware
+ * Ensures tenantId is present in req.ctx
+ */
+const requireTenant = (req, res, next) => {
+  if (!req.ctx || !req.ctx.tenantId) {
+    const authError = AppError.badRequest("Tenant context required", {
+      authError: true,
+      missingTenant: true,
     });
-    return res.status(forbiddenError.status).json({
+    return res.status(authError.status).json({
       error: {
-        message: forbiddenError.message,
-        code: forbiddenError.code,
-        status: forbiddenError.status,
-        forbidden: forbiddenError.forbidden,
-        userPermissions: forbiddenError.userPermissions,
-        requiredPermission: forbiddenError.requiredPermission,
+        message: authError.message,
+        code: authError.code,
+        status: authError.status,
+        authError: authError.authError,
+        missingTenant: authError.missingTenant,
       },
     });
-  };
-}
+  }
+  next();
+};
 
-// Middleware to require any of the specified permissions
-function requireAnyPermission(...permissions) {
-  return (req, res, next) => {
-    if (!req.ctx || !req.ctx.permissions) {
-      const authError = AppError.badRequest("Authentication required", {
-        authError: true,
-        missingPermissions: true,
-      });
-      return res.status(authError.status).json({
-        error: {
-          message: authError.message,
-          code: authError.code,
-          status: authError.status,
-          authError: authError.authError,
-          missingPermissions: authError.missingPermissions,
-        },
-      });
-    }
+/**
+ * Helper function to add tenantId to MongoDB queries
+ */
+const withTenant = (tenantId) => {
+  return { tenantId };
+};
 
-    // Super User has all permissions
-    if (isSuperUser(req.ctx.roles)) {
-      return next();
-    }
+/**
+ * Helper function to add tenantId to MongoDB aggregation pipelines
+ */
+const addTenantMatch = (tenantId) => {
+  return { $match: { tenantId } };
+};
 
-    // Check if user has any of the required permissions
-    const hasPermission = permissions.some(
-      (permission) =>
-        req.ctx.permissions.includes(permission) ||
-        req.ctx.permissions.includes("*")
-    );
-
-    if (hasPermission) {
-      return next();
-    }
-
-    const forbiddenError = AppError.badRequest("Insufficient permissions", {
-      forbidden: true,
-      userPermissions: req.ctx.permissions,
-      requiredPermissions: permissions,
-    });
-    return res.status(forbiddenError.status).json({
-      error: {
-        message: forbiddenError.message,
-        code: forbiddenError.code,
-        status: forbiddenError.status,
-        forbidden: forbiddenError.forbidden,
-        userPermissions: forbiddenError.userPermissions,
-        requiredPermissions: forbiddenError.requiredPermissions,
-      },
-    });
-  };
-}
-
-// Middleware to require specific role (exact match)
-function requireRole(role) {
-  return (req, res, next) => {
-    if (!req.ctx || !req.ctx.roles) {
-      const authError = AppError.badRequest("Authentication required", {
-        authError: true,
-        missingRoles: true,
-      });
-      return res.status(authError.status).json({
-        error: {
-          message: authError.message,
-          code: authError.code,
-          status: authError.status,
-          authError: authError.authError,
-          missingRoles: authError.missingRoles,
-        },
-      });
-    }
-
-    if (hasRole(req.ctx.roles, role)) {
-      return next();
-    }
-
-    const forbiddenError = AppError.badRequest("Insufficient permissions", {
-      forbidden: true,
-      userRoles: req.ctx.roles,
-      requiredRole: role,
-    });
-    return res.status(forbiddenError.status).json({
-      error: {
-        message: forbiddenError.message,
-        code: forbiddenError.code,
-        status: forbiddenError.status,
-        forbidden: forbiddenError.forbidden,
-        userRoles: forbiddenError.userRoles,
-        requiredRole: forbiddenError.requiredRole,
-      },
-    });
-  };
-}
-
-// Utility function to check if user has specific role
-function hasRole(userRoles, requiredRole) {
-  if (!userRoles || !Array.isArray(userRoles)) return false;
-  return userRoles.includes(requiredRole);
-}
-
-// Utility function to check if user has minimum role level
-function hasMinRole(userRoles, minRole) {
-  return hasMinimumRole(userRoles, minRole);
-}
-
-// Utility function to get user's highest role level
-function getUserRoleLevel(userRoles) {
-  return getHighestRoleLevel(userRoles);
-}
-
-// Utility function to check if user has permission
-function hasPermission(userPermissions, permission) {
-  if (!userPermissions || !Array.isArray(userPermissions)) return false;
-  return userPermissions.includes(permission) || userPermissions.includes("*");
-}
-
+// Export all middleware functions
 module.exports = {
-  ensureAuthenticated,
-  authorizeAny,
-  authorizeMin,
-  requirePermission,
-  requireAnyPermission,
+  // Core authentication
+  authenticate,
+
+  // Authorization middleware
   requireRole,
+  requirePermission,
+  requireMinRole,
+  requireTenant,
+
+  // Utility functions
   hasRole,
-  hasMinRole,
-  getUserRoleLevel,
-  hasPermission,
+  hasAnyRole,
+  isSuperUser,
+  isAssistantSuperUser,
+  isSystemAdmin,
+  getUserRoleLevel: getHighestRoleLevel,
+  hasMinRole: hasMinimumRole,
+
+  // Database helpers
+  withTenant,
+  addTenantMatch,
 };

@@ -11,6 +11,7 @@
 const ROLE_HIERARCHY = {
   // System Roles
   SU: 100, // Super User - highest privilege, bypasses all authorization
+  ASU: 95, // Assistant Super User - tenant-scoped management
 
   // Executive Roles
   GS: 90, // General Secretary
@@ -92,6 +93,24 @@ function isSuperUser(userRoles) {
 }
 
 /**
+ * Check if user has Assistant Super User privileges
+ * @param {string[]} userRoles - User's roles
+ * @returns {boolean} True if user is Assistant Super User
+ */
+function isAssistantSuperUser(userRoles) {
+  return userRoles && userRoles.includes("ASU");
+}
+
+/**
+ * Check if user has Super User or Assistant Super User privileges
+ * @param {string[]} userRoles - User's roles
+ * @returns {boolean} True if user is SU or ASU
+ */
+function isSystemAdmin(userRoles) {
+  return isSuperUser(userRoles) || isAssistantSuperUser(userRoles);
+}
+
+/**
  * Get all roles at or above a certain level
  * @param {number} minLevel - Minimum privilege level
  * @returns {string[]} Array of role codes
@@ -118,6 +137,8 @@ module.exports = {
   getHighestRoleLevel,
   hasMinimumRole,
   isSuperUser,
+  isAssistantSuperUser,
+  isSystemAdmin,
   getRolesAtOrAbove,
   getRoleHierarchySorted,
 };

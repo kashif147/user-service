@@ -4,10 +4,13 @@ const Role = require("../models/role");
 const jwt = require("jsonwebtoken");
 const { assignDefaultRole } = require("../helpers/roleAssignment");
 
-const TENANT_ID = process.env.AZURE_AD_TENANT_ID;
-const CLIENT_ID = process.env.AZURE_AD_CLIENT_ID;
+const TENANT_ID =
+  process.env.AZURE_AD_TENANT_ID || "39866a06-30bc-4a89-80c6-9dd9357dd453";
+const CLIENT_ID =
+  process.env.AZURE_AD_CLIENT_ID || "ad25f823-e2d3-43e2-bea5-a9e6c9b0dbae";
 const CLIENT_SECRET = process.env.AZURE_AD_CLIENT_SECRET;
-const REDIRECT_URI = process.env.AZURE_AD_REDIRECT_URI;
+const REDIRECT_URI =
+  process.env.AZURE_AD_REDIRECT_URI || "http://localhost:3000/auth/azure-crm";
 
 const TOKEN_ENDPOINT = `https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/token`;
 const GRAPH_ME_ENDPOINT = "https://graph.microsoft.com/v1.0/me";
