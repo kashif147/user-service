@@ -134,10 +134,12 @@ This guide provides step-by-step instructions for implementing the centralized R
 cp /path/to/user-service/sdks/node-policy-client.js ./policy-client.js
 
 # For React.js Developers
-cp /path/to/user-service/sdks/react-policy-client.js ./src/utils/policy-client.js
+cp /path/to/user-service/sdks/node-policy-client.js ./src/utils/policy-client.js
+cp /path/to/user-service/sdks/react-policy-hooks.js ./src/hooks/policy-hooks.js
 
 # For React Native Developers
-cp /path/to/user-service/sdks/react-native-policy-client.js ./src/utils/policy-client.js
+cp /path/to/user-service/sdks/node-policy-client.js ./src/utils/policy-client.js
+cp /path/to/user-service/sdks/react-native-policy-hooks.js ./src/hooks/policy-hooks.js
 ```
 
 ### 2. Install Dependencies

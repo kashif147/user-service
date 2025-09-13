@@ -31,7 +31,7 @@ module.exports.generatePKCE = async (req, res) => {
       process.env.AZURE_AD_CLIENT_ID || "ad25f823-e2d3-43e2-bea5-a9e6c9b0dbae";
     const redirectUri =
       process.env.AZURE_AD_REDIRECT_URI ||
-      "http://localhost:3000/public/azure-ad-test.html";
+      "http://localhost:3000/auth/azure-crm";
     const scope = "openid profile email offline_access";
     const state = Math.random().toString(36).substring(7);
 
@@ -50,7 +50,8 @@ module.exports.generatePKCE = async (req, res) => {
     const policy = process.env.MS_POLICY || "B2C_1_projectshell";
     const b2cClientId =
       process.env.MS_CLIENT_ID || "e3688a2f-3956-42f9-8c98-6fea7a60a5b4";
-    const b2cRedirectUri = "http://localhost:3000/";
+    const b2cRedirectUri =
+      process.env.MS_REDIRECT_URI || "http://localhost:3000/auth/azure-portal";
 
     const b2cAuthUrl =
       `https://${b2cTenantId}.b2clogin.com/${b2cTenantId}.onmicrosoft.com/${policy}/oauth2/v2.0/authorize?` +

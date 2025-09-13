@@ -121,7 +121,8 @@ if (result.success) {
 ### React Web Applications
 
 ```javascript
-import PolicyClient from "./sdks/react-policy-client";
+import PolicyClient from "./sdks/node-policy-client";
+import { usePolicyClient, useAuthorization } from "./sdks/react-policy-hooks";
 
 const policy = new PolicyClient("http://user-service:3000");
 
@@ -148,7 +149,11 @@ function UserProfile({ token }) {
 ### React Native Mobile Apps
 
 ```javascript
-import PolicyClient from "./sdks/react-native-policy-client";
+import PolicyClient from "./sdks/node-policy-client";
+import {
+  usePolicyClient,
+  useOfflineAuthorization,
+} from "./sdks/react-native-policy-hooks";
 
 const policy = new PolicyClient("http://user-service:3000", {
   enableOfflineCache: true,
