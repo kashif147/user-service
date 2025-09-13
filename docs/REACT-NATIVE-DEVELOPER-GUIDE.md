@@ -12,7 +12,8 @@ npm install @react-native-async-storage/async-storage
 
 ```bash
 # Copy the React Native SDK to your project
-cp /path/to/user-service/sdks/react-native-policy-client.js ./src/utils/policy-client.js
+cp /path/to/user-service/sdks/node-policy-client.js ./src/utils/policy-client.js
+cp /path/to/user-service/sdks/react-native-policy-hooks.js ./src/hooks/policy-hooks.js
 ```
 
 ### 3. Environment Variables
@@ -440,7 +441,7 @@ export default useNetworkAwarePermissions;
 ## 🔄 Migration Checklist
 
 - [ ] Install `@react-native-async-storage/async-storage`
-- [ ] Copy `react-native-policy-client.js` to your project
+- [ ] Copy `node-policy-client.js` and `react-native-policy-hooks.js` to your project
 - [ ] Add environment variables
 - [ ] Initialize PolicyClient with offline cache enabled
 - [ ] Replace manual permission checks with hooks

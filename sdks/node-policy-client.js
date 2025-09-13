@@ -1,5 +1,6 @@
 /**
- * JavaScript/Node.js SDK for Centralized RBAC Policy Evaluation
+ * Core Policy Client for Centralized RBAC Policy Evaluation
+ * Framework-agnostic implementation that can be used across platforms
  *
  * Usage in Node.js/Express microservices:
  * const PolicyClient = require('./policy-client');
@@ -204,21 +205,27 @@ class PolicyClient {
 
     for (let i = 0; i < this.retries; i++) {
       try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+        // Use fetch if available (Node 18+, browsers), otherwise use http/https modules
+        if (typeof fetch !== "undefined") {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
-        const response = await fetch(url, {
-          ...options,
-          signal: controller.signal,
-        });
+          const response = await fetch(url, {
+            ...options,
+            signal: controller.signal,
+          });
 
-        clearTimeout(timeoutId);
+          clearTimeout(timeoutId);
 
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          }
+
+          return await response.json();
+        } else {
+          // Fallback for Node.js environments without fetch
+          return await this.makeNodeRequest(url, options);
         }
-
-        return await response.json();
       } catch (error) {
         lastError = error;
         if (i < this.retries - 1) {
@@ -228,6 +235,61 @@ class PolicyClient {
     }
 
     throw lastError;
+  }
+
+  /**
+   * Node.js HTTP request fallback
+   * @private
+   */
+  async makeNodeRequest(url, options) {
+    return new Promise((resolve, reject) => {
+      // Dynamic import to avoid issues in browser environments
+      const urlModule = require("url");
+      const parsedUrl = new urlModule.URL(url);
+      const isHttps = parsedUrl.protocol === "https:";
+      const httpModule = isHttps ? require("https") : require("http");
+
+      const requestOptions = {
+        hostname: parsedUrl.hostname,
+        port: parsedUrl.port || (isHttps ? 443 : 80),
+        path: parsedUrl.pathname + parsedUrl.search,
+        method: options.method || "GET",
+        headers: options.headers || {},
+        timeout: this.timeout,
+      };
+
+      const req = httpModule.request(requestOptions, (res) => {
+        let data = "";
+
+        res.on("data", (chunk) => {
+          data += chunk;
+        });
+
+        res.on("end", () => {
+          try {
+            if (res.statusCode >= 200 && res.statusCode < 300) {
+              resolve(JSON.parse(data));
+            } else {
+              reject(new Error(`HTTP ${res.statusCode}: ${res.statusMessage}`));
+            }
+          } catch (error) {
+            reject(new Error("Invalid JSON response"));
+          }
+        });
+      });
+
+      req.on("error", reject);
+      req.on("timeout", () => {
+        req.destroy();
+        reject(new Error("Request timeout"));
+      });
+
+      if (options.body) {
+        req.write(options.body);
+      }
+
+      req.end();
+    });
   }
 
   /**
@@ -256,4 +318,13 @@ class PolicyClient {
   }
 }
 
+// Support both CommonJS and ES modules
 module.exports = PolicyClient;
+module.exports.default = PolicyClient;
+module.exports.PolicyClient = PolicyClient;
+
+// For environments that support ES modules
+if (typeof exports !== "undefined") {
+  exports.default = PolicyClient;
+  exports.PolicyClient = PolicyClient;
+}

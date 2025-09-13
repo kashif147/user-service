@@ -6,7 +6,8 @@
 
 ```bash
 # Copy the React SDK to your project
-cp /path/to/user-service/sdks/react-policy-client.js ./src/utils/policy-client.js
+cp /path/to/user-service/sdks/node-policy-client.js ./src/utils/policy-client.js
+cp /path/to/user-service/sdks/react-policy-hooks.js ./src/hooks/policy-hooks.js
 ```
 
 ### 2. Install Dependencies (if needed)
@@ -333,7 +334,7 @@ function App() {
 
 ## 🔄 Migration Checklist
 
-- [ ] Copy `react-policy-client.js` to your project
+- [ ] Copy `node-policy-client.js` and `react-policy-hooks.js` to your project
 - [ ] Add environment variables
 - [ ] Initialize PolicyClient with token expiration handler
 - [ ] Replace manual role/permission checks with hooks
