@@ -276,6 +276,184 @@ router.get("/info", (req, res) => {
 });
 
 /**
+ * UI Initialization Endpoint
+ * POST /policy/ui/initialize
+ *
+ * Returns comprehensive UI authorization data for building permission-aware interfaces
+ * Includes navigation, actions, features, and page access permissions
+ */
+router.post("/ui/initialize", async (req, res) => {
+  try {
+    const { token, uiConfig } = req.body;
+    const authHeader = req.headers.authorization;
+
+    // Get token from body or header
+    const authToken =
+      token ||
+      (authHeader && authHeader.startsWith("Bearer ")
+        ? authHeader.substring(7)
+        : null);
+
+    if (!authToken) {
+      return res.status(401).json({
+        success: false,
+        error: "Authorization token required",
+        code: "MISSING_TOKEN",
+      });
+    }
+
+    // Validate token first
+    const tokenValidation = await policyService.validateToken(authToken);
+    if (!tokenValidation.valid) {
+      return res.status(401).json({
+        success: false,
+        error: tokenValidation.error,
+        code: "INVALID_TOKEN",
+      });
+    }
+
+    // Default UI configuration if not provided
+    const defaultUIConfig = {
+      navigation: [
+        { resource: "portal", action: "read" },
+        { resource: "crm", action: "read" },
+        { resource: "user", action: "read" },
+        { resource: "role", action: "read" },
+        { resource: "admin", action: "read" },
+      ],
+      actions: [
+        { resource: "user", action: "read" },
+        { resource: "user", action: "write" },
+        { resource: "user", action: "delete" },
+        { resource: "role", action: "read" },
+        { resource: "role", action: "write" },
+        { resource: "role", action: "delete" },
+        { resource: "crm", action: "write" },
+        { resource: "crm", action: "delete" },
+        { resource: "admin", action: "write" },
+        { resource: "admin", action: "delete" },
+      ],
+    };
+
+    const config = uiConfig || defaultUIConfig;
+
+    // Collect all unique permission checks
+    const allChecks = new Set();
+
+    // Add navigation checks
+    if (config.navigation) {
+      config.navigation.forEach((nav) => {
+        allChecks.add(
+          JSON.stringify({ resource: nav.resource, action: nav.action })
+        );
+      });
+    }
+
+    // Add action checks
+    if (config.actions) {
+      config.actions.forEach((action) => {
+        allChecks.add(
+          JSON.stringify({ resource: action.resource, action: action.action })
+        );
+      });
+    }
+
+    // Convert to requests array
+    const requests = Array.from(allChecks).map((check) => {
+      const { resource, action } = JSON.parse(check);
+      return { token: authToken, resource, action };
+    });
+
+    // Batch evaluate all permissions
+    const results = await policyService.evaluateBatchPolicy(requests);
+
+    // Build permission map
+    const permissions = {};
+    results.forEach((result, index) => {
+      const request = requests[index];
+      const key = `${request.resource}_${request.action}`;
+      permissions[key] = result.success;
+    });
+
+    // Build navigation capabilities
+    const navigation = [];
+    if (config.navigation) {
+      config.navigation.forEach((nav) => {
+        if (permissions[`${nav.resource}_${nav.action}`]) {
+          navigation.push({
+            resource: nav.resource,
+            action: nav.action,
+            permitted: true,
+          });
+        }
+      });
+    }
+
+    // Build action capabilities
+    const actions = [];
+    if (config.actions) {
+      config.actions.forEach((action) => {
+        if (permissions[`${action.resource}_${action.action}`]) {
+          actions.push({
+            resource: action.resource,
+            action: action.action,
+            permitted: true,
+          });
+        }
+      });
+    }
+
+    // Get resource-specific permissions
+    const resources = ["portal", "crm", "admin", "user", "role"];
+    const resourcePermissions = {};
+
+    for (const resource of resources) {
+      try {
+        const resourceResult = await policyService.getEffectivePermissions(
+          authToken,
+          resource
+        );
+        if (resourceResult.success) {
+          resourcePermissions[resource] = resourceResult.permissions;
+        }
+      } catch (error) {
+        console.warn(`Failed to get permissions for ${resource}:`, error);
+        resourcePermissions[resource] = [];
+      }
+    }
+
+    // Build response
+    const uiData = {
+      user: tokenValidation.user,
+      permissions,
+      capabilities: {
+        navigation,
+        actions,
+        stats: {
+          totalChecks: requests.length,
+          grantedPermissions: Object.values(permissions).filter((p) => p)
+            .length,
+        },
+      },
+      resourcePermissions,
+      timestamp: new Date().toISOString(),
+    };
+
+    res.json({
+      success: true,
+      ...uiData,
+    });
+  } catch (error) {
+    console.error("UI initialization error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Internal server error",
+      code: "UI_INIT_ERROR",
+    });
+  }
+});
+
+/**
  * Cache Management Endpoints
  */
 

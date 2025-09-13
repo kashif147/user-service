@@ -5,8 +5,9 @@
   "main": "app.js",
   "scripts": {
     "start": "node ./bin/user-service.js",
-    "dev": "nodemon ./bin/user-service.js",
+    "start:dev": "NODE_ENV=development node ./bin/user-service.js",
     "start:staging": "NODE_ENV=staging node ./bin/user-service.js",
+    "dev": "NODE_ENV=development nodemon ./bin/user-service.js",
     "dev:staging": "NODE_ENV=staging nodemon ./bin/user-service.js",
     "setup-rbac": "node scripts/setup-rbac.js",
     "assign-roles": "node scripts/assign-default-roles-enhanced.js",

@@ -23,14 +23,32 @@ class PolicyCache {
     if (!this.enabled) return;
 
     try {
-      this.redis = Redis.createClient({
-        host: process.env.REDIS_HOST || "localhost",
-        port: process.env.REDIS_PORT || 6379,
-        password: process.env.REDIS_PASSWORD,
-        db: process.env.REDIS_DB || 0,
-        retryDelayOnFailover: 100,
-        maxRetriesPerRequest: 3,
-      });
+      let config;
+
+      // Use REDIS_URL if provided (similar to RABBITMQ_URL)
+      if (process.env.REDIS_URL) {
+        config = {
+          url: process.env.REDIS_URL,
+          retryDelayOnFailover: 100,
+          maxRetriesPerRequest: 3,
+        };
+      } else {
+        // Fallback to individual config options
+        config = {
+          host: process.env.REDIS_HOST || "localhost",
+          port: process.env.REDIS_PORT || 6379,
+          db: process.env.REDIS_DB || 0,
+          retryDelayOnFailover: 100,
+          maxRetriesPerRequest: 3,
+        };
+
+        // Only add password if it exists
+        if (process.env.REDIS_PASSWORD) {
+          config.password = process.env.REDIS_PASSWORD;
+        }
+      }
+
+      this.redis = Redis.createClient(config);
 
       this.redis.on("error", (err) => {
         console.error("Redis connection error:", err);
