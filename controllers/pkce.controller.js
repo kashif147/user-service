@@ -31,7 +31,7 @@ module.exports.generatePKCE = async (req, res) => {
       process.env.AZURE_AD_CLIENT_ID || "ad25f823-e2d3-43e2-bea5-a9e6c9b0dbae";
     const redirectUri =
       process.env.AZURE_AD_REDIRECT_URI ||
-      "http://localhost:3000/auth/azure-crm";
+      "http://localhost:3000/public/azure-ad-test.html";
     const scope = "openid profile email offline_access";
     const state = Math.random().toString(36).substring(7);
 
