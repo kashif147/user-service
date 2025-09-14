@@ -30,6 +30,7 @@ const PermissionSchema = new mongoose.Schema({
   category: {
     type: String,
     enum: [
+      "GENERAL",
       "USER",
       "ROLE",
       "TENANT",
@@ -38,6 +39,12 @@ const PermissionSchema = new mongoose.Schema({
       "CRM",
       "ADMIN",
       "API",
+      "AUDIT",
+      "SUBSCRIPTION",
+      "PROFILE",
+      "FINANCIAL",
+      "INVOICE",
+      "RECEIPT",
     ],
     required: true,
   },

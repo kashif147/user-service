@@ -7,7 +7,7 @@ const {
   requireRole,
   requirePermission,
 } = require("../middlewares/auth");
-const PERMISSIONS = require("@membership/shared-constants/permissions");
+// Note: Permissions are now fetched from API endpoints as needed
 
 // Apply authentication and tenant enforcement to all routes
 router.use(authenticate);

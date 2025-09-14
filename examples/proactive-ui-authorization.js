@@ -7,10 +7,11 @@
  */
 
 import React, { createContext, useContext, useState, useEffect } from "react";
-import PolicyClient from "../sdks/react-policy-client";
-
-// Initialize policy client
-const policyClient = new PolicyClient("http://user-service:3000");
+import PolicyClient from "../sdks/node-policy-client";
+import {
+  usePolicyClient,
+  useMultiplePermissions,
+} from "../sdks/react-policy-hooks";
 
 // ============================================================================
 // AUTHORIZATION CONTEXT PROVIDER
@@ -19,203 +20,115 @@ const policyClient = new PolicyClient("http://user-service:3000");
 const AuthorizationContext = createContext();
 
 export const AuthorizationProvider = ({ children, token }) => {
-  const [authState, setAuthState] = useState({
-    loading: true,
-    permissions: {},
-    userCapabilities: {},
-    error: null,
-  });
+  const policyClient = usePolicyClient(
+    PolicyClient,
+    "http://user-service:3000"
+  );
 
-  useEffect(() => {
-    if (!token) {
-      setAuthState({
-        loading: false,
-        permissions: {},
-        userCapabilities: {},
-        error: "No token",
-      });
-      return;
-    }
+  // Define all possible UI actions across your application
+  const allUIActions = [
+    // Navigation permissions
+    {
+      resource: "portal",
+      action: "read",
+      category: "navigation",
+      label: "Portal Access",
+    },
+    {
+      resource: "crm",
+      action: "read",
+      category: "navigation",
+      label: "CRM Access",
+    },
+    {
+      resource: "admin",
+      action: "read",
+      category: "navigation",
+      label: "Admin Panel",
+    },
+    // Data permissions
+    { resource: "user", action: "read", category: "data", label: "View Users" },
+    {
+      resource: "user",
+      action: "write",
+      category: "data",
+      label: "Edit Users",
+    },
+    {
+      resource: "user",
+      action: "delete",
+      category: "data",
+      label: "Delete Users",
+    },
+    { resource: "role", action: "read", category: "data", label: "View Roles" },
+    {
+      resource: "role",
+      action: "write",
+      category: "data",
+      label: "Edit Roles",
+    },
+    // Feature permissions
+    {
+      resource: "crm",
+      action: "write",
+      category: "feature",
+      label: "Create Records",
+    },
+    {
+      resource: "crm",
+      action: "delete",
+      category: "feature",
+      label: "Delete Records",
+    },
+    {
+      resource: "admin",
+      action: "write",
+      category: "feature",
+      label: "System Config",
+    },
+  ];
 
-    initializeUserPermissions(token);
-  }, [token]);
+  const { loading, permissions, allLoaded, error } = useMultiplePermissions(
+    policyClient,
+    token,
+    allUIActions
+  );
 
-  const initializeUserPermissions = async (token) => {
-    try {
-      // Define all possible UI actions across your application
-      const allUIActions = [
-        // Navigation permissions
-        {
-          resource: "portal",
-          action: "read",
-          category: "navigation",
-          label: "Portal Access",
-        },
-        {
-          resource: "crm",
-          action: "read",
-          category: "navigation",
-          label: "CRM Access",
-        },
-        {
-          resource: "admin",
-          action: "read",
-          category: "navigation",
-          label: "Admin Panel",
-        },
+  // Build user capabilities from permissions
+  const userCapabilities = React.useMemo(() => {
+    if (!allLoaded) return {};
 
-        // User management permissions
-        {
-          resource: "user",
-          action: "read",
-          category: "users",
-          label: "View Users",
-        },
-        {
-          resource: "user",
-          action: "write",
-          category: "users",
-          label: "Create/Edit Users",
-        },
-        {
-          resource: "user",
-          action: "delete",
-          category: "users",
-          label: "Delete Users",
-        },
+    return {
+      navigation: allUIActions
+        .filter((action) => action.category === "navigation")
+        .filter((action) => permissions[`${action.resource}_${action.action}`])
+        .map((action) => ({ resource: action.resource, label: action.label })),
 
-        // Role management permissions
-        {
-          resource: "role",
-          action: "read",
-          category: "roles",
-          label: "View Roles",
-        },
-        {
-          resource: "role",
-          action: "write",
-          category: "roles",
-          label: "Create/Edit Roles",
-        },
-        {
-          resource: "role",
-          action: "delete",
-          category: "roles",
-          label: "Delete Roles",
-        },
+      dataOperations: allUIActions
+        .filter((action) => action.category === "data")
+        .filter((action) => permissions[`${action.resource}_${action.action}`])
+        .map((action) => ({
+          resource: action.resource,
+          action: action.action,
+          label: action.label,
+        })),
 
-        // Data operations
-        {
-          resource: "crm",
-          action: "write",
-          category: "data",
-          label: "Create Records",
-        },
-        {
-          resource: "crm",
-          action: "delete",
-          category: "data",
-          label: "Delete Records",
-        },
+      features: allUIActions
+        .filter((action) => action.category === "feature")
+        .filter((action) => permissions[`${action.resource}_${action.action}`])
+        .map((action) => ({
+          resource: action.resource,
+          action: action.action,
+          label: action.label,
+        })),
+    };
+  }, [allLoaded, permissions]);
 
-        // System administration
-        {
-          resource: "admin",
-          action: "write",
-          category: "system",
-          label: "System Configuration",
-        },
-        {
-          resource: "admin",
-          action: "delete",
-          category: "system",
-          label: "System Maintenance",
-        },
-      ];
-
-      // Batch check all permissions at once
-      const requests = allUIActions.map((action) => ({
-        token,
-        resource: action.resource,
-        action: action.action,
-        context: { category: action.category },
-      }));
-
-      console.log("🔄 Checking all UI permissions...");
-      const results = await policyClient.evaluateBatch(requests);
-
-      // Build permission map and user capabilities
-      const permissions = {};
-      const userCapabilities = {
-        navigation: [],
-        actions: {},
-        features: {},
-      };
-
-      results.forEach((result, index) => {
-        const action = allUIActions[index];
-        const key = `${action.resource}_${action.action}`;
-        permissions[key] = result.success;
-
-        if (result.success) {
-          // Build navigation capabilities
-          if (action.category === "navigation") {
-            userCapabilities.navigation.push({
-              resource: action.resource,
-              label: action.label,
-              path: `/${action.resource}`,
-            });
-          }
-
-          // Build action capabilities by category
-          if (!userCapabilities.actions[action.category]) {
-            userCapabilities.actions[action.category] = [];
-          }
-          userCapabilities.actions[action.category].push({
-            resource: action.resource,
-            action: action.action,
-            label: action.label,
-          });
-
-          // Build feature flags
-          userCapabilities.features[key] = true;
-        }
-      });
-
-      // Also get detailed permissions for each resource
-      const resources = ["portal", "crm", "admin", "user", "role"];
-      const resourcePermissions = {};
-
-      await Promise.all(
-        resources.map(async (resource) => {
-          const resourcePerms = await policyClient.getPermissions(
-            token,
-            resource
-          );
-          if (resourcePerms.success) {
-            resourcePermissions[resource] = resourcePerms.permissions;
-          }
-        })
-      );
-
-      setAuthState({
-        loading: false,
-        permissions,
-        userCapabilities,
-        resourcePermissions,
-        error: null,
-      });
-
-      console.log("✅ User permissions initialized:", userCapabilities);
-    } catch (error) {
-      console.error("❌ Failed to initialize permissions:", error);
-      setAuthState({
-        loading: false,
-        permissions: {},
-        userCapabilities: {},
-        error: error.message,
-      });
-    }
+  const authState = {
+    loading,
+    permissions,
+    userCapabilities,
+    error: error || (!token ? "No token" : null),
   };
 
   return (
@@ -237,308 +150,138 @@ export const useAuthorization = () => {
 };
 
 // ============================================================================
-// PERMISSION-AWARE NAVIGATION COMPONENT
+// PERMISSION-AWARE COMPONENTS
 // ============================================================================
 
-export const NavigationMenu = () => {
-  const { loading, userCapabilities } = useAuthorization();
+// Higher-order component for conditional rendering based on permissions
+export const withPermission = (WrappedComponent, resource, action) => {
+  return function PermissionWrappedComponent(props) {
+    const { permissions, loading } = useAuthorization();
 
-  if (loading) {
-    return <div className="nav-loading">Loading menu...</div>;
-  }
+    if (loading) return <div>Loading permissions...</div>;
+
+    const hasPermission = permissions[`${resource}_${action}`];
+    return hasPermission ? <WrappedComponent {...props} /> : null;
+  };
+};
+
+// Component for conditional rendering
+export const PermissionGate = ({
+  resource,
+  action,
+  children,
+  fallback = null,
+}) => {
+  const { permissions, loading } = useAuthorization();
+
+  if (loading) return <div>Loading permissions...</div>;
+
+  const hasPermission = permissions[`${resource}_${action}`];
+  return hasPermission ? children : fallback;
+};
+
+// Navigation component that only shows accessible items
+export const PermissionAwareNavigation = () => {
+  const { userCapabilities, loading } = useAuthorization();
+
+  if (loading) return <div>Loading navigation...</div>;
 
   return (
-    <nav className="main-navigation">
-      <ul>
-        {userCapabilities.navigation.map((item) => (
-          <li key={item.resource}>
-            <a href={item.path}>{item.label}</a>
-          </li>
-        ))}
-      </ul>
+    <nav>
+      {userCapabilities.navigation?.map((item, index) => (
+        <a key={index} href={`/${item.resource}`}>
+          {item.label}
+        </a>
+      ))}
     </nav>
   );
 };
 
-// ============================================================================
-// PERMISSION-AWARE DASHBOARD
-// ============================================================================
+// Action buttons that only show if user has permission
+export const ActionButtons = ({ resource }) => {
+  const { userCapabilities, loading } = useAuthorization();
 
-export const Dashboard = () => {
-  const { loading, userCapabilities, permissions } = useAuthorization();
+  if (loading) return <div>Loading actions...</div>;
 
-  if (loading) {
-    return <div className="dashboard-loading">Loading dashboard...</div>;
-  }
+  const actions =
+    userCapabilities.dataOperations?.filter((op) => op.resource === resource) ||
+    [];
 
   return (
-    <div className="dashboard">
-      <h1>Dashboard</h1>
+    <div>
+      {actions.map((action, index) => (
+        <button
+          key={index}
+          onClick={() =>
+            console.log(`Executing ${action.action} on ${action.resource}`)
+          }
+        >
+          {action.label}
+        </button>
+      ))}
+    </div>
+  );
+};
 
-      {/* Navigation Cards - Only show accessible sections */}
-      <div className="dashboard-cards">
-        {userCapabilities.navigation.map((nav) => (
-          <div key={nav.resource} className="dashboard-card">
-            <h3>{nav.label}</h3>
-            <a href={nav.path}>Go to {nav.label}</a>
-          </div>
-        ))}
-      </div>
+// Feature panel that shows available features
+export const FeaturePanel = () => {
+  const { userCapabilities, loading } = useAuthorization();
 
-      {/* Quick Actions - Only show permitted actions */}
-      <div className="quick-actions">
-        <h2>Quick Actions</h2>
+  if (loading) return <div>Loading features...</div>;
 
-        {/* User Management Actions */}
-        {userCapabilities.actions.users && (
-          <div className="action-group">
-            <h3>User Management</h3>
-            {userCapabilities.actions.users.map((action) => (
-              <button key={`${action.resource}_${action.action}`}>
-                {action.label}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* Role Management Actions */}
-        {userCapabilities.actions.roles && (
-          <div className="action-group">
-            <h3>Role Management</h3>
-            {userCapabilities.actions.roles.map((action) => (
-              <button key={`${action.resource}_${action.action}`}>
-                {action.label}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* Data Operations */}
-        {userCapabilities.actions.data && (
-          <div className="action-group">
-            <h3>Data Operations</h3>
-            {userCapabilities.actions.data.map((action) => (
-              <button key={`${action.resource}_${action.action}`}>
-                {action.label}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Feature Flags Demo */}
-      <div className="feature-demo">
-        <h2>Available Features</h2>
-        {permissions.admin_read && (
-          <div>🔧 System Administration Available</div>
-        )}
-        {permissions.user_write && <div>👥 User Creation Available</div>}
-        {permissions.role_write && <div>🏷️ Role Management Available</div>}
-        {permissions.crm_delete && <div>🗑️ Data Deletion Available</div>}
-      </div>
+  return (
+    <div>
+      <h3>Available Features</h3>
+      {userCapabilities.features?.map((feature, index) => (
+        <div key={index}>
+          <strong>{feature.label}</strong>
+          <p>
+            Resource: {feature.resource}, Action: {feature.action}
+          </p>
+        </div>
+      ))}
     </div>
   );
 };
 
 // ============================================================================
-// PERMISSION-AWARE USER MANAGEMENT PAGE
+// EXAMPLE USAGE
 // ============================================================================
 
-export const UserManagementPage = () => {
-  const { loading, userCapabilities, permissions } = useAuthorization();
-  const [users, setUsers] = useState([]);
-
-  // Only load if user has read permission
-  useEffect(() => {
-    if (!loading && permissions.user_read) {
-      loadUsers();
-    }
-  }, [loading, permissions.user_read]);
-
-  const loadUsers = async () => {
-    // Load users from API
-    // This will only be called if user has permission
-    console.log("Loading users...");
-  };
-
-  if (loading) {
-    return <div>Loading permissions...</div>;
-  }
-
-  if (!permissions.user_read) {
-    return (
-      <div className="access-denied">
-        <h1>Access Denied</h1>
-        <p>You don't have permission to view user management.</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="user-management">
-      <div className="page-header">
-        <h1>User Management</h1>
-
-        {/* Only show create button if user has write permission */}
-        {permissions.user_write && (
-          <button className="btn-primary">Create New User</button>
-        )}
-      </div>
-
-      {/* User list with conditional action buttons */}
-      <div className="user-list">
-        {users.map((user) => (
-          <div key={user.id} className="user-card">
-            <div className="user-info">
-              <h3>{user.name}</h3>
-              <p>{user.email}</p>
-            </div>
-
-            <div className="user-actions">
-              <button>View</button>
-
-              {permissions.user_write && <button>Edit</button>}
-
-              {permissions.user_delete && (
-                <button className="btn-danger">Delete</button>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-};
-
-// ============================================================================
-// PERMISSION-AWARE DATA TABLE COMPONENT
-// ============================================================================
-
-export const PermissionAwareDataTable = ({
-  data,
-  resource,
-  onEdit,
-  onDelete,
-  onView,
-}) => {
-  const { permissions } = useAuthorization();
-
-  const canEdit = permissions[`${resource}_write`];
-  const canDelete = permissions[`${resource}_delete`];
-  const canView = permissions[`${resource}_read`];
-
-  if (!canView) {
-    return <div>You don't have permission to view this data.</div>;
-  }
-
-  return (
-    <table className="data-table">
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Email</th>
-          <th>Status</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        {data.map((item) => (
-          <tr key={item.id}>
-            <td>{item.name}</td>
-            <td>{item.email}</td>
-            <td>{item.status}</td>
-            <td>
-              <button onClick={() => onView(item)}>View</button>
-
-              {canEdit && <button onClick={() => onEdit(item)}>Edit</button>}
-
-              {canDelete && (
-                <button className="btn-danger" onClick={() => onDelete(item)}>
-                  Delete
-                </button>
-              )}
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-};
-
-// ============================================================================
-// MAIN APPLICATION WRAPPER
-// ============================================================================
-
-export const App = () => {
-  const [token, setToken] = useState(localStorage.getItem("token"));
-
-  if (!token) {
-    return <LoginPage onLogin={setToken} />;
-  }
+// Main app component showing how to use the authorization system
+export const ExampleApp = () => {
+  const [token, setToken] = React.useState(localStorage.getItem("authToken"));
 
   return (
     <AuthorizationProvider token={token}>
-      <div className="app">
-        <NavigationMenu />
-        <main>
-          <Dashboard />
-        </main>
+      <div>
+        <h1>Permission-Aware Application</h1>
+
+        {/* Navigation only shows accessible items */}
+        <PermissionAwareNavigation />
+
+        {/* Conditional rendering based on permissions */}
+        <PermissionGate resource="user" action="read">
+          <div>
+            <h2>User Management</h2>
+            <ActionButtons resource="user" />
+          </div>
+        </PermissionGate>
+
+        <PermissionGate resource="crm" action="read">
+          <div>
+            <h2>CRM System</h2>
+            <ActionButtons resource="crm" />
+          </div>
+        </PermissionGate>
+
+        <PermissionGate resource="admin" action="read">
+          <div>
+            <h2>Administration</h2>
+            <FeaturePanel />
+          </div>
+        </PermissionGate>
       </div>
     </AuthorizationProvider>
   );
-};
-
-// ============================================================================
-// UTILITY FUNCTIONS FOR PERMISSION CHECKING
-// ============================================================================
-
-export const usePermissionCheck = () => {
-  const { permissions } = useAuthorization();
-
-  return {
-    can: (resource, action) => permissions[`${resource}_${action}`],
-    canAny: (checks) =>
-      checks.some(([resource, action]) => permissions[`${resource}_${action}`]),
-    canAll: (checks) =>
-      checks.every(
-        ([resource, action]) => permissions[`${resource}_${action}`]
-      ),
-  };
-};
-
-// ============================================================================
-// HIGHER-ORDER COMPONENT FOR PERMISSION WRAPPING
-// ============================================================================
-
-export const withPermission = (resource, action, fallback = null) => {
-  return (WrappedComponent) => {
-    return (props) => {
-      const { loading, permissions } = useAuthorization();
-
-      if (loading) {
-        return <div>Loading...</div>;
-      }
-
-      if (!permissions[`${resource}_${action}`]) {
-        return fallback;
-      }
-
-      return <WrappedComponent {...props} />;
-    };
-  };
-};
-
-// Usage example:
-// const ProtectedUserList = withPermission('user', 'read', <AccessDenied />)(UserList);
-
-export default {
-  AuthorizationProvider,
-  useAuthorization,
-  NavigationMenu,
-  Dashboard,
-  UserManagementPage,
-  PermissionAwareDataTable,
-  App,
-  usePermissionCheck,
-  withPermission,
 };

@@ -1,28 +1,23 @@
 const Role = require("../models/role");
 const User = require("../models/user");
-const ROLE_DEFINITIONS = require("../constants/roleDefinitions");
+const Tenant = require("../models/tenant");
 
 module.exports.initializeRoles = async (tenantId) => {
   try {
     // Check if roles already exist for this tenant
-    const existingRoles = await Role.countDocuments({ tenantId });
-    if (existingRoles > 0) {
-      console.log(`Roles already initialized for tenant ${tenantId}`);
-      return await Role.find({ tenantId });
+    const existingRoles = await Role.find({ tenantId });
+    if (existingRoles.length > 0) {
+      console.log(
+        `Roles already initialized for tenant ${tenantId} - Found ${existingRoles.length} roles`
+      );
+      return existingRoles;
     }
 
-    // Create all roles with tenantId
-    const rolesWithTenant = ROLE_DEFINITIONS.map((role) => ({
-      ...role,
-      tenantId: tenantId,
-      createdBy: "system",
-    }));
-
-    const createdRoles = await Role.insertMany(rolesWithTenant);
+    // If no roles exist, they should have been created during migration
     console.log(
-      `Initialized ${createdRoles.length} roles for tenant ${tenantId}`
+      `No roles found for tenant ${tenantId}. Please run the migration script first.`
     );
-    return createdRoles;
+    return [];
   } catch (error) {
     throw new Error(`Error initializing roles: ${error.message}`);
   }
@@ -320,5 +315,72 @@ module.exports.hasRole = async (userId, roleCode, tenantId) => {
     return user.roles.some((role) => role.code === roleCode);
   } catch (error) {
     throw new Error(`Error checking user role: ${error.message}`);
+  }
+};
+
+// Additional helper functions to replace constants usage
+module.exports.getAllRolesList = async (tenantId = null) => {
+  try {
+    const filter = { isActive: true };
+    if (tenantId) {
+      filter.tenantId = tenantId;
+    }
+
+    const roles = await Role.find(filter)
+      .populate("tenantId", "name code")
+      .sort({ userType: 1, name: 1 });
+
+    // Transform to match sample roles format
+    return roles.map((role) => ({
+      id: role.code,
+      name: role.name,
+      description: role.description,
+      tenantId: role.tenantId?._id?.toString(),
+      tenantName: role.tenantId?.name,
+      category: role.userType,
+      permissions: role.permissions,
+      status: role.isActive ? "active" : "inactive",
+      isSystemRole: role.isSystemRole,
+      createdAt: role.createdAt,
+      updatedAt: role.updatedAt,
+    }));
+  } catch (error) {
+    throw new Error(`Error fetching all roles list: ${error.message}`);
+  }
+};
+
+module.exports.getRolesByCategory = async (tenantId = null) => {
+  try {
+    const roles = await this.getAllRolesList(tenantId);
+
+    // Group roles by category (userType)
+    return roles.reduce((acc, role) => {
+      const category = role.category || "OTHER";
+      if (!acc[category]) {
+        acc[category] = [];
+      }
+      acc[category].push(role);
+      return acc;
+    }, {});
+  } catch (error) {
+    throw new Error(`Error fetching roles by category: ${error.message}`);
+  }
+};
+
+module.exports.getTenantsList = async () => {
+  try {
+    const tenants = await Tenant.find({ isActive: true })
+      .select("_id name code description status")
+      .sort({ name: 1 });
+
+    return tenants.map((tenant) => ({
+      id: tenant._id.toString(),
+      name: tenant.name,
+      code: tenant.code,
+      description: tenant.description,
+      status: tenant.status,
+    }));
+  } catch (error) {
+    throw new Error(`Error fetching tenants list: ${error.message}`);
   }
 };
