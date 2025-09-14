@@ -6,172 +6,171 @@
  */
 
 import React, { useState, useEffect, createContext, useContext } from "react";
-import UIAwarePolicyClient from "../sdks/react-ui-policy-client";
+import PolicyClient from "../sdks/node-policy-client";
+import { useUIInitialization } from "../sdks/react-ui-policy-hooks";
 
-// Initialize the UI-aware policy client
-const policyClient = new UIAwarePolicyClient("http://user-service:3000", {
-  uiConfig: {
-    // Define your application's UI structure
-    navigation: [
-      {
-        resource: "portal",
-        action: "read",
-        label: "Dashboard",
-        path: "/dashboard",
-        icon: "🏠",
-      },
-      {
-        resource: "crm",
-        action: "read",
-        label: "CRM",
-        path: "/crm",
-        icon: "👥",
-      },
+// UI Configuration for the application
+const uiConfig = {
+  // Define your application's UI structure
+  navigation: [
+    {
+      resource: "portal",
+      action: "read",
+      label: "Dashboard",
+      path: "/dashboard",
+      icon: "🏠",
+    },
+    {
+      resource: "crm",
+      action: "read",
+      label: "CRM",
+      path: "/crm",
+      icon: "👥",
+    },
+    {
+      resource: "user",
+      action: "read",
+      label: "Users",
+      path: "/users",
+      icon: "👤",
+    },
+    {
+      resource: "role",
+      action: "read",
+      label: "Roles",
+      path: "/roles",
+      icon: "🏷️",
+    },
+    {
+      resource: "admin",
+      action: "read",
+      label: "Admin",
+      path: "/admin",
+      icon: "⚙️",
+    },
+  ],
+
+  actions: {
+    users: [
+      { resource: "user", action: "read", label: "View Users", icon: "👀" },
+      { resource: "user", action: "write", label: "Create User", icon: "➕" },
+      { resource: "user", action: "write", label: "Edit User", icon: "✏️" },
       {
         resource: "user",
-        action: "read",
-        label: "Users",
-        path: "/users",
-        icon: "👤",
-      },
-      {
-        resource: "role",
-        action: "read",
-        label: "Roles",
-        path: "/roles",
-        icon: "🏷️",
-      },
-      {
-        resource: "admin",
-        action: "read",
-        label: "Admin",
-        path: "/admin",
-        icon: "⚙️",
+        action: "delete",
+        label: "Delete User",
+        icon: "🗑️",
       },
     ],
-
-    actions: {
-      users: [
-        { resource: "user", action: "read", label: "View Users", icon: "👀" },
-        { resource: "user", action: "write", label: "Create User", icon: "➕" },
-        { resource: "user", action: "write", label: "Edit User", icon: "✏️" },
-        {
-          resource: "user",
-          action: "delete",
-          label: "Delete User",
-          icon: "🗑️",
-        },
-      ],
-      roles: [
-        { resource: "role", action: "read", label: "View Roles", icon: "👀" },
-        { resource: "role", action: "write", label: "Create Role", icon: "➕" },
-        { resource: "role", action: "write", label: "Edit Role", icon: "✏️" },
-        {
-          resource: "role",
-          action: "delete",
-          label: "Delete Role",
-          icon: "🗑️",
-        },
-      ],
-      crm: [
-        { resource: "crm", action: "read", label: "View Records", icon: "👀" },
-        {
-          resource: "crm",
-          action: "write",
-          label: "Create Record",
-          icon: "➕",
-        },
-        { resource: "crm", action: "write", label: "Edit Record", icon: "✏️" },
-        {
-          resource: "crm",
-          action: "delete",
-          label: "Delete Record",
-          icon: "🗑️",
-        },
-      ],
-      admin: [
-        {
-          resource: "admin",
-          action: "write",
-          label: "System Config",
-          icon: "🔧",
-        },
-        {
-          resource: "admin",
-          action: "delete",
-          label: "System Maintenance",
-          icon: "🛠️",
-        },
-      ],
-    },
-
-    features: [
+    roles: [
+      { resource: "role", action: "read", label: "View Roles", icon: "👀" },
+      { resource: "role", action: "write", label: "Create Role", icon: "➕" },
+      { resource: "role", action: "write", label: "Edit Role", icon: "✏️" },
       {
-        key: "user_management",
-        resource: "user",
-        action: "read",
-        label: "User Management Module",
-      },
-      {
-        key: "role_management",
         resource: "role",
-        action: "read",
-        label: "Role Management Module",
+        action: "delete",
+        label: "Delete Role",
+        icon: "🗑️",
       },
+    ],
+    crm: [
+      { resource: "crm", action: "read", label: "View Records", icon: "👀" },
       {
-        key: "advanced_crm",
         resource: "crm",
         action: "write",
-        label: "Advanced CRM Features",
+        label: "Create Record",
+        icon: "➕",
       },
+      { resource: "crm", action: "write", label: "Edit Record", icon: "✏️" },
       {
-        key: "system_admin",
-        resource: "admin",
-        action: "write",
-        label: "System Administration",
-      },
-      {
-        key: "bulk_operations",
         resource: "crm",
         action: "delete",
-        label: "Bulk Operations",
+        label: "Delete Record",
+        icon: "🗑️",
       },
     ],
-
-    pages: [
+    admin: [
       {
-        path: "/dashboard",
-        requiredPermissions: [{ resource: "portal", action: "read" }],
-        label: "Dashboard",
-        component: "Dashboard",
+        resource: "admin",
+        action: "write",
+        label: "System Config",
+        icon: "🔧",
       },
       {
-        path: "/users",
-        requiredPermissions: [{ resource: "user", action: "read" }],
-        label: "User Management",
-        component: "UserManagement",
-      },
-      {
-        path: "/roles",
-        requiredPermissions: [{ resource: "role", action: "read" }],
-        label: "Role Management",
-        component: "RoleManagement",
-      },
-      {
-        path: "/crm",
-        requiredPermissions: [{ resource: "crm", action: "read" }],
-        label: "CRM System",
-        component: "CRMSystem",
-      },
-      {
-        path: "/admin",
-        requiredPermissions: [{ resource: "admin", action: "read" }],
-        label: "Administration",
-        component: "Administration",
+        resource: "admin",
+        action: "delete",
+        label: "System Maintenance",
+        icon: "🛠️",
       },
     ],
   },
-});
+
+  features: [
+    {
+      key: "user_management",
+      resource: "user",
+      action: "read",
+      label: "User Management Module",
+    },
+    {
+      key: "role_management",
+      resource: "role",
+      action: "read",
+      label: "Role Management Module",
+    },
+    {
+      key: "advanced_crm",
+      resource: "crm",
+      action: "write",
+      label: "Advanced CRM Features",
+    },
+    {
+      key: "system_admin",
+      resource: "admin",
+      action: "write",
+      label: "System Administration",
+    },
+    {
+      key: "bulk_operations",
+      resource: "crm",
+      action: "delete",
+      label: "Bulk Operations",
+    },
+  ],
+
+  pages: [
+    {
+      path: "/dashboard",
+      requiredPermissions: [{ resource: "portal", action: "read" }],
+      label: "Dashboard",
+      component: "Dashboard",
+    },
+    {
+      path: "/users",
+      requiredPermissions: [{ resource: "user", action: "read" }],
+      label: "User Management",
+      component: "UserManagement",
+    },
+    {
+      path: "/roles",
+      requiredPermissions: [{ resource: "role", action: "read" }],
+      label: "Role Management",
+      component: "RoleManagement",
+    },
+    {
+      path: "/crm",
+      requiredPermissions: [{ resource: "crm", action: "read" }],
+      label: "CRM System",
+      component: "CRMSystem",
+    },
+    {
+      path: "/admin",
+      requiredPermissions: [{ resource: "admin", action: "read" }],
+      label: "Administration",
+      component: "Administration",
+    },
+  ],
+};
 
 // ============================================================================
 // AUTHORIZATION CONTEXT
@@ -186,62 +185,25 @@ export const AuthProvider = ({ children }) => {
     loading: true,
   });
 
-  const [uiState, setUIState] = useState({
-    loading: true,
-    capabilities: null,
-    permissions: {},
-    featureFlags: {},
-    error: null,
-  });
+  // Use the new UI initialization hook
+  const uiState = useUIInitialization(
+    PolicyClient,
+    "http://user-service:3000",
+    authState.token,
+    { uiConfig }
+  );
 
-  // Initialize UI permissions when token changes
+  // Log UI initialization status
   useEffect(() => {
-    if (authState.token) {
-      initializeUserInterface(authState.token);
-    } else {
-      setUIState({
-        loading: false,
-        capabilities: null,
-        permissions: {},
-        featureFlags: {},
-        error: "No authentication token",
+    if (uiState.initialized && !uiState.loading) {
+      console.log("✅ UI initialization complete:", {
+        navigation: uiState.capabilities?.navigation?.length || 0,
+        actions: Object.keys(uiState.capabilities?.actions || {}).length,
+        features: Object.keys(uiState.capabilities?.features || {}).length,
+        pages: uiState.capabilities?.pages?.length || 0,
       });
     }
-  }, [authState.token]);
-
-  const initializeUserInterface = async (token) => {
-    try {
-      console.log("🚀 Initializing user interface...");
-
-      // Initialize all UI permissions and capabilities
-      const result = await policyClient.initializeUI(token);
-
-      // Generate feature flags
-      const featureFlags = policyClient.getFeatureFlags(result.capabilities);
-
-      setUIState({
-        loading: false,
-        capabilities: result.capabilities,
-        permissions: result.permissions,
-        resourcePermissions: result.resourcePermissions,
-        featureFlags,
-        error: null,
-      });
-
-      console.log("✅ User interface initialized");
-      console.log("📊 Capabilities:", result.capabilities);
-      console.log("🚩 Feature Flags:", featureFlags);
-    } catch (error) {
-      console.error("❌ Failed to initialize UI:", error);
-      setUIState({
-        loading: false,
-        capabilities: null,
-        permissions: {},
-        featureFlags: {},
-        error: error.message,
-      });
-    }
-  };
+  }, [uiState.initialized, uiState.loading]);
 
   const login = (token, user) => {
     localStorage.setItem("token", token);

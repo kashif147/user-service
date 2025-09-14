@@ -26,7 +26,6 @@
     "url": "https://github.com/kashif147/user-service.git"
   },
   "dependencies": {
-    "@membership/shared-constants": "github:kashif147/membership-shared-constants#v1.0.0",
     "axios": "^1.8.4",
     "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",

@@ -1,7 +1,6 @@
 const Tenant = require("../models/tenant");
 const Role = require("../models/role");
 const User = require("../models/user");
-const ROLE_DEFINITIONS = require("../constants/roleDefinitions");
 
 module.exports.createTenant = async (tenantData, createdBy) => {
   try {
@@ -170,14 +169,46 @@ module.exports.updateTenantStatus = async (tenantId, status, updatedBy) => {
 // Helper function to initialize roles for a new tenant
 const initializeTenantRoles = async (tenantId) => {
   try {
-    const rolesWithTenant = ROLE_DEFINITIONS.map((role) => ({
-      ...role,
-      tenantId: tenantId,
-      createdBy: "system",
-    }));
+    // Check if roles already exist for this tenant
+    const existingRoles = await Role.find({ tenantId });
+    if (existingRoles.length > 0) {
+      console.log(
+        `Roles already exist for tenant ${tenantId} - Found ${existingRoles.length} roles`
+      );
+      return existingRoles;
+    }
 
-    await Role.insertMany(rolesWithTenant);
-    console.log(`Initialized roles for tenant ${tenantId}`);
+    // If no roles exist, copy roles from the main tenant
+    const mainTenant = await Tenant.findOne({ code: "MAIN" });
+    if (mainTenant) {
+      const mainTenantRoles = await Role.find({
+        tenantId: mainTenant._id.toString(),
+      });
+
+      if (mainTenantRoles.length > 0) {
+        const rolesForNewTenant = mainTenantRoles.map((role) => ({
+          name: role.name,
+          code: role.code,
+          description: role.description,
+          userType: role.userType,
+          permissions: role.permissions,
+          isSystemRole: role.isSystemRole,
+          tenantId: tenantId,
+          createdBy: "system",
+        }));
+
+        const createdRoles = await Role.insertMany(rolesForNewTenant);
+        console.log(
+          `Initialized ${createdRoles.length} roles for tenant ${tenantId} (copied from main tenant)`
+        );
+        return createdRoles;
+      }
+    }
+
+    console.log(
+      `No roles found to initialize for tenant ${tenantId}. Please run migration script first.`
+    );
+    return [];
   } catch (error) {
     console.error(`Error initializing roles for tenant ${tenantId}:`, error);
     throw error;

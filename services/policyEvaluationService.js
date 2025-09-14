@@ -7,7 +7,111 @@ const {
   isSuperUser,
   getRolesAtOrAbove,
 } = require("../config/roleHierarchy");
-const PERMISSIONS = require("../constants/permissions");
+const axios = require("axios");
+
+// Default permissions data (fallback if API not available)
+const DEFAULT_PERMISSIONS = {
+  // General read permissions
+  READ_ONLY: "read:all",
+
+  // User Service permissions
+  USER: {
+    READ: "user:read",
+    WRITE: "user:write",
+    DELETE: "user:delete",
+    MANAGE_ROLES: "user:manage_roles",
+    CREATE: "user:create",
+    UPDATE: "user:update",
+    LIST: "user:list",
+  },
+
+  // Role Service permissions
+  ROLE: {
+    READ: "role:read",
+    WRITE: "role:write",
+    DELETE: "role:delete",
+    CREATE: "role:create",
+    UPDATE: "role:update",
+    LIST: "role:list",
+    ASSIGN: "role:assign",
+    REMOVE: "role:remove",
+  },
+
+  // Account Service permissions
+  ACCOUNT: {
+    READ: "account:read",
+    WRITE: "account:write",
+    DELETE: "account:delete",
+    PAYMENT: "account:payment",
+    TRANSACTION_READ: "account:transaction:read",
+    TRANSACTION_WRITE: "account:transaction:write",
+    TRANSACTION_DELETE: "account:transaction:delete",
+  },
+
+  // Portal Service permissions
+  PORTAL: {
+    ACCESS: "portal:access",
+    PROFILE_READ: "portal:profile:read",
+    PROFILE_WRITE: "portal:profile:write",
+    PROFILE_DELETE: "portal:profile:delete",
+    DASHBOARD_READ: "portal:dashboard:read",
+    SETTINGS_READ: "portal:settings:read",
+    SETTINGS_WRITE: "portal:settings:write",
+  },
+
+  // CRM Service permissions
+  CRM: {
+    ACCESS: "crm:access",
+    MEMBER_READ: "crm:member:read",
+    MEMBER_WRITE: "crm:member:write",
+    MEMBER_DELETE: "crm:member:delete",
+    MEMBER_CREATE: "crm:member:create",
+    MEMBER_UPDATE: "crm:member:update",
+    MEMBER_LIST: "crm:member:list",
+  },
+};
+
+// Cache for permissions to avoid repeated API calls
+let permissionsCache = null;
+let permissionsCacheExpiry = null;
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+// Helper function to fetch permissions from API
+async function fetchPermissionsFromAPI() {
+  try {
+    // Check cache first
+    if (
+      permissionsCache &&
+      permissionsCacheExpiry &&
+      Date.now() < permissionsCacheExpiry
+    ) {
+      return permissionsCache;
+    }
+
+    const baseUrl = process.env.API_BASE_URL || "http://localhost:3000";
+    const response = await axios.get(`${baseUrl}/api/permissions/permissions`, {
+      headers: {
+        Authorization: `Bearer ${
+          process.env.SUPER_USER_TOKEN || "fallback-token"
+        }`,
+        "Content-Type": "application/json",
+      },
+      timeout: 5000, // 5 second timeout
+    });
+
+    // Update cache
+    permissionsCache = response.data.data || DEFAULT_PERMISSIONS;
+    permissionsCacheExpiry = Date.now() + CACHE_TTL;
+
+    return permissionsCache;
+  } catch (error) {
+    console.warn(
+      "Failed to fetch permissions from API, using defaults:",
+      error.message
+    );
+    return DEFAULT_PERMISSIONS;
+  }
+}
 const PolicyCache = require("./policyCache");
 
 /**
@@ -368,6 +472,9 @@ const evaluateActionPolicy = async (context) => {
 const evaluatePermissionPolicy = async (context) => {
   const { permissions, resource, action } = context;
 
+  // Fetch permissions from API
+  const PERMISSIONS = await fetchPermissionsFromAPI();
+
   // Permission mapping
   const permissionMap = {
     portal: {
@@ -459,7 +566,7 @@ const getEffectivePermissions = async (token, resource) => {
     }
 
     // Get resource-specific permissions
-    const resourcePermissions = getResourcePermissions(
+    const resourcePermissions = await getResourcePermissions(
       resource,
       roles,
       permissions
@@ -487,7 +594,10 @@ const getEffectivePermissions = async (token, resource) => {
  * @param {Array} permissions - User permissions
  * @returns {Array} Resource-specific permissions
  */
-const getResourcePermissions = (resource, roles, permissions) => {
+const getResourcePermissions = async (resource, roles, permissions) => {
+  // Fetch permissions from API
+  const PERMISSIONS = await fetchPermissionsFromAPI();
+
   const resourcePermissionMap = {
     portal: [
       PERMISSIONS.PORTAL.ACCESS,
