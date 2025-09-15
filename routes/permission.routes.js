@@ -23,6 +23,13 @@ router.get(
   PermissionController.getAllPermissions
 );
 
+// Permission management operations - must come before parameterized routes
+router.get(
+  "/permissions/stats",
+  requireRole(["SU"]),
+  PermissionController.getPermissionStats
+);
+
 router.get(
   "/permissions/:id",
   requireRole(["SU"]),
@@ -57,13 +64,6 @@ router.delete(
   "/permissions/:id",
   requireRole(["SU"]),
   PermissionController.deletePermission
-);
-
-// Permission management operations
-router.get(
-  "/permissions/stats",
-  requireRole(["SU"]),
-  PermissionController.getPermissionStats
 );
 
 router.post(
