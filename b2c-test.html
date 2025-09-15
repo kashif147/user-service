@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Azure B2C Authentication Test</title>
+    <style>
+      body {
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+        background-color: #f5f5f5;
+      }
+      .container {
+        background: white;
+        padding: 30px;
+        border-radius: 10px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      }
+      h1 {
+        color: #0078d4;
+        text-align: center;
+        margin-bottom: 30px;
+      }
+      .section {
+        margin-bottom: 30px;
+        padding: 20px;
+        border: 1px solid #e1e1e1;
+        border-radius: 8px;
+        background-color: #fafafa;
+      }
+      .section h3 {
+        color: #323130;
+        margin-top: 0;
+      }
+      button {
+        background-color: #0078d4;
+        color: white;
+        border: none;
+        padding: 12px 24px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 16px;
+        margin: 10px 5px;
+      }
+      button:hover {
+        background-color: #106ebe;
+      }
+      button:disabled {
+        background-color: #ccc;
+        cursor: not-allowed;
+      }
+      input,
+      textarea {
+        width: 100%;
+        padding: 10px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        font-size: 14px;
+        margin: 5px 0;
+        box-sizing: border-box;
+      }
+      textarea {
+        height: 100px;
+        resize: vertical;
+      }
+      .status {
+        padding: 10px;
+        border-radius: 4px;
+        margin: 10px 0;
+      }
+      .success {
+        background-color: #d4edda;
+        color: #155724;
+        border: 1px solid #c3e6cb;
+      }
+      .error {
+        background-color: #f8d7da;
+        color: #721c24;
+        border: 1px solid #f5c6cb;
+      }
+      .info {
+        background-color: #d1ecf1;
+        color: #0c5460;
+        border: 1px solid #bee5eb;
+      }
+      .code-block {
+        background-color: #f8f9fa;
+        border: 1px solid #e9ecef;
+        border-radius: 4px;
+        padding: 15px;
+        font-family: "Courier New", monospace;
+        font-size: 12px;
+        overflow-x: auto;
+        white-space: pre-wrap;
+        word-break: break-all;
+      }
+      .step {
+        margin: 15px 0;
+        padding: 10px;
+        background-color: #fff;
+        border-left: 4px solid #0078d4;
+      }
+      .step-number {
+        font-weight: bold;
+        color: #0078d4;
+      }
+      .auth-provider {
+        display: flex;
+        gap: 10px;
+        margin: 10px 0;
+      }
+      .auth-provider button {
+        flex: 1;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>🔐 Azure B2C Authentication Test</h1>
+
+      <!-- Step 1: Generate PKCE Parameters -->
+      <div class="section">
+        <h3>Step 1: Generate PKCE Parameters</h3>
+        <p>
+          Generate PKCE parameters and authorization URLs for both Azure AD and
+          Azure B2C authentication.
+        </p>
+        <button onclick="generatePKCE()">Generate PKCE Parameters</button>
+
+        <div id="pkce-result" style="display: none">
+          <h4>Generated Parameters:</h4>
+          <div class="code-block" id="pkce-params"></div>
+
+          <h4>Authorization URLs:</h4>
+          <div class="auth-provider">
+            <button onclick="openAzureADUrl()">Azure AD (CRM)</button>
+            <button onclick="openB2CUrl()">Azure B2C (Portal)</button>
+          </div>
+
+          <div class="code-block" id="auth-urls"></div>
+        </div>
+      </div>
+
+      <!-- Step 2: Handle Authorization Code -->
+      <div class="section">
+        <h3>Step 2: Handle Authorization Code</h3>
+        <p>
+          If you were redirected here with an authorization code, it will be
+          automatically processed.
+        </p>
+
+        <div id="code-handler">
+          <p>Waiting for authorization code...</p>
+        </div>
+
+        <div id="manual-code" style="display: none">
+          <h4>Manual Code Entry:</h4>
+          <input
+            type="text"
+            id="auth-code"
+            placeholder="Enter authorization code here"
+          />
+          <select id="auth-provider">
+            <option value="azure-portal">Azure B2C (Portal)</option>
+            <option value="azure-crm">Azure AD (CRM)</option>
+          </select>
+          <button onclick="processCode()">Process Code</button>
+        </div>
+      </div>
+
+      <!-- Step 3: Authentication Result -->
+      <div class="section">
+        <h3>Step 3: Authentication Result</h3>
+        <div id="auth-result"></div>
+      </div>
+
+      <!-- Step 4: Test API Access -->
+      <div class="section">
+        <h3>Step 4: Test API Access</h3>
+        <p>Test your access token with the policy evaluation API.</p>
+        <button onclick="testPolicyAPI()" id="test-api-btn" disabled>
+          Test Policy API
+        </button>
+
+        <div id="api-result"></div>
+      </div>
+
+      <!-- Step 5: Test User Management -->
+      <div class="section">
+        <h3>Step 5: Test User Management</h3>
+        <p>Test user management operations with your access token.</p>
+        <button onclick="getUserProfile()" id="get-profile-btn" disabled>
+          Get User Profile
+        </button>
+        <button onclick="testRoleAssignment()" id="test-roles-btn" disabled>
+          Test Role Assignment
+        </button>
+
+        <div id="user-result"></div>
+      </div>
+    </div>
+
+    <script>
+      let pkceData = null;
+      let accessToken = null;
+      let userData = null;
+
+      // Check for authorization code in URL parameters
+      window.onload = function () {
+        const urlParams = new URLSearchParams(window.location.search);
+        const code = urlParams.get("code");
+        const state = urlParams.get("state");
+        const error = urlParams.get("error");
+
+        if (error) {
+          showError("Authentication Error: " + error);
+          return;
+        }
+
+        if (code) {
+          document.getElementById("code-handler").innerHTML =
+            '<div class="success">Authorization code received: ' +
+            code.substring(0, 50) +
+            "...</div>";
+          document.getElementById("manual-code").style.display = "block";
+          document.getElementById("auth-code").value = code;
+
+          // Auto-process if we have PKCE data
+          if (pkceData) {
+            processCode();
+          }
+        }
+      };
+
+      async function generatePKCE() {
+        try {
+          const response = await fetch("/pkce/generate");
+          const data = await response.json();
+
+          if (data.success) {
+            pkceData = data;
+
+            document.getElementById("pkce-params").textContent =
+              "Code Verifier: " +
+              data.codeVerifier +
+              "\n" +
+              "Code Challenge: " +
+              data.codeChallenge +
+              "\n" +
+              "State: " +
+              data.state;
+
+            document.getElementById("auth-urls").textContent =
+              "Azure AD URL:\n" +
+              data.authorizationUrls.azureAD +
+              "\n\n" +
+              "Azure B2C URL:\n" +
+              data.authorizationUrls.azureB2C;
+
+            document.getElementById("pkce-result").style.display = "block";
+
+            showSuccess("PKCE parameters generated successfully!");
+          } else {
+            showError("Failed to generate PKCE parameters: " + data.error);
+          }
+        } catch (error) {
+          showError("Error generating PKCE parameters: " + error.message);
+        }
+      }
+
+      function openAzureADUrl() {
+        if (pkceData) {
+          window.open(pkceData.authorizationUrls.azureAD, "_blank");
+        }
+      }
+
+      function openB2CUrl() {
+        if (pkceData) {
+          window.open(pkceData.authorizationUrls.azureB2C, "_blank");
+        }
+      }
+
+      async function processCode() {
+        const code = document.getElementById("auth-code").value;
+        const provider = document.getElementById("auth-provider").value;
+
+        if (!code) {
+          showError("Please enter an authorization code");
+          return;
+        }
+
+        if (!pkceData) {
+          showError("Please generate PKCE parameters first");
+          return;
+        }
+
+        try {
+          showInfo("Processing authorization code...");
+
+          const endpoint =
+            provider === "azure-crm" ? "/auth/azure-crm" : "/auth/azure-portal";
+
+          const response = await fetch(endpoint, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              code: code,
+              codeVerifier: pkceData.codeVerifier,
+            }),
+          });
+
+          const data = await response.json();
+
+          if (data.success) {
+            accessToken = data.accessToken;
+            userData = data.user;
+
+            document.getElementById("auth-result").innerHTML =
+              '<div class="success">Authentication successful!</div>' +
+              "<h4>User Information:</h4>" +
+              '<div class="code-block">' +
+              JSON.stringify(data.user, null, 2) +
+              "</div>" +
+              "<h4>Access Token:</h4>" +
+              '<div class="code-block">' +
+              data.accessToken +
+              "</div>";
+
+            document.getElementById("test-api-btn").disabled = false;
+            document.getElementById("get-profile-btn").disabled = false;
+            document.getElementById("test-roles-btn").disabled = false;
+            showSuccess("Authentication completed successfully!");
+          } else {
+            showError("Authentication failed: " + data.message);
+          }
+        } catch (error) {
+          showError("Error processing code: " + error.message);
+        }
+      }
+
+      async function testPolicyAPI() {
+        if (!accessToken) {
+          showError("No access token available");
+          return;
+        }
+
+        try {
+          showInfo("Testing policy API...");
+
+          const response = await fetch("/policy/evaluate", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: "Bearer " + accessToken,
+            },
+            body: JSON.stringify({
+              token: accessToken,
+              resource: "portal",
+              action: "read",
+              context: {
+                userId: userData.id,
+                tenantId: userData.tenantId,
+              },
+            }),
+          });
+
+          const data = await response.json();
+
+          document.getElementById("api-result").innerHTML =
+            "<h4>Policy Evaluation Result:</h4>" +
+            '<div class="code-block">' +
+            JSON.stringify(data, null, 2) +
+            "</div>";
+
+          if (data.success) {
+            showSuccess("Policy API test successful!");
+          } else {
+            showError("Policy API test failed: " + data.reason);
+          }
+        } catch (error) {
+          showError("Error testing policy API: " + error.message);
+        }
+      }
+
+      async function getUserProfile() {
+        if (!accessToken) {
+          showError("No access token available");
+          return;
+        }
+
+        try {
+          showInfo("Getting user profile...");
+
+          const response = await fetch("/api/users/profile", {
+            method: "GET",
+            headers: {
+              Authorization: "Bearer " + accessToken,
+            },
+          });
+
+          const data = await response.json();
+
+          document.getElementById("user-result").innerHTML =
+            "<h4>User Profile:</h4>" +
+            '<div class="code-block">' +
+            JSON.stringify(data, null, 2) +
+            "</div>";
+
+          if (data.success) {
+            showSuccess("User profile retrieved successfully!");
+          } else {
+            showError("Failed to get user profile: " + data.message);
+          }
+        } catch (error) {
+          showError("Error getting user profile: " + error.message);
+        }
+      }
+
+      async function testRoleAssignment() {
+        if (!accessToken) {
+          showError("No access token available");
+          return;
+        }
+
+        try {
+          showInfo("Testing role assignment...");
+
+          // First get available roles
+          const rolesResponse = await fetch("/api/roles", {
+            method: "GET",
+            headers: {
+              Authorization: "Bearer " + accessToken,
+            },
+          });
+
+          const rolesData = await rolesResponse.json();
+
+          document.getElementById("user-result").innerHTML =
+            "<h4>Available Roles:</h4>" +
+            '<div class="code-block">' +
+            JSON.stringify(rolesData, null, 2) +
+            "</div>";
+
+          if (rolesData.success) {
+            showSuccess("Roles retrieved successfully!");
+          } else {
+            showError("Failed to get roles: " + rolesData.message);
+          }
+        } catch (error) {
+          showError("Error testing role assignment: " + error.message);
+        }
+      }
+
+      function showSuccess(message) {
+        showMessage(message, "success");
+      }
+
+      function showError(message) {
+        showMessage(message, "error");
+      }
+
+      function showInfo(message) {
+        showMessage(message, "info");
+      }
+
+      function showMessage(message, type) {
+        const statusDiv = document.createElement("div");
+        statusDiv.className = "status " + type;
+        statusDiv.textContent = message;
+
+        // Insert at the top of the container
+        const container = document.querySelector(".container");
+        container.insertBefore(statusDiv, container.firstChild);
+
+        // Remove after 5 seconds
+        setTimeout(() => {
+          statusDiv.remove();
+        }, 5000);
+      }
+    </script>
+  </body>
+</html>
