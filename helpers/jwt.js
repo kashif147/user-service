@@ -35,7 +35,7 @@ module.exports.generateToken = async (user) => {
 
     console.log("Generating JWT token with payload...");
     const token =
-      "Bearer " +
+      // "Bearer " +
       jwt.sign(tokenPayload, process.env.JWT_SECRET, {
         expiresIn: process.env.JWT_EXPIRY,
       });
@@ -49,7 +49,7 @@ module.exports.generateToken = async (user) => {
 
     // Fallback to basic token if permissions can't be fetched
     const token =
-      "Bearer " +
+      // "Bearer " +
       jwt.sign(
         {
           sub: user._id,
