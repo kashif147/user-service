@@ -20,4 +20,6 @@ router.use("/api", require("./permission.routes"));
 // Tenant-scoped management API routes (for ASU users)
 router.use("/api", require("./tenantScoped.routes"));
 
+router.use("/lookup", require("./lookup.router"));
+router.use("/lookuptype", require("./lookuptype.router"));
 module.exports = router;
