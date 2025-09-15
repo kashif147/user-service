@@ -1,6 +1,7 @@
 const Role = require("../models/role");
 const User = require("../models/user");
 const Tenant = require("../models/tenant");
+const mongoose = require("mongoose");
 
 module.exports.initializeRoles = async (tenantId) => {
   try {
@@ -138,6 +139,21 @@ module.exports.updateRolePermissions = async (
 
 module.exports.assignRolesToUser = async (userId, roleIds, tenantId) => {
   try {
+    // Validate ObjectId formats
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      throw new Error(
+        `Invalid userId format: ${userId}. ObjectId must be a 24-character hex string.`
+      );
+    }
+
+    for (const roleId of roleIds) {
+      if (!mongoose.Types.ObjectId.isValid(roleId)) {
+        throw new Error(
+          `Invalid roleId format: ${roleId}. ObjectId must be a 24-character hex string.`
+        );
+      }
+    }
+
     const user = await User.findOne({ _id: userId, tenantId });
 
     if (!user) {
@@ -170,8 +186,17 @@ module.exports.assignRolesToUser = async (userId, roleIds, tenantId) => {
       throw new Error("User already has all the specified roles");
     }
 
-    // Add new roles to user
-    user.roles.push(...newRoleIds);
+    // Add new roles to user (convert strings to ObjectIds)
+    const objectIdRoleIds = [];
+    for (const id of newRoleIds) {
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        throw new Error(
+          `Invalid ObjectId format: ${id}. ObjectId must be a 24-character hex string.`
+        );
+      }
+      objectIdRoleIds.push(new mongoose.Types.ObjectId(id));
+    }
+    user.roles.push(...objectIdRoleIds);
     await user.save();
 
     // Get updated user with populated roles
