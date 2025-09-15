@@ -58,6 +58,9 @@ UserSchema.index({ tenantId: 1, userEmail: 1 }, { unique: true }); // Unique ema
 UserSchema.index({ tenantId: 1, userMicrosoftId: 1 }, { unique: true }); // Unique Microsoft ID per tenant
 UserSchema.index({ tenantId: 1, userSubject: 1 }, { unique: true }); // Unique subject per tenant
 
+// Index for refresh token lookups
+UserSchema.index({ "tokens.refresh_token": 1 }, { sparse: true }); // Sparse index for refresh token queries
+
 // Pre-save middleware to update audit fields
 UserSchema.pre("save", function (next) {
   this.updatedAt = Date.now();

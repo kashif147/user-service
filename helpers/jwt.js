@@ -1,6 +1,11 @@
 const jwt = require("jsonwebtoken");
 const RoleHandler = require("../handlers/role.handler");
 
+/**
+ * Generate JWT access token for user
+ * @param {Object} user - User object from database
+ * @returns {Object} - Token and user data
+ */
 module.exports.generateToken = async (user) => {
   try {
     console.log("=== JWT Generation: Starting ===");
@@ -66,5 +71,68 @@ module.exports.generateToken = async (user) => {
 
     console.log("Fallback JWT token generated");
     return { token, user };
+  }
+};
+
+/**
+ * Verify JWT token and return decoded payload
+ * @param {string} token - JWT token to verify
+ * @returns {Object} - Decoded token payload
+ */
+module.exports.verifyToken = (token) => {
+  try {
+    return jwt.verify(token, process.env.JWT_SECRET);
+  } catch (error) {
+    throw new Error(`Token verification failed: ${error.message}`);
+  }
+};
+
+/**
+ * Decode JWT token without verification (for inspection)
+ * @param {string} token - JWT token to decode
+ * @returns {Object} - Decoded token payload
+ */
+module.exports.decodeToken = (token) => {
+  try {
+    return jwt.decode(token);
+  } catch (error) {
+    throw new Error(`Token decoding failed: ${error.message}`);
+  }
+};
+
+/**
+ * Check if token is expired
+ * @param {string} token - JWT token to check
+ * @returns {boolean} - True if expired, false otherwise
+ */
+module.exports.isTokenExpired = (token) => {
+  try {
+    const decoded = jwt.decode(token);
+    if (!decoded || !decoded.exp) {
+      return true;
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+    return decoded.exp < now;
+  } catch (error) {
+    return true;
+  }
+};
+
+/**
+ * Get token expiration time
+ * @param {string} token - JWT token to check
+ * @returns {Date|null} - Expiration date or null if invalid
+ */
+module.exports.getTokenExpiration = (token) => {
+  try {
+    const decoded = jwt.decode(token);
+    if (!decoded || !decoded.exp) {
+      return null;
+    }
+
+    return new Date(decoded.exp * 1000);
+  } catch (error) {
+    return null;
   }
 };
