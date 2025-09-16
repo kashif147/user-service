@@ -1,13 +1,8 @@
 const express = require("express");
 const router = express.Router();
 const RoleController = require("../controllers/role.controller");
-const {
-  authenticate,
-  requireTenant,
-  requireRole,
-  requirePermission,
-} = require("../middlewares/auth");
-// Note: Permissions are now fetched from API endpoints as needed
+const { authenticate, requireTenant } = require("../middlewares/auth");
+const { defaultPolicyAdapter } = require("../helpers/policyAdapter.js");
 
 // Apply authentication and tenant enforcement to all routes
 router.use(authenticate);
@@ -16,81 +11,101 @@ router.use(requireTenant);
 // Test endpoint for default role assignment (Super User only)
 router.post(
   "/test/default-role",
-  requireRole(["SU"]),
+  defaultPolicyAdapter.middleware("role", "admin"),
   RoleController.testDefaultRoleAssignment
 );
 
 // Initialize roles (Super User only)
 router.post(
   "/roles/initialize",
-  requireRole(["SU"]),
+  defaultPolicyAdapter.middleware("role", "admin"),
   RoleController.initializeRoles
 );
 
 // Role CRUD operations
-router.post("/roles", requireRole(["SU"]), RoleController.createRole);
-router.get("/roles", requireRole(["SU", "ASU"]), RoleController.getAllRoles);
+router.post(
+  "/roles",
+  defaultPolicyAdapter.middleware("role", "create"),
+  RoleController.createRole
+);
+router.get(
+  "/roles",
+  defaultPolicyAdapter.middleware("role", "read"),
+  RoleController.getAllRoles
+);
 router.get(
   "/roles/:id",
-  requireRole(["SU", "ASU"]),
+  defaultPolicyAdapter.middleware("role", "read"),
   RoleController.getRoleById
 );
-router.put("/roles/:id", requireRole(["SU"]), RoleController.updateRole);
-router.delete("/roles/:id", requireRole(["SU"]), RoleController.deleteRole);
+router.put(
+  "/roles/:id",
+  defaultPolicyAdapter.middleware("role", "update"),
+  RoleController.updateRole
+);
+router.delete(
+  "/roles/:id",
+  defaultPolicyAdapter.middleware("role", "delete"),
+  RoleController.deleteRole
+);
 
 // Role permissions (Super User only - ASU uses tenant-scoped endpoint)
 router.put(
   "/roles/:id/permissions",
-  requireRole(["SU"]),
+  defaultPolicyAdapter.middleware("role", "admin"),
   RoleController.updateRolePermissions
 );
 
 // User role management (Super User only - ASU uses tenant-scoped endpoint)
 router.post(
   "/users/assign-role",
-  requireRole(["SU"]),
+  defaultPolicyAdapter.middleware("role", "admin"),
   RoleController.assignRolesToUser
 );
 router.post(
   "/users/remove-role",
-  requireRole(["SU"]),
+  defaultPolicyAdapter.middleware("role", "admin"),
   RoleController.removeRoleFromUser
 );
 
 // Batch role management (Super User only)
 router.post(
   "/users/assign-roles-batch",
-  requireRole(["SU"]),
+  defaultPolicyAdapter.middleware("role", "admin"),
   RoleController.assignRolesToUser
 );
 router.post(
   "/users/remove-roles-batch",
-  requireRole(["SU"]),
+  defaultPolicyAdapter.middleware("role", "admin"),
   RoleController.removeRolesFromUser
 );
 
 // User information endpoints (ASU can read users in their tenant)
 router.get(
   "/users/:userId/roles",
-  requireRole(["SU", "ASU"]),
+  defaultPolicyAdapter.middleware("role", "read"),
   RoleController.getUserRoles
 );
 router.get(
   "/users/:userId/permissions",
-  requireRole(["SU", "ASU"]),
+  defaultPolicyAdapter.middleware("role", "read"),
   RoleController.getUserPermissions
 );
 router.get(
   "/users/:userId/has-role/:roleCode",
-  requireRole(["SU", "ASU"]),
+  defaultPolicyAdapter.middleware("role", "read"),
   RoleController.hasRole
 );
-router.get("/users", requireRole(["SU", "ASU"]), RoleController.getAllUsers);
+router.get(
+  "/users",
+  defaultPolicyAdapter.middleware("user", "read"),
+  RoleController.getAllUsers
+);
 
 // Get users by role (ASU can read users in their tenant)
 router.get(
   "/roles/:roleId/users",
-  requireRole(["SU", "ASU"]),
+  defaultPolicyAdapter.middleware("role", "read"),
   RoleController.getUsersByRole
 );
 

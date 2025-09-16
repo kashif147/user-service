@@ -14,6 +14,7 @@ const session = require("express-session");
 
 const loggerMiddleware = require("./middlewares/logger.mw");
 const responseMiddleware = require("./middlewares/response.mw");
+const crypto = require("crypto");
 
 var app = express();
 
@@ -75,9 +76,70 @@ app.use(function (req, res, next) {
   next(createError(404));
 });
 
+// Uniform error handlers for PDP responses
 app.use((err, req, res, next) => {
-  console.error(err.message || "Page Not Found");
-  res.fail("Page Not Found");
+  const correlationId =
+    req.correlationId || req.headers["x-correlation-id"] || crypto.randomUUID();
+
+  // Handle 401 Unauthorized
+  if (err.status === 401) {
+    return res.status(401).json({
+      authorized: false,
+      reason: "MISSING_TOKEN",
+      requiredRoles: [],
+      requiredPermissions: [],
+      userRoles: [],
+      userPermissions: [],
+      policyVersion: "1.0.0",
+      correlationId,
+    });
+  }
+
+  // Handle 403 Forbidden
+  if (err.status === 403) {
+    return res.status(403).json({
+      authorized: false,
+      reason: "PERMISSION_DENIED",
+      requiredRoles: [],
+      requiredPermissions: [],
+      userRoles: [],
+      userPermissions: [],
+      policyVersion: "1.0.0",
+      correlationId,
+    });
+  }
+
+  // Handle 404 Not Found
+  if (err.status === 404) {
+    return res.status(404).json({
+      authorized: false,
+      reason: "NOT_FOUND",
+      error: "Page Not Found",
+      requiredRoles: [],
+      requiredPermissions: [],
+      userRoles: [],
+      userPermissions: [],
+      policyVersion: "1.0.0",
+      correlationId,
+    });
+  }
+
+  // Handle other errors
+  console.error(err.message || "Internal Server Error");
+  res.status(500).json({
+    authorized: false,
+    reason: "INTERNAL_ERROR",
+    error:
+      process.env.NODE_ENV === "production"
+        ? "Internal Server Error"
+        : err.message,
+    requiredRoles: [],
+    requiredPermissions: [],
+    userRoles: [],
+    userPermissions: [],
+    policyVersion: "1.0.0",
+    correlationId,
+  });
 });
 
 // const { connectRabbitMQ } = require("message-bus");

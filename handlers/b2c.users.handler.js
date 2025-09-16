@@ -8,7 +8,7 @@ const TENANT_ID = process.env.MS_TENANT_NAME || "projectshellAB2C";
 const POLICY = process.env.MS_POLICY || "B2C_1_projectshell";
 const CLIENT_ID =
   process.env.MS_CLIENT_ID || "e3688a2f-3956-42f9-8c98-6fea7a60a5b4";
-const REDIRECT_URI = process.env.MS_REDIRECT_URI || "http://localhost:3000/";
+const REDIRECT_URI = process.env.MS_REDIRECT_URI || "http://localhost:3000";
 
 const TOKEN_ENDPOINT = `https://${TENANT_ID}.b2clogin.com/${TENANT_ID}.onmicrosoft.com/${POLICY}/oauth2/v2.0/token`;
 

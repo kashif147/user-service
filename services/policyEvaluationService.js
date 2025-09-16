@@ -134,6 +134,34 @@ cache.initialize().catch((err) => {
   console.error("Failed to initialize policy cache:", err);
 });
 
+// Policy version management
+const POLICY_VERSION = process.env.POLICY_VERSION || "1.0.0";
+
+/**
+ * Get current policy version
+ */
+const getPolicyVersion = () => POLICY_VERSION;
+
+/**
+ * Invalidate cache entries for a specific tenant or all entries
+ */
+const invalidateCache = async (tenantId = null) => {
+  try {
+    if (tenantId) {
+      // Invalidate tenant-specific cache entries
+      const keys = await cache.redis?.keys(`${cache.prefix}*:${tenantId}:*`);
+      if (keys && keys.length > 0) {
+        await cache.redis.del(keys);
+      }
+    } else {
+      // Clear all cache
+      await cache.clear();
+    }
+  } catch (error) {
+    console.error("Cache invalidation error:", error);
+  }
+};
+
 /**
  * Policy Decision Point - Main authorization evaluation function
  * @param {Object} request - Authorization request
@@ -147,7 +175,7 @@ const evaluatePolicy = async (request) => {
   try {
     const { token, resource, action, context = {} } = request;
 
-    // Step 1: Check cache first
+    // Step 1: Check cache first (with tenant isolation)
     const tokenHash = token.substring(0, 8);
     const cacheKey = cache.generateKey(tokenHash, resource, action, context);
     const cachedResult = await cache.get(cacheKey);
@@ -155,6 +183,7 @@ const evaluatePolicy = async (request) => {
     if (cachedResult) {
       return {
         ...cachedResult,
+        policyVersion: POLICY_VERSION,
         cached: true,
       };
     }
@@ -176,7 +205,7 @@ const evaluatePolicy = async (request) => {
 
     const user = tokenValidation.user;
 
-    // Step 3: Extract authorization context
+    // Step 3: Extract authorization context with tenant isolation
     const authContext = {
       userId: user.id,
       tenantId: user.tenantId,
@@ -185,10 +214,35 @@ const evaluatePolicy = async (request) => {
       permissions: user.permissions || [],
       resource,
       action,
+      correlationId: context.correlationId,
       ...context,
     };
 
-    // Step 4: Apply policy rules
+    // Step 4: Apply tenant isolation check
+    if (context.tenantId && context.tenantId !== user.tenantId) {
+      const result = {
+        decision: "DENY",
+        reason: "TENANT_MISMATCH",
+        user: {
+          id: user.id,
+          tenantId: user.tenantId,
+          userType: user.userType,
+          roles: user.roles,
+          permissions: user.permissions,
+        },
+        resource,
+        action,
+        timestamp: new Date().toISOString(),
+        policyVersion: POLICY_VERSION,
+        correlationId: context.correlationId,
+      };
+
+      // Cache negative results for shorter time
+      await cache.set(cacheKey, result, 60); // 1 minute
+      return result;
+    }
+
+    // Step 5: Apply policy rules
     const policyDecision = await applyPolicyRules(authContext);
 
     const result = {
@@ -205,9 +259,11 @@ const evaluatePolicy = async (request) => {
       action,
       timestamp: new Date().toISOString(),
       expiresAt: tokenValidation.expiresAt,
+      policyVersion: POLICY_VERSION,
+      correlationId: context.correlationId,
     };
 
-    // Step 5: Cache the result
+    // Step 6: Cache the result
     await cache.set(cacheKey, result);
 
     return result;
@@ -218,6 +274,8 @@ const evaluatePolicy = async (request) => {
       reason: "EVALUATION_ERROR",
       error: error.message,
       timestamp: new Date().toISOString(),
+      policyVersion: POLICY_VERSION,
+      correlationId: request.context?.correlationId,
     };
   }
 };
@@ -376,6 +434,43 @@ const evaluateResourcePolicy = async (context) => {
         "AMO",
       ],
     },
+    // Lookup management
+    lookup: {
+      allowedUserTypes: ["CRM"],
+      allowedRoles: [
+        "SU",
+        "GS",
+        "DGS",
+        "DIR",
+        "DPRS",
+        "ADIR",
+        "AM",
+        "DAM",
+        "MO",
+        "AMO",
+      ],
+    },
+    // LookupType management
+    lookupType: {
+      allowedUserTypes: ["CRM"],
+      allowedRoles: [
+        "SU",
+        "GS",
+        "DGS",
+        "DIR",
+        "DPRS",
+        "ADIR",
+        "AM",
+        "DAM",
+        "MO",
+        "AMO",
+      ],
+    },
+    // Permission management
+    permission: {
+      allowedUserTypes: ["CRM"],
+      allowedRoles: ["SU"],
+    },
   };
 
   const resourceConfig = resourceAccessMatrix[resource];
@@ -495,6 +590,22 @@ const evaluatePermissionPolicy = async (context) => {
       read: PERMISSIONS.ROLE.READ,
       write: PERMISSIONS.ROLE.WRITE,
       delete: PERMISSIONS.ROLE.DELETE,
+    },
+    lookup: {
+      read: PERMISSIONS.USER.READ, // Use user read permission for lookup read
+      write: PERMISSIONS.USER.WRITE, // Use user write permission for lookup write
+      delete: PERMISSIONS.USER.DELETE, // Use user delete permission for lookup delete
+    },
+    lookupType: {
+      read: PERMISSIONS.USER.READ, // Use user read permission for lookupType read
+      write: PERMISSIONS.USER.WRITE, // Use user write permission for lookupType write
+      delete: PERMISSIONS.USER.DELETE, // Use user delete permission for lookupType delete
+    },
+    permission: {
+      read: PERMISSIONS.ROLE.READ, // Use role read permission for permission read
+      write: PERMISSIONS.ROLE.WRITE, // Use role write permission for permission write
+      delete: PERMISSIONS.ROLE.DELETE, // Use role delete permission for permission delete
+      admin: PERMISSIONS.ROLE.ASSIGN, // Use role assign permission for permission admin
     },
   };
 
@@ -621,6 +732,22 @@ const getResourcePermissions = async (resource, roles, permissions) => {
       PERMISSIONS.ROLE.WRITE,
       PERMISSIONS.ROLE.DELETE,
     ],
+    lookup: [
+      PERMISSIONS.USER.READ,
+      PERMISSIONS.USER.WRITE,
+      PERMISSIONS.USER.DELETE,
+    ],
+    lookupType: [
+      PERMISSIONS.USER.READ,
+      PERMISSIONS.USER.WRITE,
+      PERMISSIONS.USER.DELETE,
+    ],
+    permission: [
+      PERMISSIONS.ROLE.READ,
+      PERMISSIONS.ROLE.WRITE,
+      PERMISSIONS.ROLE.DELETE,
+      PERMISSIONS.ROLE.ASSIGN,
+    ],
   };
 
   const resourcePermissions = resourcePermissionMap[resource] || [];
@@ -638,5 +765,7 @@ module.exports = {
   getEffectivePermissions,
   validateToken,
   applyPolicyRules,
+  getPolicyVersion,
+  invalidateCache,
   cache, // Export cache for management
 };

@@ -185,16 +185,19 @@ class PolicyCache {
   }
 
   /**
-   * Generate cache key for policy evaluation
+   * Generate cache key for policy evaluation with tenant isolation
    * @param {string} tokenHash - Hashed token
    * @param {string} resource - Resource name
    * @param {string} action - Action name
-   * @param {Object} context - Additional context
+   * @param {Object} context - Additional context (must include tenantId)
    * @returns {string} Cache key
    */
   generateKey(tokenHash, resource, action, context = {}) {
+    const tenantId = context.tenantId || "default";
     const contextStr = JSON.stringify(context);
-    return `${tokenHash}:${resource}:${action}:${this.hashString(contextStr)}`;
+    return `${tenantId}:${tokenHash}:${resource}:${action}:${this.hashString(
+      contextStr
+    )}`;
   }
 
   /**

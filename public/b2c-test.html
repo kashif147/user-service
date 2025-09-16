@@ -273,7 +273,7 @@
         try {
           const response = await fetch(`${BASE_URL}/token/validate-jwt`, {
             headers: {
-              Authorization: authResult.accessToken,
+              Authorization: `Bearer ${authResult.accessToken}`,
             },
           });
 
