@@ -204,6 +204,11 @@ const evaluatePolicy = async (request) => {
     }
 
     const user = tokenValidation.user;
+    console.log(
+      "Token validation result:",
+      JSON.stringify(tokenValidation, null, 2)
+    );
+    console.log("User object:", JSON.stringify(user, null, 2));
 
     // Validate user object exists and has required properties
     if (!user || !user.id) {
@@ -323,7 +328,15 @@ const validateToken = async (token) => {
 
     // Extract tenantId with fallback options
     const tenantId =
-      decoded.tid || decoded.tenantId || decoded.extension_tenantId;
+      decoded.tenantId || decoded.tid || decoded.extension_tenantId;
+
+    // Validate tenantId is present
+    if (!tenantId) {
+      return {
+        valid: false,
+        error: "Token missing tenantId field",
+      };
+    }
 
     return {
       valid: true,
@@ -466,35 +479,13 @@ const evaluateResourcePolicy = async (context) => {
     },
     // Lookup management
     lookup: {
-      allowedUserTypes: ["CRM"],
-      allowedRoles: [
-        "SU",
-        "GS",
-        "DGS",
-        "DIR",
-        "DPRS",
-        "ADIR",
-        "AM",
-        "DAM",
-        "MO",
-        "AMO",
-      ],
+      allowedUserTypes: ["CRM", "PORTAL"],
+      allowedRoles: ["*"], // All roles can access lookup
     },
     // LookupType management
     lookupType: {
-      allowedUserTypes: ["CRM"],
-      allowedRoles: [
-        "SU",
-        "GS",
-        "DGS",
-        "DIR",
-        "DPRS",
-        "ADIR",
-        "AM",
-        "DAM",
-        "MO",
-        "AMO",
-      ],
+      allowedUserTypes: ["CRM", "PORTAL"],
+      allowedRoles: ["*"], // All roles can access lookupType
     },
     // Permission management
     permission: {

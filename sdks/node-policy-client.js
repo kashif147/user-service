@@ -159,7 +159,7 @@ class PolicyClient {
 
         if (result.success) {
           req.user = result.user;
-          req.tenantId = result.user.tenantId;
+          req.tenantId = result.user?.tenantId;
           next();
         } else {
           res.status(403).json({

@@ -67,7 +67,7 @@ class B2CUsersHandler {
     console.log("Available tenant ID fields:", {
       tenantId: payload.tenantId,
       extension_tenantId: payload.extension_tenantId,
-      tid: payload.tid,
+      tenantId: payload.tenantId,
     });
 
     return {

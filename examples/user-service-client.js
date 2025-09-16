@@ -63,7 +63,7 @@ class UserServiceClient {
         valid: true,
         user: {
           id: decoded.sub || decoded.id,
-          tenantId: decoded.tid,
+          tenantId: decoded.tenantId,
           email: decoded.email,
           userType: decoded.userType,
           roles: decoded.roles || [],
@@ -270,4 +270,3 @@ function createExpressApp() {
 }
 
 module.exports = UserServiceClient;
-

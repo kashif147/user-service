@@ -37,7 +37,7 @@ const authenticate = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     // Validate tenantId is present in token
-    if (!decoded.tid) {
+    if (!decoded.tenantId) {
       const authError = AppError.badRequest("Invalid token: missing tenantId", {
         tokenError: true,
         missingTenantId: true,
@@ -55,7 +55,7 @@ const authenticate = async (req, res, next) => {
 
     // Set request context with tenant isolation
     req.ctx = {
-      tenantId: decoded.tid,
+      tenantId: decoded.tenantId,
       userId: decoded.sub || decoded.id, // Support both sub and id claims
       roles: decoded.roles || [],
       permissions: decoded.permissions || [],
@@ -64,7 +64,7 @@ const authenticate = async (req, res, next) => {
     // Attach user info to request for backward compatibility
     req.user = decoded;
     req.userId = decoded.sub || decoded.id;
-    req.tenantId = decoded.tid;
+    req.tenantId = decoded.tenantId;
     req.roles = decoded.roles || [];
     req.permissions = decoded.permissions || [];
 
