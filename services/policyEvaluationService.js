@@ -326,7 +326,7 @@ const validateToken = async (token) => {
       return { valid: false, error: "Token expired" };
     }
 
-    // Extract tenantId with fallback options
+    // Extract tenantId with fallback options - prioritize tenantId, then tid, then extension_tenantId
     const tenantId =
       decoded.tenantId || decoded.tid || decoded.extension_tenantId;
 

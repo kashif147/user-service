@@ -67,10 +67,10 @@ class MicrosoftAuthHelper {
       userTokenVersion: payload.ver || null,
       userPolicy: payload.tfp || null,
       // Normalize tenantId from both B2C (extension_tenantId) and Entra (tid) to consistent name
-      tenantId: payload.extension_tenantId || payload.tid || null,
+      tenantId:
+        payload.extension_tenantId || payload.tid || payload.tenantId || null,
       // Keep original claims for reference
       extension_tenantId: payload.extension_tenantId || null,
-      tenantId: payload.tenantId || null,
     };
   }
 
