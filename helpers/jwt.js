@@ -11,6 +11,14 @@ module.exports.generateToken = async (user) => {
     console.log("=== JWT Generation: Starting ===");
     console.log("User ID:", user._id);
     console.log("Tenant ID:", user.tenantId);
+    console.log("User object keys:", Object.keys(user));
+
+    // Validate required fields
+    if (!user.tenantId) {
+      console.error("ERROR: User tenantId is missing!");
+      console.error("User object:", JSON.stringify(user, null, 2));
+      throw new Error("User tenantId is required for JWT generation");
+    }
 
     // Get user permissions based on their roles
     console.log("Fetching user permissions...");
@@ -51,6 +59,12 @@ module.exports.generateToken = async (user) => {
     console.log("=== JWT Generation: Fallback Mode ===");
     console.log("Error in JWT generation:", error.message);
     console.log("Using fallback token without roles/permissions");
+
+    // Ensure tenantId exists even in fallback mode
+    if (!user.tenantId) {
+      console.error("CRITICAL: tenantId is missing in fallback mode too!");
+      throw new Error("User tenantId is required for JWT generation");
+    }
 
     // Fallback to basic token if permissions can't be fetched
     const token =
