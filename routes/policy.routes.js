@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const policyService = require("../services/policyEvaluationService");
+const crypto = require("crypto");
 
 /**
  * Centralized RBAC Policy Evaluation Endpoints
@@ -23,9 +24,14 @@ router.post("/evaluate", async (req, res) => {
 
     if (!token || !resource || !action) {
       return res.status(400).json({
-        success: false,
-        error: "Missing required fields: token, resource, action",
-        code: "MISSING_FIELDS",
+        authorized: false,
+        reason: "MISSING_FIELDS",
+        requiredRoles: [],
+        requiredPermissions: [],
+        userRoles: [],
+        userPermissions: [],
+        policyVersion: "1.0.0",
+        correlationId: req.headers["x-correlation-id"] || crypto.randomUUID(),
       });
     }
 
@@ -33,27 +39,53 @@ router.post("/evaluate", async (req, res) => {
       token,
       resource,
       action,
-      context,
+      context: {
+        ...context,
+        correlationId: req.headers["x-correlation-id"] || crypto.randomUUID(),
+      },
     });
 
     const statusCode = result.decision === "PERMIT" ? 200 : 403;
 
-    res.status(statusCode).json({
-      success: result.decision === "PERMIT",
-      decision: result.decision,
-      reason: result.reason,
-      user: result.user,
-      resource,
-      action,
-      timestamp: result.timestamp,
-      expiresAt: result.expiresAt,
-    });
+    // Set policy version header
+    res.set("X-Policy-Version", result.policyVersion || "1.0.0");
+
+    if (result.decision === "PERMIT") {
+      res.status(statusCode).json({
+        authorized: true,
+        decision: result.decision,
+        user: result.user,
+        resource,
+        action,
+        timestamp: result.timestamp,
+        expiresAt: result.expiresAt,
+        policyVersion: result.policyVersion || "1.0.0",
+        correlationId: result.context?.correlationId,
+      });
+    } else {
+      res.status(statusCode).json({
+        authorized: false,
+        reason: result.reason,
+        requiredRoles: result.requiredRoles || [],
+        requiredPermissions: result.requiredPermissions || [],
+        userRoles: result.user?.roles || [],
+        userPermissions: result.user?.permissions || [],
+        policyVersion: result.policyVersion || "1.0.0",
+        correlationId: result.context?.correlationId,
+      });
+    }
   } catch (error) {
     console.error("Policy evaluation error:", error);
     res.status(500).json({
-      success: false,
-      error: "Internal server error",
-      code: "EVALUATION_ERROR",
+      authorized: false,
+      reason: "EVALUATION_ERROR",
+      error: error.message,
+      requiredRoles: [],
+      requiredPermissions: [],
+      userRoles: [],
+      userPermissions: [],
+      policyVersion: "1.0.0",
+      correlationId: req.headers["x-correlation-id"] || crypto.randomUUID(),
     });
   }
 });
@@ -71,34 +103,57 @@ router.post("/evaluate-batch", async (req, res) => {
 
     if (!requests || !Array.isArray(requests)) {
       return res.status(400).json({
-        success: false,
+        authorized: false,
+        reason: "INVALID_REQUESTS",
         error: "Missing or invalid requests array",
-        code: "INVALID_REQUESTS",
+        requiredRoles: [],
+        requiredPermissions: [],
+        userRoles: [],
+        userPermissions: [],
+        policyVersion: "1.0.0",
+        correlationId: req.headers["x-correlation-id"] || crypto.randomUUID(),
       });
     }
 
     if (requests.length > 50) {
       return res.status(400).json({
-        success: false,
+        authorized: false,
+        reason: "TOO_MANY_REQUESTS",
         error: "Too many requests (max 50)",
-        code: "TOO_MANY_REQUESTS",
+        requiredRoles: [],
+        requiredPermissions: [],
+        userRoles: [],
+        userPermissions: [],
+        policyVersion: "1.0.0",
+        correlationId: req.headers["x-correlation-id"] || crypto.randomUUID(),
       });
     }
 
     const results = await policyService.evaluateBatchPolicy(requests);
 
+    // Set policy version header
+    res.set("X-Policy-Version", "1.0.0");
+
     res.json({
-      success: true,
+      authorized: true,
       results,
       count: results.length,
       timestamp: new Date().toISOString(),
+      policyVersion: "1.0.0",
+      correlationId: req.headers["x-correlation-id"] || crypto.randomUUID(),
     });
   } catch (error) {
     console.error("Batch policy evaluation error:", error);
     res.status(500).json({
-      success: false,
-      error: "Internal server error",
-      code: "BATCH_EVALUATION_ERROR",
+      authorized: false,
+      reason: "BATCH_EVALUATION_ERROR",
+      error: error.message,
+      requiredRoles: [],
+      requiredPermissions: [],
+      userRoles: [],
+      userPermissions: [],
+      policyVersion: "1.0.0",
+      correlationId: req.headers["x-correlation-id"] || crypto.randomUUID(),
     });
   }
 });
@@ -167,9 +222,15 @@ router.get("/check/:resource/:action", async (req, res) => {
 
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return res.status(401).json({
-        success: false,
+        authorized: false,
+        reason: "MISSING_TOKEN",
         error: "Authorization header required",
-        code: "MISSING_TOKEN",
+        requiredRoles: [],
+        requiredPermissions: [],
+        userRoles: [],
+        userPermissions: [],
+        policyVersion: "1.0.0",
+        correlationId: req.headers["x-correlation-id"] || crypto.randomUUID(),
       });
     }
 
@@ -178,26 +239,52 @@ router.get("/check/:resource/:action", async (req, res) => {
       token,
       resource,
       action,
-      context: req.query, // Pass query params as context
+      context: {
+        ...req.query,
+        correlationId: req.headers["x-correlation-id"] || crypto.randomUUID(),
+      },
     });
 
     const statusCode = result.decision === "PERMIT" ? 200 : 403;
 
-    res.status(statusCode).json({
-      success: result.decision === "PERMIT",
-      decision: result.decision,
-      reason: result.reason,
-      user: result.user,
-      resource,
-      action,
-      timestamp: result.timestamp,
-    });
+    // Set policy version header
+    res.set("X-Policy-Version", result.policyVersion || "1.0.0");
+
+    if (result.decision === "PERMIT") {
+      res.status(statusCode).json({
+        authorized: true,
+        decision: result.decision,
+        user: result.user,
+        resource,
+        action,
+        timestamp: result.timestamp,
+        policyVersion: result.policyVersion || "1.0.0",
+        correlationId: result.context?.correlationId,
+      });
+    } else {
+      res.status(statusCode).json({
+        authorized: false,
+        reason: result.reason,
+        requiredRoles: result.requiredRoles || [],
+        requiredPermissions: result.requiredPermissions || [],
+        userRoles: result.user?.roles || [],
+        userPermissions: result.user?.permissions || [],
+        policyVersion: result.policyVersion || "1.0.0",
+        correlationId: result.context?.correlationId,
+      });
+    }
   } catch (error) {
     console.error("Quick check error:", error);
     res.status(500).json({
-      success: false,
-      error: "Internal server error",
-      code: "CHECK_ERROR",
+      authorized: false,
+      reason: "CHECK_ERROR",
+      error: error.message,
+      requiredRoles: [],
+      requiredPermissions: [],
+      userRoles: [],
+      userPermissions: [],
+      policyVersion: "1.0.0",
+      correlationId: req.headers["x-correlation-id"] || crypto.randomUUID(),
     });
   }
 });

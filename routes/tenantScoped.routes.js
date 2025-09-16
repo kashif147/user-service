@@ -4,9 +4,9 @@ const TenantScopedController = require("../controllers/tenantScoped.controller")
 const {
   authenticate,
   requireTenant,
-  requireRole,
   requirePermission,
 } = require("../middlewares/auth");
+const { defaultPolicyAdapter } = require("../helpers/policyAdapter.js");
 
 // Apply authentication and tenant enforcement to all routes
 router.use(authenticate);
@@ -15,39 +15,39 @@ router.use(requireTenant);
 // Tenant-scoped role assignment (ASU only)
 router.post(
   "/tenant/users/assign-role",
-  requireRole(["ASU"]),
+  defaultPolicyAdapter.middleware("role", "write"),
   TenantScopedController.assignRoleToUserInTenant
 );
 
 router.post(
   "/tenant/users/remove-role",
-  requireRole(["ASU"]),
+  defaultPolicyAdapter.middleware("role", "write"),
   TenantScopedController.removeRoleFromUserInTenant
 );
 
 // Tenant-scoped permission management (ASU only)
 router.put(
   "/tenant/roles/:id/permissions",
-  requireRole(["ASU"]),
+  defaultPolicyAdapter.middleware("role", "admin"),
   TenantScopedController.assignPermissionsToRoleInTenant
 );
 
 // Tenant-scoped data access (ASU only)
 router.get(
   "/tenant/users",
-  requireRole(["ASU"]),
+  defaultPolicyAdapter.middleware("user", "read"),
   TenantScopedController.getUsersInTenant
 );
 
 router.get(
   "/tenant/roles",
-  requireRole(["ASU"]),
+  defaultPolicyAdapter.middleware("role", "read"),
   TenantScopedController.getRolesInTenant
 );
 
 router.get(
   "/tenant/permissions",
-  requireRole(["ASU"]),
+  defaultPolicyAdapter.middleware("permission", "read"),
   TenantScopedController.getAvailablePermissions
 );
 

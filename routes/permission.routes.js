@@ -1,11 +1,8 @@
 const express = require("express");
 const router = express.Router();
 const PermissionController = require("../controllers/permission.controller");
-const {
-  authenticate,
-  requireRole,
-  requirePermission,
-} = require("../middlewares/auth");
+const { authenticate } = require("../middlewares/auth");
+const { defaultPolicyAdapter } = require("../helpers/policyAdapter.js");
 
 // Apply authentication to all routes
 router.use(authenticate);
@@ -13,62 +10,62 @@ router.use(authenticate);
 // Permission CRUD operations (Super User only for create/update/delete)
 router.post(
   "/permissions",
-  requireRole(["SU"]),
+  defaultPolicyAdapter.middleware("permission", "admin"),
   PermissionController.createPermission
 );
 
 router.get(
   "/permissions",
-  requireRole(["SU"]),
+  defaultPolicyAdapter.middleware("permission", "admin"),
   PermissionController.getAllPermissions
 );
 
 // Permission management operations - must come before parameterized routes
 router.get(
   "/permissions/stats",
-  requireRole(["SU"]),
+  defaultPolicyAdapter.middleware("permission", "admin"),
   PermissionController.getPermissionStats
 );
 
 router.get(
   "/permissions/:id",
-  requireRole(["SU"]),
+  defaultPolicyAdapter.middleware("permission", "admin"),
   PermissionController.getPermissionById
 );
 
 router.get(
   "/permissions/code/:code",
-  requireRole(["SU"]),
+  defaultPolicyAdapter.middleware("permission", "admin"),
   PermissionController.getPermissionByCode
 );
 
 router.get(
   "/permissions/resource/:resource",
-  requireRole(["SU"]),
+  defaultPolicyAdapter.middleware("permission", "admin"),
   PermissionController.getPermissionsByResource
 );
 
 router.get(
   "/permissions/category/:category",
-  requireRole(["SU"]),
+  defaultPolicyAdapter.middleware("permission", "admin"),
   PermissionController.getPermissionsByCategory
 );
 
 router.put(
   "/permissions/:id",
-  requireRole(["SU"]),
+  defaultPolicyAdapter.middleware("permission", "admin"),
   PermissionController.updatePermission
 );
 
 router.delete(
   "/permissions/:id",
-  requireRole(["SU"]),
+  defaultPolicyAdapter.middleware("permission", "admin"),
   PermissionController.deletePermission
 );
 
 router.post(
   "/permissions/initialize",
-  requireRole(["SU"]),
+  defaultPolicyAdapter.middleware("permission", "admin"),
   PermissionController.initializeDefaultPermissions
 );
 

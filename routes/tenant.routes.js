@@ -1,77 +1,90 @@
 const express = require("express");
 const router = express.Router();
 const TenantController = require("../controllers/tenant.controller");
-const {
-  authenticate,
-  requireRole,
-  requirePermission,
-} = require("../middlewares/auth");
+const { authenticate, requirePermission } = require("../middlewares/auth");
+const { defaultPolicyAdapter } = require("../helpers/policyAdapter.js");
 
 // Apply authentication to all routes
 router.use(authenticate);
 
 // Tenant CRUD operations (Super User only for create/update/delete)
-router.post("/tenants", requireRole(["SU"]), TenantController.createTenant);
+router.post(
+  "/tenants",
+  defaultPolicyAdapter.middleware("tenant", "create"),
+  TenantController.createTenant
+);
 
-router.get("/tenants", requireRole(["SU"]), TenantController.getAllTenants);
+router.get(
+  "/tenants",
+  defaultPolicyAdapter.middleware("tenant", "read"),
+  TenantController.getAllTenants
+);
 
-router.get("/tenants/:id", requireRole(["SU"]), TenantController.getTenantById);
+router.get(
+  "/tenants/:id",
+  defaultPolicyAdapter.middleware("tenant", "read"),
+  TenantController.getTenantById
+);
 
 router.get(
   "/tenants/code/:code",
-  requireRole(["SU"]),
+  defaultPolicyAdapter.middleware("tenant", "read"),
   TenantController.getTenantByCode
 );
 
 router.get(
   "/tenants/domain/:domain",
-  requireRole(["SU"]),
+  defaultPolicyAdapter.middleware("tenant", "read"),
   TenantController.getTenantByDomain
 );
 
-router.put("/tenants/:id", requireRole(["SU"]), TenantController.updateTenant);
+router.put(
+  "/tenants/:id",
+  defaultPolicyAdapter.middleware("tenant", "update"),
+  TenantController.updateTenant
+);
 
 router.delete(
   "/tenants/:id",
-  requireRole(["SU"]),
+  defaultPolicyAdapter.middleware("tenant", "delete"),
   TenantController.deleteTenant
 );
 
 // Tenant management operations
 router.get(
   "/tenants/:id/stats",
-  requireRole(["SU"]),
+  defaultPolicyAdapter.middleware("tenant", "read"),
   TenantController.getTenantStats
 );
 
 router.put(
   "/tenants/:id/status",
-  requireRole(["SU"]),
+  defaultPolicyAdapter.middleware("tenant", "update"),
   TenantController.updateTenantStatus
 );
 
 // Authentication Connection Management Routes
 router.post(
   "/tenants/:id/auth-connections",
-  requireRole(["SU"]),
+  defaultPolicyAdapter.middleware("tenant", "admin"),
   TenantController.addAuthenticationConnection
 );
 
 router.get(
   "/tenants/:id/auth-connections",
-  requireRole(["SU"]),
+  defaultPolicyAdapter.middleware("tenant", "read"),
   TenantController.getAuthenticationConnections
 );
 
 router.put(
   "/tenants/:id/auth-connections/:connectionId",
-  requireRole(["SU"]),
+  defaultPolicyAdapter.middleware("tenant", "admin"),
   TenantController.updateAuthenticationConnection
 );
 
 router.delete(
   "/tenants/:id/auth-connections/:connectionId",
-  requireRole(["SU"]),
+  defaultPolicyAdapter.middleware("tenant", "admin"),
   TenantController.removeAuthenticationConnection
 );
 

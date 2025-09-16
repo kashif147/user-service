@@ -258,10 +258,9 @@
         }
 
         try {
-          const response = await fetch(`${BASE_URL}/auth/validate`, {
-            method: "POST",
+          const response = await fetch(`${BASE_URL}/token/validate-jwt`, {
+            method: "GET",
             headers: {
-              "Content-Type": "application/json",
               Authorization: `Bearer ${authResult.accessToken}`,
             },
           });
@@ -270,24 +269,28 @@
 
           document.getElementById("validateResult").style.display = "block";
 
-          if (response.ok) {
+          if (response.ok && data.success && data.isValid) {
             document.getElementById("validateResult").className =
               "result success";
             document.getElementById("validateResult").textContent =
               `✅ Token Validation Successful!\n\n` +
-              `User ID: ${data.userId}\n` +
-              `Email: ${data.email}\n` +
-              `Roles: ${data.roles ? data.roles.join(", ") : "None"}\n` +
+              `Valid: ${data.isValid}\n` +
+              `User ID: ${data.claims.userId}\n` +
+              `Email: ${data.claims.email}\n` +
+              `Tenant ID: ${data.claims.tenantId}\n` +
+              `Roles: ${
+                data.claims.roles ? data.claims.roles.length : 0
+              } roles\n` +
               `Permissions: ${
-                data.permissions ? data.permissions.length : 0
-              } assigned`;
+                data.claims.permissions ? data.claims.permissions.length : 0
+              } permissions`;
           } else {
             document.getElementById("validateResult").className =
               "result error";
             document.getElementById("validateResult").textContent =
               `❌ Token Validation Failed!\n\n` +
               `Status: ${response.status}\n` +
-              `Message: ${data.message || "Unknown error"}`;
+              `Message: ${data.error || "Invalid token"}`;
           }
         } catch (error) {
           document.getElementById("validateResult").className = "result error";

@@ -197,6 +197,9 @@
         <button onclick="testRoleAssignment()" id="test-roles-btn" disabled>
           Test Role Assignment
         </button>
+        <button onclick="validateToken()" id="validate-token-btn" disabled>
+          Validate Token
+        </button>
 
         <div id="user-result"></div>
       </div>
@@ -333,6 +336,7 @@
             document.getElementById("test-api-btn").disabled = false;
             document.getElementById("get-profile-btn").disabled = false;
             document.getElementById("test-roles-btn").disabled = false;
+            document.getElementById("validate-token-btn").disabled = false;
             showSuccess("Authentication completed successfully!");
           } else {
             showError("Authentication failed: " + data.message);
@@ -465,6 +469,42 @@
 
       function showInfo(message) {
         showMessage(message, "info");
+      }
+
+      async function validateToken() {
+        if (!accessToken) {
+          showError("No access token available");
+          return;
+        }
+
+        try {
+          showInfo("Validating token...");
+
+          const response = await fetch("/token/validate-jwt", {
+            method: "GET",
+            headers: {
+              Authorization: "Bearer " + accessToken,
+            },
+          });
+
+          const data = await response.json();
+
+          document.getElementById("user-result").innerHTML =
+            "<h4>Token Validation Result:</h4>" +
+            '<div class="code-block">' +
+            JSON.stringify(data, null, 2) +
+            "</div>";
+
+          if (data.success && data.isValid) {
+            showSuccess("Token validation successful!");
+          } else {
+            showError(
+              "Token validation failed: " + (data.error || "Invalid token")
+            );
+          }
+        } catch (error) {
+          showError("Error validating token: " + error.message);
+        }
       }
 
       function showMessage(message, type) {

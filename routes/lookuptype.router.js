@@ -1,25 +1,32 @@
 const express = require("express");
 const router = express.Router();
 const lookuptypeController = require("../controllers/lookuptype.ontroller.js");
-const { ROLE_HIERARCHY } = require("../config/roleHierarchy.js");
-const verifyRoles = require("../middlewares/verifyRoles.js");
+const { defaultPolicyAdapter } = require("../helpers/policyAdapter.js");
 
 router
   .route("/")
-  .get(lookuptypeController.getAllLookupType)
+  .get(
+    defaultPolicyAdapter.middleware("lookupType", "read"),
+    lookuptypeController.getAllLookupType
+  )
   .post(
-    verifyRoles(ROLE_HIERARCHY.SU, ROLE_HIERARCHY.ASU),
+    defaultPolicyAdapter.middleware("lookupType", "write"),
     lookuptypeController.createNewLookupType
   )
   .put(
-    verifyRoles(ROLE_HIERARCHY.SU, ROLE_HIERARCHY.ASU),
+    defaultPolicyAdapter.middleware("lookupType", "write"),
     lookuptypeController.updateLookupType
   )
   .delete(
-    verifyRoles(ROLE_HIERARCHY.SU),
+    defaultPolicyAdapter.middleware("lookupType", "delete"),
     lookuptypeController.deleteLookupType
   );
 
-router.route("/:id").get(lookuptypeController.getLookupType);
+router
+  .route("/:id")
+  .get(
+    defaultPolicyAdapter.middleware("lookupType", "read"),
+    lookuptypeController.getLookupType
+  );
 
 module.exports = router;
