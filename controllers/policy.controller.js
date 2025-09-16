@@ -243,6 +243,18 @@ module.exports.getPolicyInfo = (req, res) => {
         userTypes: ["CRM"],
         minRoleLevel: 30,
       },
+      lookup: {
+        description: "Lookup data access",
+        actions: ["read", "write", "delete"],
+        userTypes: ["CRM", "PORTAL"],
+        minRoleLevel: 1,
+      },
+      lookupType: {
+        description: "Lookup type management access",
+        actions: ["read", "write", "delete"],
+        userTypes: ["CRM", "PORTAL"],
+        minRoleLevel: 1,
+      },
     },
     actions: {
       read: { minRoleLevel: 1, description: "View data" },

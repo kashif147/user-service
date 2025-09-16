@@ -83,7 +83,7 @@ class AzureADHandler {
       userTokenVersion: payload.ver || "2.0",
       userPolicy: null,
       // Extract tenant ID for proper tenant isolation
-      tenantId: payload.tid || null,
+      tenantId: payload.tenantId || null,
     };
   }
 

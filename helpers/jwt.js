@@ -34,7 +34,7 @@ module.exports.generateToken = async (user) => {
 
     const tokenPayload = {
       sub: user._id, // Standard JWT subject claim
-      tid: user.tenantId, // Tenant ID claim for multi-tenancy
+      tenantId: user.tenantId, // Tenant ID claim for multi-tenancy
       id: user._id, // Keep for backward compatibility
       email: user.userEmail,
       userType: user.userType,
@@ -72,7 +72,7 @@ module.exports.generateToken = async (user) => {
       jwt.sign(
         {
           sub: user._id,
-          tid: user.tenantId,
+          tenantId: user.tenantId,
           id: user._id, // Keep for backward compatibility
           email: user.userEmail,
           userType: user.userType,

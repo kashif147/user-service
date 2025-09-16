@@ -86,6 +86,7 @@ class PolicyAdapter {
         }
       } catch (error) {
         console.error("Policy middleware error:", error);
+        console.error("Error stack:", error.stack);
         return this.sendErrorResponse(res, error, req.correlationId);
       }
     };
@@ -102,6 +103,10 @@ class PolicyAdapter {
    */
   async evaluate(token, request) {
     try {
+      console.log("PolicyAdapter.evaluate called with:", {
+        token: token.substring(0, 20) + "...",
+        request,
+      });
       const { resource, action, context = {} } = request;
 
       // Add correlation ID to context if not present
@@ -109,12 +114,22 @@ class PolicyAdapter {
         context.correlationId = generateCorrelationId();
       }
 
+      console.log("Calling policyService.evaluatePolicy with:", {
+        resource,
+        action,
+        context,
+      });
       const result = await policyService.evaluatePolicy({
         token,
         resource,
         action,
         context,
       });
+
+      console.log(
+        "PolicyService.evaluatePolicy returned:",
+        JSON.stringify(result, null, 2)
+      );
 
       return {
         success: result.decision === "PERMIT",
@@ -129,6 +144,7 @@ class PolicyAdapter {
       };
     } catch (error) {
       console.error("Policy evaluation error:", error);
+      console.error("Error stack:", error.stack);
       return {
         success: false,
         decision: "DENY",

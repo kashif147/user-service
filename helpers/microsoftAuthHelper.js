@@ -70,7 +70,7 @@ class MicrosoftAuthHelper {
       tenantId: payload.extension_tenantId || payload.tid || null,
       // Keep original claims for reference
       extension_tenantId: payload.extension_tenantId || null,
-      tid: payload.tid || null,
+      tenantId: payload.tenantId || null,
     };
   }
 
@@ -89,7 +89,7 @@ class MicrosoftAuthHelper {
     if (!tenantId) {
       console.log("TenantId not found in profile");
       throw new Error(
-        "TenantId not found in Microsoft token - B2C must include extension_tenantId or Entra must include tid"
+        "TenantId not found in Microsoft token - B2C must include extension_tenantId or Entra must include tenantId"
       );
     }
 

@@ -36,7 +36,7 @@ module.exports.decodeToken = async (req, res) => {
       oid: decoded.oid,
 
       // Tenant-specific claims
-      tenantId: decoded.tid || decoded.tenantId,
+      tenantId: decoded.tenantId || decoded.tid,
 
       // User information
       email: decoded.emails?.[0] || decoded.preferred_username || decoded.email,
@@ -56,17 +56,17 @@ module.exports.decodeToken = async (req, res) => {
       ver: decoded.ver,
 
       // Entra specific
-      tid: decoded.tid,
+      tenantId: decoded.tenantId,
       preferred_username: decoded.preferred_username,
     };
 
     // Determine token type
     let tokenType = "Unknown";
-    if (decoded.tenantId) {
+    if (decoded.tenantId && decoded.tfp) {
       tokenType = "Azure AD B2C";
-    } else if (decoded.tid && decoded.preferred_username) {
+    } else if (decoded.tenantId && decoded.preferred_username) {
       tokenType = "Azure Entra ID";
-    } else if (decoded.tid && decoded.userType) {
+    } else if (decoded.tenantId && decoded.userType) {
       tokenType = "Internal JWT";
     }
 
@@ -110,7 +110,7 @@ module.exports.validateInternalJWT = async (req, res) => {
 
       // Check for required claims
       const validation = {
-        hasTenantId: !!decoded.tid,
+        hasTenantId: !!decoded.tenantId,
         hasUserId: !!(decoded.sub || decoded.id),
         hasEmail: !!decoded.email,
         hasRoles: !!decoded.roles,
@@ -124,7 +124,7 @@ module.exports.validateInternalJWT = async (req, res) => {
         isValid,
         validation,
         claims: {
-          tenantId: decoded.tid,
+          tenantId: decoded.tenantId,
           userId: decoded.sub || decoded.id,
           email: decoded.email,
           userType: decoded.userType,
@@ -174,7 +174,7 @@ module.exports.validateTokenForService = async (req, res) => {
         valid: true,
         user: {
           id: decoded.sub || decoded.id,
-          tenantId: decoded.tid,
+          tenantId: decoded.tenantId,
           email: decoded.email,
           userType: decoded.userType,
           roles: decoded.roles || [],
@@ -212,7 +212,7 @@ module.exports.generateTestToken = async (req, res) => {
 
     const testPayload = {
       sub: userId,
-      tid: tenantId,
+      tenantId: tenantId,
       id: userId,
       email: email,
       userType: "member",
