@@ -217,6 +217,8 @@ const evaluatePolicy = async (request) => {
         reason: "INVALID_USER_DATA",
         error: "User data is missing or invalid",
         timestamp: new Date().toISOString(),
+        policyVersion: POLICY_VERSION,
+        correlationId: context.correlationId,
       };
       await cache.set(cacheKey, result, 60);
       return result;
@@ -686,6 +688,14 @@ const getEffectivePermissions = async (token, resource) => {
 
     const user = tokenValidation.user;
     const { roles, permissions } = user;
+
+    // Validate user object exists
+    if (!user || !user.id) {
+      return {
+        success: false,
+        error: "User data is missing or invalid",
+      };
+    }
 
     // Super User has all permissions
     if (isSuperUser(roles)) {
