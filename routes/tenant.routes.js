@@ -50,4 +50,29 @@ router.put(
   TenantController.updateTenantStatus
 );
 
+// Authentication Connection Management Routes
+router.post(
+  "/tenants/:id/auth-connections",
+  requireRole(["SU"]),
+  TenantController.addAuthenticationConnection
+);
+
+router.get(
+  "/tenants/:id/auth-connections",
+  requireRole(["SU"]),
+  TenantController.getAuthenticationConnections
+);
+
+router.put(
+  "/tenants/:id/auth-connections/:connectionId",
+  requireRole(["SU"]),
+  TenantController.updateAuthenticationConnection
+);
+
+router.delete(
+  "/tenants/:id/auth-connections/:connectionId",
+  requireRole(["SU"]),
+  TenantController.removeAuthenticationConnection
+);
+
 module.exports = router;

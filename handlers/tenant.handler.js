@@ -166,6 +166,145 @@ module.exports.updateTenantStatus = async (tenantId, status, updatedBy) => {
   }
 };
 
+// Authentication Connection Management Methods
+
+module.exports.addAuthenticationConnection = async (
+  tenantId,
+  connectionData,
+  updatedBy
+) => {
+  try {
+    const tenant = await Tenant.findById(tenantId);
+    if (!tenant) {
+      throw new Error("Tenant not found");
+    }
+
+    // Check if connection with same directory ID already exists
+    const existingConnection = tenant.authenticationConnections.find(
+      (conn) => conn.directoryId === connectionData.directoryId && conn.isActive
+    );
+
+    if (existingConnection) {
+      throw new Error(
+        "Authentication connection with this Directory ID already exists"
+      );
+    }
+
+    // Add new connection
+    tenant.authenticationConnections.push({
+      ...connectionData,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    tenant.updatedBy = updatedBy;
+    await tenant.save();
+
+    return tenant;
+  } catch (error) {
+    throw new Error(`Error adding authentication connection: ${error.message}`);
+  }
+};
+
+module.exports.updateAuthenticationConnection = async (
+  tenantId,
+  connectionId,
+  updateData,
+  updatedBy
+) => {
+  try {
+    const tenant = await Tenant.findById(tenantId);
+    if (!tenant) {
+      throw new Error("Tenant not found");
+    }
+
+    const connection = tenant.authenticationConnections.id(connectionId);
+    if (!connection) {
+      throw new Error("Authentication connection not found");
+    }
+
+    // Check if updating directory ID would create a duplicate
+    if (
+      updateData.directoryId &&
+      updateData.directoryId !== connection.directoryId
+    ) {
+      const existingConnection = tenant.authenticationConnections.find(
+        (conn) =>
+          conn.directoryId === updateData.directoryId &&
+          conn._id.toString() !== connectionId &&
+          conn.isActive
+      );
+
+      if (existingConnection) {
+        throw new Error(
+          "Authentication connection with this Directory ID already exists"
+        );
+      }
+    }
+
+    // Update connection
+    Object.assign(connection, updateData);
+    connection.updatedAt = new Date();
+    tenant.updatedBy = updatedBy;
+
+    await tenant.save();
+
+    return tenant;
+  } catch (error) {
+    throw new Error(
+      `Error updating authentication connection: ${error.message}`
+    );
+  }
+};
+
+module.exports.removeAuthenticationConnection = async (
+  tenantId,
+  connectionId,
+  updatedBy
+) => {
+  try {
+    const tenant = await Tenant.findById(tenantId);
+    if (!tenant) {
+      throw new Error("Tenant not found");
+    }
+
+    const connection = tenant.authenticationConnections.id(connectionId);
+    if (!connection) {
+      throw new Error("Authentication connection not found");
+    }
+
+    // Soft delete - mark as inactive
+    connection.isActive = false;
+    connection.updatedAt = new Date();
+    tenant.updatedBy = updatedBy;
+
+    await tenant.save();
+
+    return tenant;
+  } catch (error) {
+    throw new Error(
+      `Error removing authentication connection: ${error.message}`
+    );
+  }
+};
+
+module.exports.getAuthenticationConnections = async (tenantId) => {
+  try {
+    const tenant = await Tenant.findById(tenantId).select(
+      "authenticationConnections"
+    );
+    if (!tenant) {
+      throw new Error("Tenant not found");
+    }
+
+    return tenant.authenticationConnections.filter((conn) => conn.isActive);
+  } catch (error) {
+    throw new Error(
+      `Error fetching authentication connections: ${error.message}`
+    );
+  }
+};
+
 // Helper function to initialize roles for a new tenant
 const initializeTenantRoles = async (tenantId) => {
   try {
