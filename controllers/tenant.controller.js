@@ -105,3 +105,63 @@ module.exports.updateTenantStatus = async (req, res) => {
     res.fail(error.message);
   }
 };
+
+// Authentication Connection Management Controllers
+
+// Add authentication connection
+module.exports.addAuthenticationConnection = async (req, res) => {
+  try {
+    const updatedBy = req.ctx?.userId || "system";
+    const tenant = await TenantHandler.addAuthenticationConnection(
+      req.params.id,
+      req.body,
+      updatedBy
+    );
+    res.success(tenant);
+  } catch (error) {
+    res.fail(error.message);
+  }
+};
+
+// Update authentication connection
+module.exports.updateAuthenticationConnection = async (req, res) => {
+  try {
+    const updatedBy = req.ctx?.userId || "system";
+    const tenant = await TenantHandler.updateAuthenticationConnection(
+      req.params.id,
+      req.params.connectionId,
+      req.body,
+      updatedBy
+    );
+    res.success(tenant);
+  } catch (error) {
+    res.fail(error.message);
+  }
+};
+
+// Remove authentication connection
+module.exports.removeAuthenticationConnection = async (req, res) => {
+  try {
+    const updatedBy = req.ctx?.userId || "system";
+    const tenant = await TenantHandler.removeAuthenticationConnection(
+      req.params.id,
+      req.params.connectionId,
+      updatedBy
+    );
+    res.success(tenant);
+  } catch (error) {
+    res.fail(error.message);
+  }
+};
+
+// Get authentication connections
+module.exports.getAuthenticationConnections = async (req, res) => {
+  try {
+    const connections = await TenantHandler.getAuthenticationConnections(
+      req.params.id
+    );
+    res.success(connections);
+  } catch (error) {
+    res.fail(error.message);
+  }
+};

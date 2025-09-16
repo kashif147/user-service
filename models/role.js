@@ -15,6 +15,7 @@ const RoleSchema = new mongoose.Schema({
   },
   code: {
     type: String,
+    required: true,
     trim: true,
   },
   description: {

@@ -78,6 +78,50 @@ const TenantSchema = new mongoose.Schema({
     type: Date,
     default: Date.now,
   },
+  // Authentication connections
+  authenticationConnections: [
+    {
+      connectionType: {
+        type: String,
+        enum: ["Entra ID (Azure AD)", "Azure B2C"],
+        required: true,
+      },
+      issuerUrl: {
+        type: String,
+        required: true,
+        validate: {
+          validator: function (v) {
+            return /^https:\/\/login\.microsoftonline\.com\/[^\/]+\/v2\.0$/.test(
+              v
+            );
+          },
+          message: "Issuer URL must be a valid Microsoft login URL",
+        },
+      },
+      directoryId: {
+        type: String,
+        required: true,
+        trim: true,
+      },
+      audience: {
+        type: String,
+        required: true,
+        trim: true,
+      },
+      isActive: {
+        type: Boolean,
+        default: true,
+      },
+      createdAt: {
+        type: Date,
+        default: Date.now,
+      },
+      updatedAt: {
+        type: Date,
+        default: Date.now,
+      },
+    },
+  ],
   // Audit fields
   createdBy: { type: String, default: null },
   updatedBy: { type: String, default: null },
@@ -88,10 +132,22 @@ TenantSchema.index({ code: 1 }, { unique: true });
 TenantSchema.index({ domain: 1 }, { unique: true });
 TenantSchema.index({ status: 1 });
 TenantSchema.index({ "subscription.plan": 1 });
+TenantSchema.index({ "authenticationConnections.directoryId": 1 });
+TenantSchema.index({ "authenticationConnections.audience": 1 });
 
 // Pre-save middleware to update audit fields
 TenantSchema.pre("save", function (next) {
   this.updatedAt = Date.now();
+
+  // Update authentication connection timestamps if they were modified
+  if (this.isModified("authenticationConnections")) {
+    this.authenticationConnections.forEach((connection) => {
+      if (connection.isModified()) {
+        connection.updatedAt = Date.now();
+      }
+    });
+  }
+
   next();
 });
 
