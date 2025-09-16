@@ -205,6 +205,18 @@ const evaluatePolicy = async (request) => {
 
     const user = tokenValidation.user;
 
+    // Validate user object exists and has required properties
+    if (!user || !user.id) {
+      const result = {
+        decision: "DENY",
+        reason: "INVALID_USER_DATA",
+        error: "User data is missing or invalid",
+        timestamp: new Date().toISOString(),
+      };
+      await cache.set(cacheKey, result, 60);
+      return result;
+    }
+
     // Step 3: Extract authorization context with tenant isolation
     const authContext = {
       userId: user.id,
@@ -218,7 +230,21 @@ const evaluatePolicy = async (request) => {
       ...context,
     };
 
-    // Step 4: Apply tenant isolation check
+    // Step 4: Check if tenantId is available
+    if (!user.tenantId) {
+      const result = {
+        decision: "DENY",
+        reason: "MISSING_TENANT_ID",
+        error: "User tenantId is missing from token",
+        timestamp: new Date().toISOString(),
+        policyVersion: POLICY_VERSION,
+        correlationId: context.correlationId,
+      };
+      await cache.set(cacheKey, result, 60);
+      return result;
+    }
+
+    // Step 5: Apply tenant isolation check
     if (context.tenantId && context.tenantId !== user.tenantId) {
       const result = {
         decision: "DENY",
@@ -242,7 +268,7 @@ const evaluatePolicy = async (request) => {
       return result;
     }
 
-    // Step 5: Apply policy rules
+    // Step 6: Apply policy rules
     const policyDecision = await applyPolicyRules(authContext);
 
     const result = {
@@ -263,7 +289,7 @@ const evaluatePolicy = async (request) => {
       correlationId: context.correlationId,
     };
 
-    // Step 6: Cache the result
+    // Step 7: Cache the result
     await cache.set(cacheKey, result);
 
     return result;
@@ -295,11 +321,15 @@ const validateToken = async (token) => {
       return { valid: false, error: "Token expired" };
     }
 
+    // Extract tenantId with fallback options
+    const tenantId =
+      decoded.tid || decoded.tenantId || decoded.extension_tenantId;
+
     return {
       valid: true,
       user: {
         id: decoded.sub || decoded.id,
-        tenantId: decoded.tid,
+        tenantId: tenantId,
         email: decoded.email,
         userType: decoded.userType,
         roles: decoded.roles || [],
