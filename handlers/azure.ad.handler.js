@@ -61,11 +61,29 @@ class AzureADHandler {
   }
 
   static decodeIdToken(idToken) {
+    console.log("=== Azure AD decodeIdToken Debug ===");
+    console.log(
+      "ID Token (first 100 chars):",
+      idToken.substring(0, 100) + "..."
+    );
+
     const payload = JSON.parse(
       Buffer.from(idToken.split(".")[1], "base64").toString("utf8")
     );
 
-    return {
+    console.log("Azure AD token payload:", JSON.stringify(payload, null, 2));
+    console.log("Available tenant ID fields:", {
+      tid: payload.tid,
+      tenantId: payload.tenantId,
+      tenant_id: payload.tenant_id,
+    });
+
+    const extractedTenantId =
+      payload.tid || payload.tenantId || payload.tenant_id || TENANT_ID;
+    console.log("Extracted tenant ID:", extractedTenantId);
+    console.log("Using fallback tenant ID:", TENANT_ID);
+
+    const profile = {
       userEmail: payload.email || payload.preferred_username || null,
       userFirstName: payload.given_name || null,
       userLastName: payload.family_name || null,
@@ -82,9 +100,14 @@ class AzureADHandler {
       userAuthTime: payload.auth_time || null,
       userTokenVersion: payload.ver || "2.0",
       userPolicy: null,
-      // Extract tenant ID for proper tenant isolation
-      tenantId: payload.tenantId || null,
+      // Extract tenant ID for proper tenant isolation - Azure AD uses 'tid' claim
+      tenantId: extractedTenantId,
     };
+
+    console.log("Final profile:", JSON.stringify(profile, null, 2));
+    console.log("=== End Azure AD decodeIdToken Debug ===");
+
+    return profile;
   }
 
   static async getUserInfoFromGraph(accessToken) {
@@ -107,11 +130,23 @@ class AzureADHandler {
 
   static async findOrCreateUser(profile, tokens) {
     try {
+      console.log("=== Azure AD findOrCreateUser Debug ===");
+      console.log("Profile received:", JSON.stringify(profile, null, 2));
+
       const email = profile.userEmail;
       const tenantId = profile.tenantId;
 
+      console.log("Extracted email:", email);
+      console.log("Extracted tenantId:", tenantId);
+
       if (!email) throw new Error("Email not found in Azure AD token");
-      if (!tenantId) throw new Error("Tenant ID not found in Azure AD token");
+      if (!tenantId) {
+        console.error("ERROR: Tenant ID is missing from profile!");
+        console.error("Profile keys:", Object.keys(profile));
+        console.error("Profile tenantId field:", profile.tenantId);
+        console.error("Fallback tenant ID:", TENANT_ID);
+        throw new Error("Tenant ID not found in Azure AD token");
+      }
 
       const update = {
         ...profile,
@@ -162,8 +197,14 @@ class AzureADHandler {
       console.log("Token exchange successful");
 
       console.log("Step 2: Decoding ID token...");
+      console.log("ID token present:", !!tokens.id_token);
+      console.log(
+        "ID token (first 100 chars):",
+        tokens.id_token ? tokens.id_token.substring(0, 100) + "..." : "MISSING"
+      );
       const baseProfile = this.decodeIdToken(tokens.id_token);
       console.log("ID token decoded, email:", baseProfile.userEmail);
+      console.log("ID token decoded, tenantId:", baseProfile.tenantId);
 
       console.log("Step 3: Fetching user info from Graph API...");
       const graphProfile = await this.getUserInfoFromGraph(tokens.access_token);
@@ -181,6 +222,8 @@ class AzureADHandler {
       };
 
       console.log("Step 4: Finding or creating user...");
+      console.log("Combined profile keys:", Object.keys(combinedProfile));
+      console.log("Combined profile tenantId:", combinedProfile.tenantId);
       const user = await this.findOrCreateUser(combinedProfile, tokens);
       console.log("User processed successfully, ID:", user._id);
 

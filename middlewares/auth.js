@@ -36,8 +36,12 @@ const authenticate = async (req, res, next) => {
     const token = authHeader.substring(7); // Remove 'Bearer '
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
+    // Extract tenantId from token - support both tid and tenantId claims
+    const tenantId =
+      decoded.tenantId || decoded.tid || decoded.extension_tenantId;
+
     // Validate tenantId is present in token
-    if (!decoded.tenantId) {
+    if (!tenantId) {
       const authError = AppError.badRequest("Invalid token: missing tenantId", {
         tokenError: true,
         missingTenantId: true,
@@ -55,7 +59,7 @@ const authenticate = async (req, res, next) => {
 
     // Set request context with tenant isolation
     req.ctx = {
-      tenantId: decoded.tenantId,
+      tenantId: tenantId,
       userId: decoded.sub || decoded.id, // Support both sub and id claims
       roles: decoded.roles || [],
       permissions: decoded.permissions || [],
@@ -64,7 +68,7 @@ const authenticate = async (req, res, next) => {
     // Attach user info to request for backward compatibility
     req.user = decoded;
     req.userId = decoded.sub || decoded.id;
-    req.tenantId = decoded.tenantId;
+    req.tenantId = tenantId;
     req.roles = decoded.roles || [];
     req.permissions = decoded.permissions || [];
 

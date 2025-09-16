@@ -35,8 +35,8 @@ module.exports.decodeToken = async (req, res) => {
       sub: decoded.sub,
       oid: decoded.oid,
 
-      // Tenant-specific claims
-      tenantId: decoded.tenantId || decoded.tid,
+      // Tenant-specific claims - prioritize tenantId, then tid, then extension_tenantId
+      tenantId: decoded.tenantId || decoded.tid || decoded.extension_tenantId,
 
       // User information
       email: decoded.emails?.[0] || decoded.preferred_username || decoded.email,
@@ -51,22 +51,24 @@ module.exports.decodeToken = async (req, res) => {
       permissions: decoded.permissions,
 
       // B2C specific
-      tenantId: decoded.tenantId,
       tfp: decoded.tfp,
       ver: decoded.ver,
+      extension_tenantId: decoded.extension_tenantId,
 
       // Entra specific
-      tenantId: decoded.tenantId,
       preferred_username: decoded.preferred_username,
     };
 
     // Determine token type
     let tokenType = "Unknown";
-    if (decoded.tenantId && decoded.tfp) {
+    const extractedTenantId =
+      decoded.tenantId || decoded.tid || decoded.extension_tenantId;
+
+    if (extractedTenantId && decoded.tfp) {
       tokenType = "Azure AD B2C";
-    } else if (decoded.tenantId && decoded.preferred_username) {
+    } else if (extractedTenantId && decoded.preferred_username) {
       tokenType = "Azure Entra ID";
-    } else if (decoded.tenantId && decoded.userType) {
+    } else if (extractedTenantId && decoded.userType) {
       tokenType = "Internal JWT";
     }
 
