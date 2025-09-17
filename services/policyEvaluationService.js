@@ -593,42 +593,51 @@ const evaluatePermissionPolicy = async (context) => {
   // Fetch permissions from API
   const PERMISSIONS = await fetchPermissionsFromAPI();
 
-  // Permission mapping
+  // Permission mapping - using consistent database permission pattern
   const permissionMap = {
     portal: {
-      read: PERMISSIONS.PORTAL.PROFILE_READ,
-      write: PERMISSIONS.PORTAL.PROFILE_WRITE,
+      read: "PORTAL_PROFILE_READ",
+      write: "PORTAL_PROFILE_WRITE",
     },
     crm: {
-      read: PERMISSIONS.CRM.MEMBER_READ,
-      write: PERMISSIONS.CRM.MEMBER_WRITE,
-      delete: PERMISSIONS.CRM.MEMBER_DELETE,
+      read: "CRM_MEMBER_READ",
+      write: "CRM_MEMBER_WRITE",
+      delete: "CRM_MEMBER_DELETE",
     },
     user: {
-      read: PERMISSIONS.USER.READ,
-      write: PERMISSIONS.USER.WRITE,
-      delete: PERMISSIONS.USER.DELETE,
+      read: "USER_READ",
+      write: "USER_WRITE",
+      delete: "USER_DELETE",
     },
     role: {
-      read: PERMISSIONS.ROLE.READ,
-      write: PERMISSIONS.ROLE.WRITE,
-      delete: PERMISSIONS.ROLE.DELETE,
+      read: "ROLE_READ",
+      write: "ROLE_WRITE",
+      delete: "ROLE_DELETE",
     },
     lookup: {
-      read: PERMISSIONS.USER.READ, // Use user read permission for lookup read
-      write: PERMISSIONS.USER.WRITE, // Use user write permission for lookup write
-      delete: PERMISSIONS.USER.DELETE, // Use user delete permission for lookup delete
+      read: "LOOKUP_READ",
+      write: "LOOKUP_WRITE",
+      delete: "LOOKUP_DELETE",
     },
     lookupType: {
-      read: PERMISSIONS.USER.READ, // Use user read permission for lookupType read
-      write: PERMISSIONS.USER.WRITE, // Use user write permission for lookupType write
-      delete: PERMISSIONS.USER.DELETE, // Use user delete permission for lookupType delete
+      read: "LOOKUPTYPE_READ",
+      write: "LOOKUPTYPE_WRITE",
+      delete: "LOOKUPTYPE_DELETE",
     },
-    permission: {
-      read: PERMISSIONS.ROLE.READ, // Use role read permission for permission read
-      write: PERMISSIONS.ROLE.WRITE, // Use role write permission for permission write
-      delete: PERMISSIONS.ROLE.DELETE, // Use role delete permission for permission delete
-      admin: PERMISSIONS.ROLE.ASSIGN, // Use role assign permission for permission admin
+    admin: {
+      read: "ADMIN_READ",
+      write: "ADMIN_WRITE",
+      delete: "ADMIN_DELETE",
+    },
+    api: {
+      read: "API_READ",
+      write: "API_WRITE",
+      delete: "API_DELETE",
+    },
+    tenant: {
+      read: "TENANT_READ",
+      write: "TENANT_WRITE",
+      delete: "TENANT_DELETE",
     },
   };
 
@@ -741,44 +750,20 @@ const getResourcePermissions = async (resource, roles, permissions) => {
   const PERMISSIONS = await fetchPermissionsFromAPI();
 
   const resourcePermissionMap = {
-    portal: [
-      PERMISSIONS.PORTAL.ACCESS,
-      PERMISSIONS.PORTAL.PROFILE_READ,
-      PERMISSIONS.PORTAL.PROFILE_WRITE,
-    ],
+    portal: ["PORTAL_ACCESS", "PORTAL_PROFILE_READ", "PORTAL_PROFILE_WRITE"],
     crm: [
-      PERMISSIONS.CRM.ACCESS,
-      PERMISSIONS.CRM.MEMBER_READ,
-      PERMISSIONS.CRM.MEMBER_WRITE,
-      PERMISSIONS.CRM.MEMBER_DELETE,
+      "CRM_ACCESS",
+      "CRM_MEMBER_READ",
+      "CRM_MEMBER_WRITE",
+      "CRM_MEMBER_DELETE",
     ],
-    user: [
-      PERMISSIONS.USER.READ,
-      PERMISSIONS.USER.WRITE,
-      PERMISSIONS.USER.DELETE,
-      PERMISSIONS.USER.MANAGE_ROLES,
-    ],
-    role: [
-      PERMISSIONS.ROLE.READ,
-      PERMISSIONS.ROLE.WRITE,
-      PERMISSIONS.ROLE.DELETE,
-    ],
-    lookup: [
-      PERMISSIONS.USER.READ,
-      PERMISSIONS.USER.WRITE,
-      PERMISSIONS.USER.DELETE,
-    ],
-    lookupType: [
-      PERMISSIONS.USER.READ,
-      PERMISSIONS.USER.WRITE,
-      PERMISSIONS.USER.DELETE,
-    ],
-    permission: [
-      PERMISSIONS.ROLE.READ,
-      PERMISSIONS.ROLE.WRITE,
-      PERMISSIONS.ROLE.DELETE,
-      PERMISSIONS.ROLE.ASSIGN,
-    ],
+    user: ["USER_READ", "USER_WRITE", "USER_DELETE", "USER_MANAGE_ROLES"],
+    role: ["ROLE_READ", "ROLE_WRITE", "ROLE_DELETE", "ROLE_PERMISSION_ASSIGN"],
+    lookup: ["LOOKUP_READ", "LOOKUP_WRITE", "LOOKUP_DELETE"],
+    lookupType: ["LOOKUPTYPE_READ", "LOOKUPTYPE_WRITE", "LOOKUPTYPE_DELETE"],
+    admin: ["ADMIN_ACCESS", "ADMIN_READ", "ADMIN_WRITE", "ADMIN_DELETE"],
+    api: ["API_READ", "API_WRITE", "API_DELETE"],
+    tenant: ["TENANT_READ", "TENANT_WRITE", "TENANT_DELETE"],
   };
 
   const resourcePermissions = resourcePermissionMap[resource] || [];
