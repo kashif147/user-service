@@ -449,7 +449,7 @@ const evaluateResourcePolicy = async (context) => {
     },
     // Role management
     role: {
-      allowedUserTypes: ["CRM"],
+      allowedUserTypes: ["CRM", "PORTAL"],
       allowedRoles: [
         "SU",
         "GS",
@@ -545,8 +545,14 @@ const evaluateActionPolicy = async (context) => {
     read: {
       minRoleLevel: 1, // Any authenticated user
     },
+    create: {
+      minRoleLevel: 30, // IO level and above (same as write)
+    },
     write: {
       minRoleLevel: 30, // IO level and above
+    },
+    update: {
+      minRoleLevel: 30, // IO level and above (same as write)
     },
     delete: {
       minRoleLevel: 60, // MO level and above
