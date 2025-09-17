@@ -61,11 +61,13 @@ class PolicyAdapter {
           tenantId:
             req.headers["x-tenant-id"] ||
             req.query.tenantId ||
-            req.body.tenantId,
+            (req.body && req.body.tenantId),
           userId:
-            req.headers["x-user-id"] || req.query.userId || req.body.userId,
+            req.headers["x-user-id"] || 
+            req.query.userId || 
+            (req.body && req.body.userId),
           ...req.query,
-          ...req.body,
+          ...(req.body || {}),
         };
 
         // Evaluate policy

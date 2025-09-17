@@ -226,15 +226,15 @@ const evaluatePolicy = async (request) => {
 
     // Step 3: Extract authorization context with tenant isolation
     const authContext = {
+      ...context,
       userId: user.id,
-      tenantId: user.tenantId,
+      tenantId: user.tenantId, // Ensure tenantId from user takes precedence
       userType: user.userType,
       roles: user.roles || [],
       permissions: user.permissions || [],
       resource,
       action,
       correlationId: context.correlationId,
-      ...context,
     };
 
     // Step 4: Check if tenantId is available
