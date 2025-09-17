@@ -58,6 +58,30 @@ const authRateLimit = rateLimit({
 });
 
 /**
+ * Rate Limiting for /me endpoint (more restrictive)
+ */
+const meRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 50, // limit each IP to 50 requests per windowMs
+  message: {
+    error: {
+      message: "Too many profile requests",
+      code: "RATE_LIMIT_EXCEEDED",
+      status: 429,
+      retryAfter: "15 minutes",
+    },
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => {
+    // Skip rate limiting for super users or in development
+    return (
+      req.ctx?.roles?.includes("SU") || process.env.NODE_ENV === "development"
+    );
+  },
+});
+
+/**
  * General API Rate Limiting
  */
 const apiRateLimit = rateLimit({
@@ -322,6 +346,7 @@ const corsOptions = {
 module.exports = {
   securityHeaders,
   authRateLimit,
+  meRateLimit,
   apiRateLimit,
   validateRolesFromDatabase,
   sanitizedErrorHandler,

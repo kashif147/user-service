@@ -22,4 +22,8 @@ router.use("/api", require("./tenantScoped.routes"));
 
 router.use("/lookup", require("./lookup.router"));
 router.use("/lookuptype", require("./lookuptype.router"));
+
+// User profile endpoint
+router.use("/", require("./me.routes"));
+
 module.exports = router;
