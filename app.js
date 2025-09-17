@@ -5,7 +5,6 @@ require("dotenv").config({
 
 var createError = require("http-errors");
 var express = require("express");
-const cors = require("cors");
 const swaggerUi = require("swagger-ui-express");
 const swaggerSpecs = require("./config/swagger");
 
@@ -14,7 +13,12 @@ const session = require("express-session");
 
 const loggerMiddleware = require("./middlewares/logger.mw");
 const responseMiddleware = require("./middlewares/response.mw");
-const { securityHeaders, corsOptions } = require("./middlewares/security.mw");
+const { securityHeaders } = require("./middlewares/security.mw");
+const {
+  corsMiddleware,
+  handlePreflight,
+  corsErrorHandler,
+} = require("./config/cors");
 const crypto = require("crypto");
 
 var app = express();
@@ -30,7 +34,11 @@ app.use(loggerMiddleware);
 
 // Security middleware
 app.use(securityHeaders);
-app.use(cors(corsOptions));
+
+// CORS middleware with enhanced configuration
+app.use(handlePreflight);
+app.use(corsMiddleware);
+app.use(corsErrorHandler);
 
 app.use(
   session({
