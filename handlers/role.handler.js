@@ -1,6 +1,7 @@
 const Role = require("../models/role");
 const User = require("../models/user");
 const Tenant = require("../models/tenant");
+const Permission = require("../models/permission");
 const mongoose = require("mongoose");
 
 module.exports.initializeRoles = async (tenantId) => {
@@ -294,11 +295,30 @@ module.exports.getUserPermissions = async (userId, tenantId) => {
     }
 
     // Collect permissions from all roles
-    user.roles.forEach((role) => {
-      role.permissions.forEach((permission) => {
-        permissions.add(permission);
+    for (const role of user.roles) {
+      // Handle both ObjectId and string permissions
+      const objectIdPermissions = role.permissions.filter(
+        (p) => typeof p === "string" && p.match(/^[0-9a-fA-F]{24}$/)
+      );
+      const stringPermissions = role.permissions.filter(
+        (p) => typeof p === "string" && !p.match(/^[0-9a-fA-F]{24}$/)
+      );
+
+      // Get permission codes from ObjectId permissions
+      if (objectIdPermissions.length > 0) {
+        const permissionDocs = await Permission.find({
+          _id: { $in: objectIdPermissions },
+        });
+        permissionDocs.forEach((perm) => {
+          permissions.add(perm.code);
+        });
+      }
+
+      // Add string permissions directly (for backward compatibility)
+      stringPermissions.forEach((perm) => {
+        permissions.add(perm);
       });
-    });
+    }
 
     return Array.from(permissions);
   } catch (error) {
