@@ -48,7 +48,7 @@ const ROLE_HIERARCHY = {
   // Basic Access
   REO: 1, // Read Only
   MEMBER: 1, // Member
-  "NON-MEMBER": 0, // Non-Member
+  "NON-MEMBER": 1, // Non-Member - can read basic resources
 };
 
 /**
