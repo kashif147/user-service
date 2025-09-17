@@ -21,6 +21,7 @@ const getCorsConfig = () => {
       "http://127.0.0.1:3001",
     ],
     staging: [
+      //   "http://localhost:3000",
       "https://staging-frontend.yourdomain.com",
       "https://staging-admin.yourdomain.com",
       "https://staging-mobile.yourdomain.com",
@@ -76,6 +77,7 @@ const getCorsConfig = () => {
       "X-User-ID",
       "Cache-Control",
       "Pragma",
+      "maxbodylength",
     ],
     exposedHeaders: [
       "X-Request-ID",
@@ -100,7 +102,7 @@ const handlePreflight = (req, res, next) => {
     );
     res.header(
       "Access-Control-Allow-Headers",
-      "Origin, X-Requested-With, Content-Type, Accept, Authorization, X-Request-ID, X-Correlation-ID, X-Tenant-ID, X-User-ID"
+      "Origin, X-Requested-With, Content-Type, Accept, Authorization, X-Request-ID, X-Correlation-ID, X-Tenant-ID, X-User-ID, Cache-Control, Pragma, maxbodylength"
     );
     res.header("Access-Control-Allow-Credentials", "true");
     res.header("Access-Control-Max-Age", "86400");
