@@ -14,6 +14,7 @@ const session = require("express-session");
 
 const loggerMiddleware = require("./middlewares/logger.mw");
 const responseMiddleware = require("./middlewares/response.mw");
+const { securityHeaders, corsOptions } = require("./middlewares/security.mw");
 const crypto = require("crypto");
 
 var app = express();
@@ -27,7 +28,9 @@ app.use(express.json({ limit: "200mb" }));
 
 app.use(loggerMiddleware);
 
-app.use(cors());
+// Security middleware
+app.use(securityHeaders);
+app.use(cors(corsOptions));
 
 app.use(
   session({
