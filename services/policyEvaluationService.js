@@ -1,117 +1,13 @@
 const jwt = require("jsonwebtoken");
 const { AppError } = require("../errors/AppError");
-const {
-  ROLE_HIERARCHY,
-  getHighestRoleLevel,
-  hasMinimumRole,
-  isSuperUser,
-  getRolesAtOrAbove,
-} = require("../config/roleHierarchy");
+// Remove old hardcoded imports - now using database-driven services
 const axios = require("axios");
+const roleHierarchyService = require("./roleHierarchyService");
+const permissionsService = require("./permissionsService");
 
-// Default permissions data (fallback if API not available)
-const DEFAULT_PERMISSIONS = {
-  // General read permissions
-  READ_ONLY: "read:all",
+// Removed hardcoded DEFAULT_PERMISSIONS - now using database-driven permissionsService
 
-  // User Service permissions
-  USER: {
-    READ: "user:read",
-    WRITE: "user:write",
-    DELETE: "user:delete",
-    MANAGE_ROLES: "user:manage_roles",
-    CREATE: "user:create",
-    UPDATE: "user:update",
-    LIST: "user:list",
-  },
-
-  // Role Service permissions
-  ROLE: {
-    READ: "role:read",
-    WRITE: "role:write",
-    DELETE: "role:delete",
-    CREATE: "role:create",
-    UPDATE: "role:update",
-    LIST: "role:list",
-    ASSIGN: "role:assign",
-    REMOVE: "role:remove",
-  },
-
-  // Account Service permissions
-  ACCOUNT: {
-    READ: "account:read",
-    WRITE: "account:write",
-    DELETE: "account:delete",
-    PAYMENT: "account:payment",
-    TRANSACTION_READ: "account:transaction:read",
-    TRANSACTION_WRITE: "account:transaction:write",
-    TRANSACTION_DELETE: "account:transaction:delete",
-  },
-
-  // Portal Service permissions
-  PORTAL: {
-    ACCESS: "portal:access",
-    PROFILE_READ: "portal:profile:read",
-    PROFILE_WRITE: "portal:profile:write",
-    PROFILE_DELETE: "portal:profile:delete",
-    DASHBOARD_READ: "portal:dashboard:read",
-    SETTINGS_READ: "portal:settings:read",
-    SETTINGS_WRITE: "portal:settings:write",
-  },
-
-  // CRM Service permissions
-  CRM: {
-    ACCESS: "crm:access",
-    MEMBER_READ: "crm:member:read",
-    MEMBER_WRITE: "crm:member:write",
-    MEMBER_DELETE: "crm:member:delete",
-    MEMBER_CREATE: "crm:member:create",
-    MEMBER_UPDATE: "crm:member:update",
-    MEMBER_LIST: "crm:member:list",
-  },
-};
-
-// Cache for permissions to avoid repeated API calls
-let permissionsCache = null;
-let permissionsCacheExpiry = null;
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-
-// Helper function to fetch permissions from API
-async function fetchPermissionsFromAPI() {
-  try {
-    // Check cache first
-    if (
-      permissionsCache &&
-      permissionsCacheExpiry &&
-      Date.now() < permissionsCacheExpiry
-    ) {
-      return permissionsCache;
-    }
-
-    const baseUrl = process.env.API_BASE_URL || "http://localhost:3000";
-    const response = await axios.get(`${baseUrl}/api/permissions/permissions`, {
-      headers: {
-        Authorization: `Bearer ${
-          process.env.SUPER_USER_TOKEN || "fallback-token"
-        }`,
-        "Content-Type": "application/json",
-      },
-      timeout: 5000, // 5 second timeout
-    });
-
-    // Update cache
-    permissionsCache = response.data.data || DEFAULT_PERMISSIONS;
-    permissionsCacheExpiry = Date.now() + CACHE_TTL;
-
-    return permissionsCache;
-  } catch (error) {
-    console.warn(
-      "Failed to fetch permissions from API, using defaults:",
-      error.message
-    );
-    return DEFAULT_PERMISSIONS;
-  }
-}
+// Removed old fetchPermissions function - now using database-driven permissionsService
 const PolicyCache = require("./policyCache");
 
 /**
@@ -371,7 +267,7 @@ const applyPolicyRules = async (context) => {
   const { roles, permissions, resource, action, tenantId } = context;
 
   // Rule 1: Super User bypasses all authorization
-  if (isSuperUser(roles)) {
+  if (roleHierarchyService.isSuperUser(roles)) {
     return {
       decision: "PERMIT",
       reason: "SUPER_USER_BYPASS",
@@ -620,7 +516,9 @@ const evaluateActionPolicy = async (context) => {
   }
 
   // Check minimum role level
-  const userMaxLevel = getHighestRoleLevel(roles.map((r) => r.code));
+  const userMaxLevel = await roleHierarchyService.getHighestRoleLevel(
+    roles.map((r) => r.code)
+  );
   if (userMaxLevel < requirement.minRoleLevel) {
     return {
       decision: "DENY",
@@ -759,7 +657,7 @@ const getEffectivePermissions = async (token, resource) => {
     }
 
     // Super User has all permissions
-    if (isSuperUser(roles)) {
+    if (roleHierarchyService.isSuperUser(roles)) {
       return {
         success: true,
         permissions: ["*"],
