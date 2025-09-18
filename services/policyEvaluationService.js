@@ -540,8 +540,8 @@ const evaluateActionPolicy = async (context) => {
 const evaluatePermissionPolicy = async (context) => {
   const { permissions, resource, action } = context;
 
-  // Fetch permissions from API
-  const PERMISSIONS = await fetchPermissionsFromAPI();
+  // Fetch permissions from database-driven service
+  const PERMISSIONS = await permissionsService.getAllPermissions();
 
   // Permission mapping - using consistent database permission pattern
   const permissionMap = {
@@ -696,8 +696,8 @@ const getEffectivePermissions = async (token, resource) => {
  * @returns {Array} Resource-specific permissions
  */
 const getResourcePermissions = async (resource, roles, permissions) => {
-  // Fetch permissions from API
-  const PERMISSIONS = await fetchPermissionsFromAPI();
+  // Fetch permissions from database-driven service
+  const PERMISSIONS = await permissionsService.getAllPermissions();
 
   const resourcePermissionMap = {
     portal: ["PORTAL_ACCESS", "PORTAL_PROFILE_READ", "PORTAL_PROFILE_WRITE"],
