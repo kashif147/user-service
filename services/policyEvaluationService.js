@@ -228,7 +228,8 @@ const evaluatePolicy = async (request) => {
     const authContext = {
       ...context,
       userId: user.id,
-      tenantId: user.tenantId, // Ensure tenantId from user takes precedence
+      tenantId: context.tenantId || user.tenantId, // Target tenant being accessed
+      userTenantId: user.tenantId, // User's own tenant
       userType: user.userType,
       roles: user.roles || [],
       permissions: user.permissions || [],
@@ -251,8 +252,12 @@ const evaluatePolicy = async (request) => {
       return result;
     }
 
-    // Step 5: Apply tenant isolation check
-    if (context.tenantId && context.tenantId !== user.tenantId) {
+    // Step 5: Apply tenant isolation check (skip for tenant resource as it's handled in resource policy)
+    if (
+      resource !== "tenant" &&
+      context.tenantId &&
+      context.tenantId !== user.tenantId
+    ) {
       const result = {
         decision: "DENY",
         reason: "TENANT_MISMATCH",
@@ -412,7 +417,7 @@ const applyPolicyRules = async (context) => {
  * @returns {Object} Policy decision
  */
 const evaluateResourcePolicy = async (context) => {
-  const { resource, userType, roles } = context;
+  const { resource, userType, roles, tenantId, userTenantId } = context;
 
   // Resource access matrix
   const resourceAccessMatrix = {
@@ -494,6 +499,11 @@ const evaluateResourcePolicy = async (context) => {
       allowedUserTypes: ["CRM"],
       allowedRoles: ["SU"],
     },
+    // Tenant management
+    tenant: {
+      allowedUserTypes: ["CRM"],
+      allowedRoles: ["SU", "ASU"],
+    },
   };
 
   const resourceConfig = resourceAccessMatrix[resource];
@@ -510,6 +520,42 @@ const evaluateResourcePolicy = async (context) => {
       decision: "DENY",
       reason: "INVALID_USER_TYPE",
     };
+  }
+
+  // Special handling for tenant resource - ASU can only manage their own tenant
+  if (resource === "tenant") {
+    const hasASURole = roles.some((role) => role.code === "ASU");
+    const hasSURole = roles.some((role) => role.code === "SU");
+
+    // SU can manage any tenant globally
+    if (hasSURole) {
+      return {
+        decision: "PERMIT",
+        reason: "SUPER_USER_GLOBAL_ACCESS",
+      };
+    }
+
+    // ASU can only manage their own tenant
+    if (hasASURole) {
+      if (!tenantId || !userTenantId) {
+        return {
+          decision: "DENY",
+          reason: "MISSING_TENANT_CONTEXT",
+        };
+      }
+
+      if (tenantId !== userTenantId) {
+        return {
+          decision: "DENY",
+          reason: "TENANT_SCOPE_VIOLATION",
+        };
+      }
+
+      return {
+        decision: "PERMIT",
+        reason: "ASU_OWN_TENANT_ACCESS",
+      };
+    }
   }
 
   // Check roles (if not wildcard)
