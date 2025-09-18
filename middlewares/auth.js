@@ -1,13 +1,6 @@
 const jwt = require("jsonwebtoken");
 const { AppError } = require("../errors/AppError");
-const {
-  ROLE_HIERARCHY,
-  getHighestRoleLevel,
-  hasMinimumRole,
-  isSuperUser,
-  isAssistantSuperUser,
-  isSystemAdmin,
-} = require("../config/roleHierarchy");
+const roleHierarchyService = require("../services/roleHierarchyService");
 
 /**
  * Unified JWT Authentication Middleware
@@ -138,7 +131,7 @@ const requireRole = (requiredRoles) => {
     }
 
     // Super User has access to everything
-    if (isSuperUser(req.ctx.roles)) {
+    if (roleHierarchyService.isSuperUser(req.ctx.roles)) {
       return next();
     }
 
@@ -189,12 +182,12 @@ const requirePermission = (requiredPermissions) => {
     }
 
     // Super User has all permissions
-    if (isSuperUser(req.ctx.roles)) {
+    if (roleHierarchyService.isSuperUser(req.ctx.roles)) {
       return next();
     }
 
     // Assistant Super User has specific permissions
-    if (isAssistantSuperUser(req.ctx.roles)) {
+    if (roleHierarchyService.isAssistantSuperUser(req.ctx.roles)) {
       return next();
     }
 
@@ -249,11 +242,11 @@ const requireMinRole = (minRole) => {
     }
 
     // Super User has access to everything
-    if (isSuperUser(req.ctx.roles)) {
+    if (roleHierarchyService.isSuperUser(req.ctx.roles)) {
       return next();
     }
 
-    if (hasMinimumRole(req.ctx.roles, minRole)) {
+    if (roleHierarchyService.hasMinimumRole(req.ctx.roles, minRole)) {
       return next();
     }
 
@@ -326,11 +319,11 @@ module.exports = {
   // Utility functions
   hasRole,
   hasAnyRole,
-  isSuperUser,
-  isAssistantSuperUser,
-  isSystemAdmin,
-  getUserRoleLevel: getHighestRoleLevel,
-  hasMinRole: hasMinimumRole,
+  isSuperUser: roleHierarchyService.isSuperUser,
+  isAssistantSuperUser: roleHierarchyService.isAssistantSuperUser,
+  isSystemAdmin: roleHierarchyService.isSystemAdmin,
+  getUserRoleLevel: roleHierarchyService.getHighestRoleLevel,
+  hasMinRole: roleHierarchyService.hasMinimumRole,
 
   // Database helpers
   withTenant,

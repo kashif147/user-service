@@ -27,6 +27,13 @@ const RoleSchema = new mongoose.Schema({
     enum: ["PORTAL", "CRM", "SYSTEM"],
     required: true,
   },
+  level: {
+    type: Number,
+    default: 1,
+    min: 1,
+    max: 100,
+    index: true,
+  },
   permissions: [
     {
       type: String,
