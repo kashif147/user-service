@@ -63,8 +63,8 @@ class PolicyAdapter {
             req.query.tenantId ||
             (req.body && req.body.tenantId),
           userId:
-            req.headers["x-user-id"] || 
-            req.query.userId || 
+            req.headers["x-user-id"] ||
+            req.query.userId ||
             (req.body && req.body.userId),
           ...req.query,
           ...(req.body || {}),
@@ -105,6 +105,18 @@ class PolicyAdapter {
    */
   async evaluate(token, request) {
     try {
+      // Validate token parameter
+      if (!token || typeof token !== "string") {
+        return {
+          success: false,
+          decision: "DENY",
+          reason: "INVALID_TOKEN",
+          error: "Token is missing or invalid",
+          correlationId:
+            request.context?.correlationId || generateCorrelationId(),
+        };
+      }
+
       console.log("PolicyAdapter.evaluate called with:", {
         token: token.substring(0, 20) + "...",
         request,
