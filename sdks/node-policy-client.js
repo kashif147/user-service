@@ -155,6 +155,36 @@ class PolicyClient {
         }
 
         const token = authHeader.substring(7);
+
+        // Check for authorization bypass (but still validate token)
+        if (process.env.AUTH_BYPASS_ENABLED === "true") {
+          // Still validate the token to ensure it's a valid JWT
+          try {
+            const jwt = require("jsonwebtoken");
+            const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+            // Extract tenantId from token
+            const tenantId =
+              decoded.tenantId || decoded.tid || decoded.extension_tenantId;
+
+            req.user = {
+              id: decoded.sub || decoded.id,
+              tenantId: tenantId,
+              email: decoded.email,
+              userType: decoded.userType,
+              roles: decoded.roles || [],
+              permissions: decoded.permissions || [],
+            };
+            req.tenantId = tenantId;
+            return next();
+          } catch (error) {
+            return res.status(401).json({
+              success: false,
+              error: "Invalid token",
+            });
+          }
+        }
+
         const result = await this.evaluate(token, resource, action, req.query);
 
         if (result.success) {

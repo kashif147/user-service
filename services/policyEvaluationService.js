@@ -71,6 +71,33 @@ const evaluatePolicy = async (request) => {
   try {
     const { token, resource, action, context = {} } = request;
 
+    // Check for authorization bypass (but still validate token)
+    if (process.env.AUTH_BYPASS_ENABLED === "true") {
+      // Still validate the token to ensure it's a valid JWT
+      const tokenValidation = await validateToken(token);
+      if (!tokenValidation.valid) {
+        return {
+          decision: "DENY",
+          reason: "INVALID_TOKEN",
+          error: tokenValidation.error,
+          timestamp: new Date().toISOString(),
+          policyVersion: POLICY_VERSION,
+          correlationId: context.correlationId,
+        };
+      }
+
+      // Token is valid, bypass authorization checks
+      return {
+        decision: "PERMIT",
+        reason: "AUTHORIZATION_BYPASS_ENABLED",
+        bypass: true,
+        user: tokenValidation.user,
+        timestamp: new Date().toISOString(),
+        policyVersion: POLICY_VERSION,
+        correlationId: context.correlationId,
+      };
+    }
+
     // Validate token parameter
     if (!token || typeof token !== "string") {
       return {
@@ -320,170 +347,118 @@ const applyPolicyRules = async (context) => {
 };
 
 /**
- * Evaluate resource-specific policies
+ * Evaluate resource-specific policies using database-driven permissions
  * @param {Object} context - Authorization context
  * @returns {Object} Policy decision
  */
 const evaluateResourcePolicy = async (context) => {
   const { resource, userType, roles, tenantId, userTenantId } = context;
 
-  // Resource access matrix
-  const resourceAccessMatrix = {
-    // Portal access
-    portal: {
-      allowedUserTypes: ["CRM", "MEMBER"],
-      allowedRoles: ["*"], // All roles can access portal
-    },
-    // CRM access
-    crm: {
-      allowedUserTypes: ["CRM"],
-      allowedRoles: [
-        "SU",
-        "GS",
-        "DGS",
-        "DIR",
-        "DPRS",
-        "ADIR",
-        "AM",
-        "DAM",
-        "MO",
-        "AMO",
-      ],
-    },
-    // Admin panel
-    admin: {
-      allowedUserTypes: ["CRM"],
-      allowedRoles: ["SU", "GS", "DGS"],
-    },
-    // API endpoints
-    api: {
-      allowedUserTypes: ["CRM", "MEMBER"],
-      allowedRoles: ["*"],
-    },
-    // Role management
-    role: {
-      allowedUserTypes: ["CRM", "PORTAL"],
-      allowedRoles: [
-        "SU",
-        "GS",
-        "DGS",
-        "DIR",
-        "DPRS",
-        "ADIR",
-        "AM",
-        "DAM",
-        "MO",
-        "AMO",
-      ],
-    },
-    // User management
-    user: {
-      allowedUserTypes: ["CRM"],
-      allowedRoles: [
-        "SU",
-        "GS",
-        "DGS",
-        "DIR",
-        "DPRS",
-        "ADIR",
-        "AM",
-        "DAM",
-        "MO",
-        "AMO",
-      ],
-    },
-    // Lookup management
-    lookup: {
-      allowedUserTypes: ["CRM", "PORTAL"],
-      allowedRoles: ["*"], // All roles can access lookup
-    },
-    // LookupType management
-    lookupType: {
-      allowedUserTypes: ["CRM", "PORTAL"],
-      allowedRoles: ["*"], // All roles can access lookupType
-    },
-    // Permission management
-    permission: {
-      allowedUserTypes: ["CRM"],
-      allowedRoles: ["SU"],
-    },
-    // Tenant management
-    tenant: {
-      allowedUserTypes: ["CRM"],
-      allowedRoles: ["SU", "ASU"],
-    },
-  };
+  try {
+    // Get all permissions for this resource from database
+    const resourcePermissions =
+      await permissionsService.getPermissionsByResource(resource);
 
-  const resourceConfig = resourceAccessMatrix[resource];
-  if (!resourceConfig) {
-    return {
-      decision: "DENY",
-      reason: "UNKNOWN_RESOURCE",
-    };
-  }
-
-  // Check user type
-  if (!resourceConfig.allowedUserTypes.includes(userType)) {
-    return {
-      decision: "DENY",
-      reason: "INVALID_USER_TYPE",
-    };
-  }
-
-  // Special handling for tenant resource - ASU can only manage their own tenant
-  if (resource === "tenant") {
-    const hasASURole = roles.some((role) => role.code === "ASU");
-    const hasSURole = roles.some((role) => role.code === "SU");
-
-    // SU can manage any tenant globally
-    if (hasSURole) {
-      return {
-        decision: "PERMIT",
-        reason: "SUPER_USER_GLOBAL_ACCESS",
-      };
-    }
-
-    // ASU can only manage their own tenant
-    if (hasASURole) {
-      if (!tenantId || !userTenantId) {
-        return {
-          decision: "DENY",
-          reason: "MISSING_TENANT_CONTEXT",
-        };
-      }
-
-      if (tenantId !== userTenantId) {
-        return {
-          decision: "DENY",
-          reason: "TENANT_SCOPE_VIOLATION",
-        };
-      }
-
-      return {
-        decision: "PERMIT",
-        reason: "ASU_OWN_TENANT_ACCESS",
-      };
-    }
-  }
-
-  // Check roles (if not wildcard)
-  if (resourceConfig.allowedRoles[0] !== "*") {
-    const hasRequiredRole = roles.some((role) =>
-      resourceConfig.allowedRoles.includes(role.code)
-    );
-
-    if (!hasRequiredRole) {
+    if (!resourcePermissions || resourcePermissions.length === 0) {
       return {
         decision: "DENY",
-        reason: "INSUFFICIENT_ROLE",
+        reason: "UNKNOWN_RESOURCE",
+        error: `No permissions defined for resource '${resource}'`,
       };
     }
-  }
 
-  return {
-    decision: "PERMIT",
-    reason: "RESOURCE_ACCESS_GRANTED",
+    // Check if user has any permission for this resource
+    const userHasResourcePermission = await permissionsService.hasAnyPermission(
+      roles,
+      resourcePermissions.map((p) => p.code)
+    );
+
+    if (!userHasResourcePermission) {
+      return {
+        decision: "DENY",
+        reason: "INSUFFICIENT_RESOURCE_PERMISSION",
+        error: `User lacks any permission for resource '${resource}'`,
+        availablePermissions: resourcePermissions.map((p) => p.code),
+      };
+    }
+
+    // Special handling for tenant resource - ASU can only manage their own tenant
+    if (resource === "tenant") {
+      const hasASURole = roles.some((role) => role.code === "ASU");
+      const hasSURole = roles.some((role) => role.code === "SU");
+
+      // SU can manage any tenant globally
+      if (hasSURole) {
+        return {
+          decision: "PERMIT",
+          reason: "SUPER_USER_GLOBAL_ACCESS",
+        };
+      }
+
+      // ASU can only manage their own tenant
+      if (hasASURole) {
+        if (!tenantId || !userTenantId) {
+          return {
+            decision: "DENY",
+            reason: "MISSING_TENANT_CONTEXT",
+          };
+        }
+
+        if (tenantId !== userTenantId) {
+          return {
+            decision: "DENY",
+            reason: "TENANT_SCOPE_VIOLATION",
+          };
+        }
+
+        return {
+          decision: "PERMIT",
+          reason: "ASU_OWN_TENANT_ACCESS",
+        };
+      }
+    }
+
+    // Check user type based on permission categories
+    const allowedCategories = resourcePermissions.map((p) => p.category);
+    const userTypeCategory = getUserTypeCategory(userType);
+
+    if (!allowedCategories.includes(userTypeCategory)) {
+      return {
+        decision: "DENY",
+        reason: "INVALID_USER_TYPE",
+        error: `User type '${userType}' not allowed for resource '${resource}'`,
+        allowedCategories: allowedCategories,
+      };
+    }
+
+    return {
+      decision: "PERMIT",
+      reason: "RESOURCE_ACCESS_GRANTED",
+    };
+  } catch (error) {
+    console.error("Error in resource policy evaluation:", error);
+    return {
+      decision: "DENY",
+      reason: "RESOURCE_EVALUATION_ERROR",
+      error: error.message,
+    };
+  }
+};
+
+/**
+ * Map user types to permission categories
+ * @param {string} userType - User type
+ * @returns {string} Permission category
+ */
+const getUserTypeCategory = (userType) => {
+  const userTypeCategoryMap = {
+    CRM: "CRM",
+    MEMBER: "PORTAL",
+    PORTAL: "PORTAL",
+    SYSTEM: "ADMIN",
   };
+
+  return userTypeCategoryMap[userType] || "GENERAL";
 };
 
 /**
