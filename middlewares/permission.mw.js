@@ -12,6 +12,33 @@ module.exports.requirePermission = (requiredPermission) => {
         });
       }
 
+      // Check for authorization bypass (but still validate token)
+      if (process.env.AUTH_BYPASS_ENABLED === "true") {
+        // Still validate the token to ensure it's a valid JWT
+        try {
+          const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+          // Extract tenantId from token
+          const tenantId =
+            decoded.tenantId || decoded.tid || decoded.extension_tenantId;
+
+          req.user = {
+            id: decoded.sub || decoded.id,
+            tenantId: tenantId,
+            email: decoded.email,
+            userType: decoded.userType,
+            roles: decoded.roles || [],
+            permissions: decoded.permissions || [],
+          };
+          return next();
+        } catch (error) {
+          return res.status(401).json({
+            success: false,
+            message: "Invalid token",
+          });
+        }
+      }
+
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
       // Check if user has Super User role (full access)
@@ -55,6 +82,33 @@ module.exports.requireRole = (requiredRole) => {
           success: false,
           message: "Access token required",
         });
+      }
+
+      // Check for authorization bypass (but still validate token)
+      if (process.env.AUTH_BYPASS_ENABLED === "true") {
+        // Still validate the token to ensure it's a valid JWT
+        try {
+          const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+          // Extract tenantId from token
+          const tenantId =
+            decoded.tenantId || decoded.tid || decoded.extension_tenantId;
+
+          req.user = {
+            id: decoded.sub || decoded.id,
+            tenantId: tenantId,
+            email: decoded.email,
+            userType: decoded.userType,
+            roles: decoded.roles || [],
+            permissions: decoded.permissions || [],
+          };
+          return next();
+        } catch (error) {
+          return res.status(401).json({
+            success: false,
+            message: "Invalid token",
+          });
+        }
       }
 
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
