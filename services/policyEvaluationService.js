@@ -71,6 +71,18 @@ const evaluatePolicy = async (request) => {
   try {
     const { token, resource, action, context = {} } = request;
 
+    // Validate token parameter
+    if (!token || typeof token !== "string") {
+      return {
+        decision: "DENY",
+        reason: "INVALID_TOKEN",
+        error: "Token is missing or invalid",
+        timestamp: new Date().toISOString(),
+        policyVersion: POLICY_VERSION,
+        correlationId: context.correlationId,
+      };
+    }
+
     // Step 1: Check cache first (with tenant isolation)
     const tokenHash = token.substring(0, 8);
     const cacheKey = cache.generateKey(tokenHash, resource, action, context);
