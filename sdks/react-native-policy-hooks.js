@@ -91,7 +91,7 @@ class ReactNativePolicyClient {
 
     try {
       for (const resource of resources) {
-        const result = await this.getPermissions(token, resource);
+        const result = await this.client.getPermissions(token, resource);
         results[resource] = result;
       }
 
