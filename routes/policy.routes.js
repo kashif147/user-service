@@ -209,6 +209,160 @@ router.get("/permissions/:resource", async (req, res) => {
 });
 
 /**
+ * Get System Permissions Endpoint
+ * GET /policy/permissions/system
+ *
+ * Returns all system-level permissions for frontend initialization
+ */
+router.get("/permissions/system", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({
+        success: false,
+        error: "Authorization header required",
+        code: "MISSING_TOKEN",
+      });
+    }
+
+    const token = authHeader.substring(7);
+    const tokenValidation = await policyService.validateToken(token);
+
+    if (!tokenValidation.valid) {
+      return res.status(401).json({
+        success: false,
+        error: tokenValidation.error,
+        code: "INVALID_TOKEN",
+      });
+    }
+
+    // Get all permissions for system initialization
+    const permissionsService = require("../services/permissionsService");
+    const permissions = await permissionsService.getAllPermissions();
+
+    res.json({
+      success: true,
+      permissions,
+      user: tokenValidation.user,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error("Get system permissions error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Internal server error",
+      code: "PERMISSIONS_ERROR",
+    });
+  }
+});
+
+/**
+ * Get Role Definitions Endpoint
+ * GET /policy/permissions/roles
+ *
+ * Returns all role definitions for frontend initialization
+ */
+router.get("/permissions/roles", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({
+        success: false,
+        error: "Authorization header required",
+        code: "MISSING_TOKEN",
+      });
+    }
+
+    const token = authHeader.substring(7);
+    const tokenValidation = await policyService.validateToken(token);
+
+    if (!tokenValidation.valid) {
+      return res.status(401).json({
+        success: false,
+        error: tokenValidation.error,
+        code: "INVALID_TOKEN",
+      });
+    }
+
+    // Get role hierarchy for frontend
+    const roleHierarchyService = require("../services/roleHierarchyService");
+    const roleHierarchy = await roleHierarchyService.getRoleHierarchy();
+
+    res.json({
+      success: true,
+      roles: roleHierarchy,
+      user: tokenValidation.user,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error("Get role definitions error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Internal server error",
+      code: "ROLES_ERROR",
+    });
+  }
+});
+
+/**
+ * Get Route Permissions Endpoint
+ * GET /policy/permissions/routes
+ *
+ * Returns route-specific permissions for frontend navigation
+ */
+router.get("/permissions/routes", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({
+        success: false,
+        error: "Authorization header required",
+        code: "MISSING_TOKEN",
+      });
+    }
+
+    const token = authHeader.substring(7);
+    const tokenValidation = await policyService.validateToken(token);
+
+    if (!tokenValidation.valid) {
+      return res.status(401).json({
+        success: false,
+        error: tokenValidation.error,
+        code: "INVALID_TOKEN",
+      });
+    }
+
+    // Define route permissions mapping
+    const routePermissions = {
+      "/dashboard": { resource: "portal", action: "read" },
+      "/users": { resource: "user", action: "read" },
+      "/roles": { resource: "role", action: "read" },
+      "/admin": { resource: "admin", action: "read" },
+      "/crm": { resource: "crm", action: "read" },
+      "/contacts": { resource: "contact", action: "read" },
+      "/applications": { resource: "application", action: "read" },
+    };
+
+    res.json({
+      success: true,
+      routePermissions,
+      user: tokenValidation.user,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error("Get route permissions error:", error);
+    res.status(500).json({
+      success: false,
+      error: "Internal server error",
+      code: "ROUTE_PERMISSIONS_ERROR",
+    });
+  }
+});
+
+/**
  * Quick Authorization Check Endpoint
  * GET /policy/check/:resource/:action
  *
