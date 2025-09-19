@@ -533,88 +533,79 @@ const evaluateActionPolicy = async (context) => {
 };
 
 /**
- * Evaluate permission-based policies
+ * Evaluate permission-based policies using database-driven permissions
  * @param {Object} context - Authorization context
  * @returns {Object} Policy decision
  */
 const evaluatePermissionPolicy = async (context) => {
   const { permissions, resource, action } = context;
 
-  // Fetch permissions from database-driven service
-  const PERMISSIONS = await permissionsService.getAllPermissions();
+  try {
+    // Fetch permissions from database-driven service
+    const allPermissions = await permissionsService.getAllPermissions();
 
-  // Permission mapping - using consistent database permission pattern
-  const permissionMap = {
-    portal: {
-      read: "PORTAL_PROFILE_READ",
-      write: "PORTAL_PROFILE_WRITE",
-    },
-    crm: {
-      read: "CRM_MEMBER_READ",
-      write: "CRM_MEMBER_WRITE",
-      delete: "CRM_MEMBER_DELETE",
-    },
-    user: {
-      read: "USER_READ",
-      write: "USER_WRITE",
-      delete: "USER_DELETE",
-    },
-    role: {
-      read: "ROLE_READ",
-      write: "ROLE_WRITE",
-      delete: "ROLE_DELETE",
-    },
-    lookup: {
-      read: "LOOKUP_READ",
-      write: "LOOKUP_WRITE",
-      delete: "LOOKUP_DELETE",
-    },
-    lookupType: {
-      read: "LOOKUPTYPE_READ",
-      write: "LOOKUPTYPE_WRITE",
-      delete: "LOOKUPTYPE_DELETE",
-    },
-    admin: {
-      read: "ADMIN_READ",
-      write: "ADMIN_WRITE",
-      delete: "ADMIN_DELETE",
-    },
-    api: {
-      read: "API_READ",
-      write: "API_WRITE",
-      delete: "API_DELETE",
-    },
-    tenant: {
-      read: "TENANT_READ",
-      write: "TENANT_WRITE",
-      delete: "TENANT_DELETE",
-    },
-  };
+    // Find the specific permission for this resource and action
+    const requiredPermission = allPermissions.find(
+      (perm) =>
+        perm.resource.toLowerCase() === resource.toLowerCase() &&
+        perm.action.toLowerCase() === action.toLowerCase()
+    );
 
-  const requiredPermission = permissionMap[resource]?.[action];
-  if (!requiredPermission) {
-    // If no specific permission required, allow
+    if (!requiredPermission) {
+      // If no specific permission found in database, check if there's a wildcard permission
+      const hasWildcardPermission = permissions.includes("*");
+      if (hasWildcardPermission) {
+        return {
+          decision: "PERMIT",
+          reason: "WILDCARD_PERMISSION",
+        };
+      }
+
+      // Log for debugging - this helps identify missing permissions
+      console.log(
+        `No permission found for resource: ${resource}, action: ${action}`
+      );
+      console.log(
+        `Available permissions for resource '${resource}':`,
+        allPermissions.filter(
+          (p) => p.resource.toLowerCase() === resource.toLowerCase()
+        )
+      );
+
+      return {
+        decision: "DENY",
+        reason: "PERMISSION_NOT_DEFINED",
+        error: `No permission defined for resource '${resource}' with action '${action}'`,
+      };
+    }
+
+    // Check if user has the required permission
+    const hasPermission =
+      permissions.includes(requiredPermission.code) ||
+      permissions.includes("*");
+
+    if (!hasPermission) {
+      return {
+        decision: "DENY",
+        reason: "MISSING_PERMISSION",
+        error: `User lacks required permission: ${requiredPermission.code}`,
+        requiredPermission: requiredPermission.code,
+      };
+    }
+
     return {
       decision: "PERMIT",
-      reason: "NO_PERMISSION_REQUIRED",
+      reason: "PERMISSION_GRANTED",
+      permission: requiredPermission.code,
     };
-  }
-
-  // Check if user has required permission
-  const hasPermission =
-    permissions.includes(requiredPermission) || permissions.includes("*");
-
-  if (!hasPermission) {
+  } catch (error) {
+    console.error("Error in permission policy evaluation:", error);
     return {
       decision: "DENY",
-      reason: "MISSING_PERMISSION",
+      reason: "PERMISSION_EVALUATION_ERROR",
+      error: error.message,
     };
   }
-
-  return {
-    decision: "PERMIT",
-    reason: "PERMISSION_GRANTED",
-  };
 };
 
 /**
@@ -689,40 +680,31 @@ const getEffectivePermissions = async (token, resource) => {
 };
 
 /**
- * Get permissions for a specific resource
+ * Get permissions for a specific resource using database-driven lookup
  * @param {string} resource - Resource name
  * @param {Array} roles - User roles
  * @param {Array} permissions - User permissions
  * @returns {Array} Resource-specific permissions
  */
 const getResourcePermissions = async (resource, roles, permissions) => {
-  // Fetch permissions from database-driven service
-  const PERMISSIONS = await permissionsService.getAllPermissions();
+  try {
+    // Fetch permissions from database-driven service
+    const allPermissions = await permissionsService.getAllPermissions();
 
-  const resourcePermissionMap = {
-    portal: ["PORTAL_ACCESS", "PORTAL_PROFILE_READ", "PORTAL_PROFILE_WRITE"],
-    crm: [
-      "CRM_ACCESS",
-      "CRM_MEMBER_READ",
-      "CRM_MEMBER_WRITE",
-      "CRM_MEMBER_DELETE",
-    ],
-    user: ["USER_READ", "USER_WRITE", "USER_DELETE", "USER_MANAGE_ROLES"],
-    role: ["ROLE_READ", "ROLE_WRITE", "ROLE_DELETE", "ROLE_PERMISSION_ASSIGN"],
-    lookup: ["LOOKUP_READ", "LOOKUP_WRITE", "LOOKUP_DELETE"],
-    lookupType: ["LOOKUPTYPE_READ", "LOOKUPTYPE_WRITE", "LOOKUPTYPE_DELETE"],
-    admin: ["ADMIN_ACCESS", "ADMIN_READ", "ADMIN_WRITE", "ADMIN_DELETE"],
-    api: ["API_READ", "API_WRITE", "API_DELETE"],
-    tenant: ["TENANT_READ", "TENANT_WRITE", "TENANT_DELETE"],
-  };
+    // Find all permissions for this resource
+    const resourcePermissions = allPermissions
+      .filter((perm) => perm.resource.toLowerCase() === resource.toLowerCase())
+      .map((perm) => perm.code);
 
-  const resourcePermissions = resourcePermissionMap[resource] || [];
-
-  // Filter permissions user actually has
-  return resourcePermissions.filter(
-    (permission) =>
-      permissions.includes(permission) || permissions.includes("*")
-  );
+    // Filter permissions user actually has
+    return resourcePermissions.filter(
+      (permission) =>
+        permissions.includes(permission) || permissions.includes("*")
+    );
+  } catch (error) {
+    console.error("Error getting resource permissions:", error);
+    return [];
+  }
 };
 
 module.exports = {
