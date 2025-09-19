@@ -22,7 +22,9 @@ const getCorsConfig = () => {
     ],
     staging: [
       "http://localhost:3000",
-      "https://staging-frontend.yourdomain.com",
+      "https://testportal-dabravg2h3hfbke9.canadacentral-01.azurewebsites.net",
+      "https://userserviceshell-aqf6f0b8fqgmagch.canadacentral-01.azurewebsites.net",
+      "https://projectshellapi-c0hqhbdwaaahbcab.northeurope-01.azurewebsites.net",
       "https://staging-admin.yourdomain.com",
       "https://staging-mobile.yourdomain.com",
     ],
