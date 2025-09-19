@@ -21,7 +21,7 @@ const getCorsConfig = () => {
       "http://127.0.0.1:3001",
     ],
     staging: [
-      //   "http://localhost:3000",
+      "http://localhost:3000",
       "https://staging-frontend.yourdomain.com",
       "https://staging-admin.yourdomain.com",
       "https://staging-mobile.yourdomain.com",
