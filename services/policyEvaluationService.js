@@ -73,6 +73,9 @@ const evaluatePolicy = async (request) => {
 
     // Check for authorization bypass (but still validate token)
     if (process.env.AUTH_BYPASS_ENABLED === "true") {
+      console.log(
+        `🚨 POLICY BYPASS TRIGGERED: ${resource}:${action} - NODE_ENV: ${process.env.NODE_ENV}`
+      );
       // Still validate the token to ensure it's a valid JWT
       const tokenValidation = await validateToken(token);
       if (!tokenValidation.valid) {
