@@ -1,21 +1,22 @@
 const PermissionHandler = require("../handlers/permission.handler");
+const { AppError } = require("../errors/AppError");
 
 // Create permission
-module.exports.createPermission = async (req, res) => {
+module.exports.createPermission = async (req, res, next) => {
   try {
     const createdBy = req.ctx?.userId || "system";
     const permission = await PermissionHandler.createPermission(
       req.body,
       createdBy
     );
-    res.success(permission);
+    res.status(201).json({ status: "success", data: permission });
   } catch (error) {
-    res.fail(error.message);
+    return next(AppError.internalServerError("Failed to create permission"));
   }
 };
 
 // Get all permissions
-module.exports.getAllPermissions = async (req, res) => {
+module.exports.getAllPermissions = async (req, res, next) => {
   try {
     const filters = {
       category: req.query.category,
@@ -23,60 +24,70 @@ module.exports.getAllPermissions = async (req, res) => {
       level: req.query.level,
     };
     const permissions = await PermissionHandler.getAllPermissions(filters);
-    res.success(permissions);
+    res.status(200).json({ status: "success", data: permissions });
   } catch (error) {
-    res.fail(error.message);
+    return next(AppError.internalServerError("Failed to retrieve permissions"));
   }
 };
 
 // Get permission by ID
-module.exports.getPermissionById = async (req, res) => {
+module.exports.getPermissionById = async (req, res, next) => {
   try {
     const permission = await PermissionHandler.getPermissionById(req.params.id);
-    res.success(permission);
+    if (!permission) {
+      return next(AppError.notFound("Permission not found"));
+    }
+    res.status(200).json({ status: "success", data: permission });
   } catch (error) {
-    res.fail(error.message);
+    return next(AppError.internalServerError("Failed to retrieve permission"));
   }
 };
 
 // Get permission by code
-module.exports.getPermissionByCode = async (req, res) => {
+module.exports.getPermissionByCode = async (req, res, next) => {
   try {
     const permission = await PermissionHandler.getPermissionByCode(
       req.params.code
     );
-    res.success(permission);
+    if (!permission) {
+      return next(AppError.notFound("Permission not found"));
+    }
+    res.status(200).json({ status: "success", data: permission });
   } catch (error) {
-    res.fail(error.message);
+    return next(AppError.internalServerError("Failed to retrieve permission"));
   }
 };
 
 // Get permissions by resource
-module.exports.getPermissionsByResource = async (req, res) => {
+module.exports.getPermissionsByResource = async (req, res, next) => {
   try {
     const permissions = await PermissionHandler.getPermissionsByResource(
       req.params.resource
     );
-    res.success(permissions);
+    res.status(200).json({ status: "success", data: permissions });
   } catch (error) {
-    res.fail(error.message);
+    return next(
+      AppError.internalServerError("Failed to retrieve permissions by resource")
+    );
   }
 };
 
 // Get permissions by category
-module.exports.getPermissionsByCategory = async (req, res) => {
+module.exports.getPermissionsByCategory = async (req, res, next) => {
   try {
     const permissions = await PermissionHandler.getPermissionsByCategory(
       req.params.category
     );
-    res.success(permissions);
+    res.status(200).json({ status: "success", data: permissions });
   } catch (error) {
-    res.fail(error.message);
+    return next(
+      AppError.internalServerError("Failed to retrieve permissions by category")
+    );
   }
 };
 
 // Update permission
-module.exports.updatePermission = async (req, res) => {
+module.exports.updatePermission = async (req, res, next) => {
   try {
     const updatedBy = req.ctx?.userId || "system";
     const permission = await PermissionHandler.updatePermission(
@@ -84,38 +95,48 @@ module.exports.updatePermission = async (req, res) => {
       req.body,
       updatedBy
     );
-    res.success(permission);
+    if (!permission) {
+      return next(AppError.notFound("Permission not found"));
+    }
+    res.status(200).json({ status: "success", data: permission });
   } catch (error) {
-    res.fail(error.message);
+    return next(AppError.internalServerError("Failed to update permission"));
   }
 };
 
 // Delete permission
-module.exports.deletePermission = async (req, res) => {
+module.exports.deletePermission = async (req, res, next) => {
   try {
     const result = await PermissionHandler.deletePermission(req.params.id);
-    res.success(result.message);
+    if (!result) {
+      return next(AppError.notFound("Permission not found"));
+    }
+    res.status(200).json({ status: "success", data: result.message });
   } catch (error) {
-    res.fail(error.message);
+    return next(AppError.internalServerError("Failed to delete permission"));
   }
 };
 
 // Get permission statistics
-module.exports.getPermissionStats = async (req, res) => {
+module.exports.getPermissionStats = async (req, res, next) => {
   try {
     const stats = await PermissionHandler.getPermissionStats();
-    res.success(stats);
+    res.status(200).json({ status: "success", data: stats });
   } catch (error) {
-    res.fail(error.message);
+    return next(
+      AppError.internalServerError("Failed to retrieve permission statistics")
+    );
   }
 };
 
 // Initialize default permissions
-module.exports.initializeDefaultPermissions = async (req, res) => {
+module.exports.initializeDefaultPermissions = async (req, res, next) => {
   try {
     const permissions = await PermissionHandler.initializeDefaultPermissions();
-    res.success(permissions);
+    res.status(200).json({ status: "success", data: permissions });
   } catch (error) {
-    res.fail(error.message);
+    return next(
+      AppError.internalServerError("Failed to initialize default permissions")
+    );
   }
 };

@@ -87,21 +87,36 @@ app.use(function (req, res, next) {
   next(createError(404));
 });
 
-// Uniform error handlers for PDP responses
+// Enhanced error handler for AppError and other errors
 app.use((err, req, res, next) => {
   const correlationId =
     req.correlationId || req.headers["x-correlation-id"] || crypto.randomUUID();
 
+  // Handle AppError instances
+  if (err.name === "AppError") {
+    const isProduction = process.env.NODE_ENV === "production";
+
+    return res.status(err.status).json({
+      success: false,
+      error: {
+        message: err.message,
+        code: err.code,
+        status: err.status,
+        ...(isProduction ? {} : { stack: err.stack, extras: err.extras }),
+      },
+      correlationId,
+    });
+  }
+
   // Handle 401 Unauthorized
   if (err.status === 401) {
     return res.status(401).json({
-      authorized: false,
-      reason: "MISSING_TOKEN",
-      requiredRoles: [],
-      requiredPermissions: [],
-      userRoles: [],
-      userPermissions: [],
-      policyVersion: "1.0.0",
+      success: false,
+      error: {
+        message: "Unauthorized",
+        code: "UNAUTHORIZED",
+        status: 401,
+      },
       correlationId,
     });
   }
@@ -109,13 +124,12 @@ app.use((err, req, res, next) => {
   // Handle 403 Forbidden
   if (err.status === 403) {
     return res.status(403).json({
-      authorized: false,
-      reason: "PERMISSION_DENIED",
-      requiredRoles: [],
-      requiredPermissions: [],
-      userRoles: [],
-      userPermissions: [],
-      policyVersion: "1.0.0",
+      success: false,
+      error: {
+        message: "Forbidden",
+        code: "FORBIDDEN",
+        status: 403,
+      },
       correlationId,
     });
   }
@@ -123,32 +137,42 @@ app.use((err, req, res, next) => {
   // Handle 404 Not Found
   if (err.status === 404) {
     return res.status(404).json({
-      authorized: false,
-      reason: "NOT_FOUND",
-      error: "Page Not Found",
-      requiredRoles: [],
-      requiredPermissions: [],
-      userRoles: [],
-      userPermissions: [],
-      policyVersion: "1.0.0",
+      success: false,
+      error: {
+        message: "Not Found",
+        code: "NOT_FOUND",
+        status: 404,
+      },
+      correlationId,
+    });
+  }
+
+  // Handle validation errors
+  if (err.isJoi) {
+    return res.status(400).json({
+      success: false,
+      error: {
+        message: "Validation Error",
+        code: "VALIDATION_ERROR",
+        status: 400,
+        details: err.details.map((d) => d.message),
+      },
       correlationId,
     });
   }
 
   // Handle other errors
   console.error(err.message || "Internal Server Error");
+  const isProduction = process.env.NODE_ENV === "production";
+
   res.status(500).json({
-    authorized: false,
-    reason: "INTERNAL_ERROR",
-    error:
-      process.env.NODE_ENV === "production"
-        ? "Internal Server Error"
-        : err.message,
-    requiredRoles: [],
-    requiredPermissions: [],
-    userRoles: [],
-    userPermissions: [],
-    policyVersion: "1.0.0",
+    success: false,
+    error: {
+      message: isProduction ? "Internal Server Error" : err.message,
+      code: "INTERNAL_SERVER_ERROR",
+      status: 500,
+      ...(isProduction ? {} : { stack: err.stack }),
+    },
     correlationId,
   });
 });

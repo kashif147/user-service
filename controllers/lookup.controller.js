@@ -1,7 +1,8 @@
 const Lookup = require("../models/Lookup");
+const { AppError } = require("../errors/AppError");
 // const { publishEvent } = require("message-bus");
 
-const getAllLookup = async (req, res) => {
+const getAllLookup = async (req, res, next) => {
   try {
     // Fetch all Lookup documents and populate lookuptypeId with fields from LookupType
     const lookups = await Lookup.find({})
@@ -39,11 +40,11 @@ const getAllLookup = async (req, res) => {
     res.status(200).json(formattedRegions);
   } catch (error) {
     console.error("Error fetching lookups:", error);
-    res.status(500).json({ error: "An error occurred while fetching lookups" });
+    return next(AppError.internalServerError("Failed to retrieve lookups"));
   }
 };
 
-const getLookup = async (req, res) => {
+const getLookup = async (req, res, next) => {
   try {
     const { id } = req.params;
     // const lookup = await Lookup.findById(id);
@@ -85,7 +86,7 @@ const getLookup = async (req, res) => {
     }));
     res.status(200).json(formattedRegions);
   } catch (error) {
-    res.status(500).json({ error: "Server error" });
+    return next(AppError.internalServerError("Failed to retrieve lookup"));
   }
 };
 

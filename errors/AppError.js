@@ -18,6 +18,18 @@ class AppError extends Error {
   static badRequest(message = "Bad request", extras = {}) {
     return new AppError(message, 400, "BAD_REQUEST", extras);
   }
+
+  static unauthorized(message = "Unauthorized", extras = {}) {
+    return new AppError(message, 401, "UNAUTHORIZED", extras);
+  }
+
+  static forbidden(message = "Forbidden", extras = {}) {
+    return new AppError(message, 403, "FORBIDDEN", extras);
+  }
+
+  static internalServerError(message = "Internal server error", extras = {}) {
+    return new AppError(message, 500, "INTERNAL_SERVER_ERROR", extras);
+  }
 }
 
 module.exports = { AppError };

@@ -1,51 +1,55 @@
 const RoleHandler = require("../handlers/role.handler");
 const User = require("../models/user");
+const { AppError } = require("../errors/AppError");
 
 // Initialize roles
-module.exports.initializeRoles = async (req, res) => {
+module.exports.initializeRoles = async (req, res, next) => {
   try {
     const tenantId = req.ctx.tenantId;
     const roles = await RoleHandler.initializeRoles(tenantId);
-    res.success(roles);
+    res.status(200).json({ status: "success", data: roles });
   } catch (error) {
-    res.fail(error.message);
+    return next(AppError.internalServerError("Failed to initialize roles"));
   }
 };
 
 // Role CRUD operations
-module.exports.createRole = async (req, res) => {
+module.exports.createRole = async (req, res, next) => {
   try {
     const tenantId = req.ctx.tenantId;
     const createdBy = req.ctx.userId;
     const role = await RoleHandler.createRole(req.body, tenantId, createdBy);
-    res.success(role);
+    res.status(201).json({ status: "success", data: role });
   } catch (error) {
-    res.fail(error.message);
+    return next(AppError.internalServerError("Failed to create role"));
   }
 };
 
-module.exports.getAllRoles = async (req, res) => {
+module.exports.getAllRoles = async (req, res, next) => {
   try {
     const { userType } = req.query;
     const tenantId = req.ctx.tenantId;
     const roles = await RoleHandler.getAllRoles(tenantId, userType);
-    res.success(roles);
+    res.status(200).json({ status: "success", data: roles });
   } catch (error) {
-    res.fail(error.message);
+    return next(AppError.internalServerError("Failed to retrieve roles"));
   }
 };
 
-module.exports.getRoleById = async (req, res) => {
+module.exports.getRoleById = async (req, res, next) => {
   try {
     const tenantId = req.ctx.tenantId;
     const role = await RoleHandler.getRoleById(req.params.id, tenantId);
-    res.success(role);
+    if (!role) {
+      return next(AppError.notFound("Role not found"));
+    }
+    res.status(200).json({ status: "success", data: role });
   } catch (error) {
-    res.fail(error.message);
+    return next(AppError.internalServerError("Failed to retrieve role"));
   }
 };
 
-module.exports.updateRole = async (req, res) => {
+module.exports.updateRole = async (req, res, next) => {
   try {
     const tenantId = req.ctx.tenantId;
     const updatedBy = req.ctx.userId;
@@ -55,23 +59,29 @@ module.exports.updateRole = async (req, res) => {
       tenantId,
       updatedBy
     );
-    res.success(role);
+    if (!role) {
+      return next(AppError.notFound("Role not found"));
+    }
+    res.status(200).json({ status: "success", data: role });
   } catch (error) {
-    res.fail(error.message);
+    return next(AppError.internalServerError("Failed to update role"));
   }
 };
 
-module.exports.deleteRole = async (req, res) => {
+module.exports.deleteRole = async (req, res, next) => {
   try {
     const tenantId = req.ctx.tenantId;
     const result = await RoleHandler.deleteRole(req.params.id, tenantId);
-    res.success(result.message);
+    if (!result) {
+      return next(AppError.notFound("Role not found"));
+    }
+    res.status(200).json({ status: "success", data: result.message });
   } catch (error) {
-    res.fail(error.message);
+    return next(AppError.internalServerError("Failed to delete role"));
   }
 };
 
-module.exports.updateRolePermissions = async (req, res) => {
+module.exports.updateRolePermissions = async (req, res, next) => {
   try {
     const { permissions } = req.body;
     const tenantId = req.ctx.tenantId;
@@ -82,21 +92,26 @@ module.exports.updateRolePermissions = async (req, res) => {
       tenantId,
       updatedBy
     );
-    res.success(role);
+    if (!role) {
+      return next(AppError.notFound("Role not found"));
+    }
+    res.status(200).json({ status: "success", data: role });
   } catch (error) {
-    res.fail(error.message);
+    return next(
+      AppError.internalServerError("Failed to update role permissions")
+    );
   }
 };
 
 // User role management
 // Batch role management (Super User only)
-module.exports.assignRolesToUser = async (req, res) => {
+module.exports.assignRolesToUser = async (req, res, next) => {
   try {
     const { userId, roleIds } = req.body;
     const tenantId = req.ctx.tenantId;
 
     if (!Array.isArray(roleIds) || roleIds.length === 0) {
-      return res.fail("roleIds must be a non-empty array");
+      return next(AppError.badRequest("roleIds must be a non-empty array"));
     }
 
     const result = await RoleHandler.assignRolesToUser(
@@ -105,27 +120,31 @@ module.exports.assignRolesToUser = async (req, res) => {
       tenantId
     );
 
-    res.success("Roles assigned to user successfully", {
-      user: result.user,
-      summary: {
-        assignedRoles: result.assignedRoles,
-        alreadyAssignedRoles: result.alreadyAssignedRoles,
-        assignedRoleIds: result.assignedRoleIds,
-        alreadyAssignedRoleIds: result.alreadyAssignedRoleIds,
+    res.status(200).json({
+      status: "success",
+      message: "Roles assigned to user successfully",
+      data: {
+        user: result.user,
+        summary: {
+          assignedRoles: result.assignedRoles,
+          alreadyAssignedRoles: result.alreadyAssignedRoles,
+          assignedRoleIds: result.assignedRoleIds,
+          alreadyAssignedRoleIds: result.alreadyAssignedRoleIds,
+        },
       },
     });
   } catch (error) {
-    res.fail(error.message);
+    return next(AppError.internalServerError("Failed to assign roles to user"));
   }
 };
 
-module.exports.removeRolesFromUser = async (req, res) => {
+module.exports.removeRolesFromUser = async (req, res, next) => {
   try {
     const { userId, roleIds } = req.body;
     const tenantId = req.ctx.tenantId;
 
     if (!Array.isArray(roleIds) || roleIds.length === 0) {
-      return res.fail("roleIds must be a non-empty array");
+      return next(AppError.badRequest("roleIds must be a non-empty array"));
     }
 
     const result = await RoleHandler.removeRolesFromUser(
@@ -134,77 +153,92 @@ module.exports.removeRolesFromUser = async (req, res) => {
       tenantId
     );
 
-    res.success("Roles removed from user successfully", {
-      user: result.user,
-      summary: {
-        removedRoles: result.removedRoles,
-        notAssignedRoles: result.notAssignedRoles,
-        removedRoleIds: result.removedRoleIds,
-        notAssignedRoleIds: result.notAssignedRoleIds,
+    res.status(200).json({
+      status: "success",
+      message: "Roles removed from user successfully",
+      data: {
+        user: result.user,
+        summary: {
+          removedRoles: result.removedRoles,
+          notAssignedRoles: result.notAssignedRoles,
+          removedRoleIds: result.removedRoleIds,
+          notAssignedRoleIds: result.notAssignedRoleIds,
+        },
       },
     });
   } catch (error) {
-    res.fail(error.message);
+    return next(
+      AppError.internalServerError("Failed to remove roles from user")
+    );
   }
 };
 
-module.exports.removeRoleFromUser = async (req, res) => {
+module.exports.removeRoleFromUser = async (req, res, next) => {
   try {
     const { userId, roleId } = req.body;
     const tenantId = req.ctx.tenantId;
     const user = await RoleHandler.removeRoleFromUser(userId, roleId, tenantId);
-    res.success(user);
+    if (!user) {
+      return next(AppError.notFound("User or role not found"));
+    }
+    res.status(200).json({ status: "success", data: user });
   } catch (error) {
-    res.fail(error.message);
+    return next(
+      AppError.internalServerError("Failed to remove role from user")
+    );
   }
 };
 
-module.exports.getUserRoles = async (req, res) => {
+module.exports.getUserRoles = async (req, res, next) => {
   try {
     const tenantId = req.ctx.tenantId;
     const roles = await RoleHandler.getUserRoles(req.params.userId, tenantId);
-    res.success(roles);
+    res.status(200).json({ status: "success", data: roles });
   } catch (error) {
-    res.fail(error.message);
+    return next(AppError.internalServerError("Failed to retrieve user roles"));
   }
 };
 
-module.exports.getUserPermissions = async (req, res) => {
+module.exports.getUserPermissions = async (req, res, next) => {
   try {
     const tenantId = req.ctx.tenantId;
     const permissions = await RoleHandler.getUserPermissions(
       req.params.userId,
       tenantId
     );
-    res.success(permissions);
+    res.status(200).json({ status: "success", data: permissions });
   } catch (error) {
-    res.fail(error.message);
+    return next(
+      AppError.internalServerError("Failed to retrieve user permissions")
+    );
   }
 };
 
-module.exports.getUsersByRole = async (req, res) => {
+module.exports.getUsersByRole = async (req, res, next) => {
   try {
     const tenantId = req.ctx.tenantId;
     const users = await RoleHandler.getUsersByRole(req.params.roleId, tenantId);
-    res.success(users);
+    res.status(200).json({ status: "success", data: users });
   } catch (error) {
-    res.fail(error.message);
+    return next(
+      AppError.internalServerError("Failed to retrieve users by role")
+    );
   }
 };
 
-module.exports.getAllUsers = async (req, res) => {
+module.exports.getAllUsers = async (req, res, next) => {
   try {
     const tenantId = req.ctx.tenantId;
     const users = await User.find({ tenantId })
       .populate("roles")
       .select("-password -tokens");
-    res.success(users);
+    res.status(200).json({ status: "success", data: users });
   } catch (error) {
-    res.fail(error.message);
+    return next(AppError.internalServerError("Failed to retrieve users"));
   }
 };
 
-module.exports.testDefaultRoleAssignment = async (req, res) => {
+module.exports.testDefaultRoleAssignment = async (req, res, next) => {
   try {
     const User = require("../models/user");
     const { assignDefaultRole } = require("../helpers/roleAssignment");
@@ -213,11 +247,13 @@ module.exports.testDefaultRoleAssignment = async (req, res) => {
     const tenantId = req.ctx.tenantId;
 
     if (!userType || !email || !fullName) {
-      return res.fail("userType, email, and fullName are required");
+      return next(
+        AppError.badRequest("userType, email, and fullName are required")
+      );
     }
 
     if (!["PORTAL", "CRM"].includes(userType)) {
-      return res.fail("userType must be PORTAL or CRM");
+      return next(AppError.badRequest("userType must be PORTAL or CRM"));
     }
 
     // Create test user with tenantId
@@ -239,32 +275,36 @@ module.exports.testDefaultRoleAssignment = async (req, res) => {
       tenantId,
     }).populate("roles");
 
-    res.success("Test user created with default role", {
-      user: {
-        id: userWithRoles._id,
-        email: userWithRoles.userEmail,
-        fullName: userWithRoles.userFullName,
-        userType: userWithRoles.userType,
-        tenantId: userWithRoles.tenantId,
-        roles: userWithRoles.roles.map((role) => ({
-          id: role._id,
-          code: role.code,
-          name: role.name,
-        })),
+    res.status(201).json({
+      status: "success",
+      message: "Test user created with default role",
+      data: {
+        user: {
+          id: userWithRoles._id,
+          email: userWithRoles.userEmail,
+          fullName: userWithRoles.userFullName,
+          userType: userWithRoles.userType,
+          tenantId: userWithRoles.tenantId,
+          roles: userWithRoles.roles.map((role) => ({
+            id: role._id,
+            code: role.code,
+            name: role.name,
+          })),
+        },
       },
     });
   } catch (error) {
-    res.fail(error.message);
+    return next(AppError.internalServerError("Failed to create test user"));
   }
 };
 
-module.exports.hasRole = async (req, res) => {
+module.exports.hasRole = async (req, res, next) => {
   try {
     const { userId, roleCode } = req.params;
     const tenantId = req.ctx.tenantId;
     const hasRole = await RoleHandler.hasRole(userId, roleCode, tenantId);
-    res.success({ hasRole });
+    res.status(200).json({ status: "success", data: { hasRole } });
   } catch (error) {
-    res.fail(error.message);
+    return next(AppError.internalServerError("Failed to check user role"));
   }
 };

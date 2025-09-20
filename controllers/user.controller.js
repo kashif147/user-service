@@ -1,7 +1,8 @@
 const UserHandler = require("../handlers/user.handler");
 const joiSchemas = require("../validation/crm.general.schema");
+const { AppError } = require("../errors/AppError");
 
-module.exports.handleRegistration = async (req, res) => {
+module.exports.handleRegistration = async (req, res, next) => {
   try {
     const results = await joiSchemas.crm_general_register_schema.validateAsync(
       req.body
@@ -12,7 +13,7 @@ module.exports.handleRegistration = async (req, res) => {
     // Extract tenantId from request context (set by auth middleware)
     const tenantId = req.ctx?.tenantId;
     if (!tenantId) {
-      return res.fail("Tenant context required");
+      return next(AppError.badRequest("Tenant context required"));
     }
 
     const isEmailExists = await UserHandler.findUserByEmail(
@@ -20,7 +21,7 @@ module.exports.handleRegistration = async (req, res) => {
       tenantId
     );
     if (isEmailExists) {
-      return res.fail("User already exists");
+      return next(AppError.conflict("User already exists"));
     }
 
     const result = await UserHandler.handleNewUser(
@@ -30,14 +31,19 @@ module.exports.handleRegistration = async (req, res) => {
       req.ctx.userId
     );
 
-    return res.success(result);
+    return res.status(201).json({ status: "success", data: result });
   } catch (error) {
     console.error("Registration Error:", error);
-    return res.serverError(error);
+    if (error.isJoi) {
+      return next(
+        AppError.badRequest(error.details.map((d) => d.message).join(", "))
+      );
+    }
+    return next(AppError.internalServerError("Registration failed"));
   }
 };
 
-module.exports.handleLogin = async (req, res) => {
+module.exports.handleLogin = async (req, res, next) => {
   try {
     const results = await joiSchemas.crm_general_login_schema.validateAsync(
       req.body
@@ -46,7 +52,7 @@ module.exports.handleLogin = async (req, res) => {
     // Extract tenantId from request context
     const tenantId = req.ctx?.tenantId;
     if (!tenantId) {
-      return res.fail("Tenant context required");
+      return next(AppError.badRequest("Tenant context required"));
     }
 
     const isEmailExists = await UserHandler.findUserByEmail(
@@ -54,7 +60,7 @@ module.exports.handleLogin = async (req, res) => {
       tenantId
     );
     if (!isEmailExists) {
-      return res.fail("User not found");
+      return next(AppError.notFound("User not found"));
     }
 
     const data = await UserHandler.handleLogin(
@@ -63,9 +69,14 @@ module.exports.handleLogin = async (req, res) => {
       tenantId
     );
 
-    return res.success(data);
+    return res.status(200).json({ status: "success", data });
   } catch (error) {
     console.error("Login Error:", error);
-    return res.serverError(error);
+    if (error.isJoi) {
+      return next(
+        AppError.badRequest(error.details.map((d) => d.message).join(", "))
+      );
+    }
+    return next(AppError.internalServerError("Login failed"));
   }
 };

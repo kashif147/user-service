@@ -10,27 +10,14 @@ class AuthController {
    * Refresh access token using refresh token
    * POST /auth/refresh
    */
-  static async refreshToken(req, res) {
+  static async refreshToken(req, res, next) {
     try {
       console.log("=== Token Refresh Request ===");
 
       const { refreshToken } = req.body;
 
       if (!refreshToken) {
-        const error = AppError.badRequest("Refresh token is required", {
-          tokenError: true,
-          missingRefreshToken: true,
-        });
-        return res.status(error.status).json({
-          success: false,
-          error: {
-            message: error.message,
-            code: error.code,
-            status: error.status,
-            tokenError: error.tokenError,
-            missingRefreshToken: error.missingRefreshToken,
-          },
-        });
+        return next(AppError.badRequest("Refresh token is required"));
       }
 
       // Validate refresh token and generate new access token
@@ -56,37 +43,11 @@ class AuthController {
         error.message.includes("Invalid refresh token") ||
         error.message.includes("Refresh token expired")
       ) {
-        const authError = AppError.unauthorized(
-          "Invalid or expired refresh token",
-          {
-            tokenError: true,
-            invalidRefreshToken: true,
-          }
-        );
-        return res.status(authError.status).json({
-          success: false,
-          error: {
-            message: authError.message,
-            code: authError.code,
-            status: authError.status,
-            tokenError: authError.tokenError,
-            invalidRefreshToken: authError.invalidRefreshToken,
-          },
-        });
+        return next(AppError.unauthorized("Invalid or expired refresh token"));
       }
 
       // Generic server error
-      const serverError = AppError.internalServerError(
-        "Failed to refresh token"
-      );
-      return res.status(serverError.status).json({
-        success: false,
-        error: {
-          message: serverError.message,
-          code: serverError.code,
-          status: serverError.status,
-        },
-      });
+      return next(AppError.internalServerError("Failed to refresh token"));
     }
   }
 
@@ -94,7 +55,7 @@ class AuthController {
    * Revoke refresh token (logout)
    * POST /auth/revoke
    */
-  static async revokeToken(req, res) {
+  static async revokeToken(req, res, next) {
     try {
       console.log("=== Token Revocation Request ===");
 
@@ -102,15 +63,7 @@ class AuthController {
       const userId = req.ctx?.userId; // From auth middleware if available
 
       if (!refreshToken) {
-        const error = AppError.badRequest("Refresh token is required");
-        return res.status(error.status).json({
-          success: false,
-          error: {
-            message: error.message,
-            code: error.code,
-            status: error.status,
-          },
-        });
+        return next(AppError.badRequest("Refresh token is required"));
       }
 
       // Revoke the refresh token
@@ -135,18 +88,7 @@ class AuthController {
       });
     } catch (error) {
       console.log("❌ Token revocation failed:", error.message);
-
-      const serverError = AppError.internalServerError(
-        "Failed to revoke token"
-      );
-      return res.status(serverError.status).json({
-        success: false,
-        error: {
-          message: serverError.message,
-          code: serverError.code,
-          status: serverError.status,
-        },
-      });
+      return next(AppError.internalServerError("Failed to revoke token"));
     }
   }
 
@@ -154,22 +96,14 @@ class AuthController {
    * Revoke all refresh tokens for current user (security logout)
    * POST /auth/revoke-all
    */
-  static async revokeAllTokens(req, res) {
+  static async revokeAllTokens(req, res, next) {
     try {
       console.log("=== Revoke All Tokens Request ===");
 
       const userId = req.ctx?.userId;
 
       if (!userId) {
-        const error = AppError.unauthorized("User authentication required");
-        return res.status(error.status).json({
-          success: false,
-          error: {
-            message: error.message,
-            code: error.code,
-            status: error.status,
-          },
-        });
+        return next(AppError.unauthorized("User authentication required"));
       }
 
       // Revoke all refresh tokens for the user
@@ -177,14 +111,7 @@ class AuthController {
 
       if (!revoked) {
         console.log("⚠️ User not found for token revocation");
-        return res.status(404).json({
-          success: false,
-          error: {
-            message: "User not found",
-            code: "USER_NOT_FOUND",
-            status: 404,
-          },
-        });
+        return next(AppError.notFound("User not found"));
       }
 
       console.log("✅ All refresh tokens revoked for user:", userId);
@@ -195,18 +122,7 @@ class AuthController {
       });
     } catch (error) {
       console.log("❌ Revoke all tokens failed:", error.message);
-
-      const serverError = AppError.internalServerError(
-        "Failed to revoke all tokens"
-      );
-      return res.status(serverError.status).json({
-        success: false,
-        error: {
-          message: serverError.message,
-          code: serverError.code,
-          status: serverError.status,
-        },
-      });
+      return next(AppError.internalServerError("Failed to revoke all tokens"));
     }
   }
 }
