@@ -239,63 +239,60 @@ const validateRolesFromDatabase = async (req, res, next) => {
 const sanitizedErrorHandler = (error, req, res, next) => {
   console.error("Error:", error);
 
+  // Handle AppError instances first
+  if (error.name === "AppError") {
+    return next(error);
+  }
+
   // Don't reveal sensitive information in production
   const isProduction = process.env.NODE_ENV === "production";
 
-  let sanitizedError = {
-    message: "An error occurred",
-    code: "INTERNAL_ERROR",
-    status: 500,
-    timestamp: new Date().toISOString(),
-  };
+  let appError;
 
   // Handle known error types
   if (error.name === "ValidationError") {
-    sanitizedError = {
-      message: "Validation failed",
-      code: "VALIDATION_ERROR",
-      status: 400,
+    appError = AppError.badRequest("Validation failed", {
+      originalError: error.message,
       timestamp: new Date().toISOString(),
-    };
+    });
   } else if (error.name === "CastError") {
-    sanitizedError = {
-      message: "Invalid ID format",
-      code: "INVALID_ID",
-      status: 400,
+    appError = AppError.badRequest("Invalid ID format", {
+      originalError: error.message,
       timestamp: new Date().toISOString(),
-    };
+    });
   } else if (error.name === "JsonWebTokenError") {
-    sanitizedError = {
-      message: "Invalid token",
-      code: "INVALID_TOKEN",
-      status: 401,
+    appError = AppError.unauthorized("Invalid token", {
+      originalError: error.message,
       timestamp: new Date().toISOString(),
-    };
+    });
   } else if (error.name === "TokenExpiredError") {
-    sanitizedError = {
-      message: "Token expired",
-      code: "TOKEN_EXPIRED",
-      status: 401,
+    appError = AppError.unauthorized("Token expired", {
+      originalError: error.message,
       timestamp: new Date().toISOString(),
-    };
+    });
   } else if (error.name === "MongoError" || error.name === "MongoServerError") {
-    sanitizedError = {
-      message: "Database error",
-      code: "DATABASE_ERROR",
-      status: 500,
+    appError = AppError.internalServerError("Database error", {
+      originalError: error.message,
       timestamp: new Date().toISOString(),
-    };
+    });
+  } else {
+    appError = AppError.internalServerError("An error occurred", {
+      originalError: error.message,
+      timestamp: new Date().toISOString(),
+    });
   }
 
   // Add development-specific details
   if (!isProduction) {
-    sanitizedError.stack = error.stack;
-    sanitizedError.details = error.message;
+    appError.stack = error.stack;
+    appError.extras = {
+      ...appError.extras,
+      originalStack: error.stack,
+      originalMessage: error.message,
+    };
   }
 
-  res.status(sanitizedError.status).json({
-    error: sanitizedError,
-  });
+  return next(appError);
 };
 
 /**

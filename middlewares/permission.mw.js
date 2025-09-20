@@ -1,4 +1,5 @@
 const jwt = require("jsonwebtoken");
+const { AppError } = require("../errors/AppError");
 
 module.exports.requirePermission = (requiredPermission) => {
   return async (req, res, next) => {
@@ -6,9 +7,23 @@ module.exports.requirePermission = (requiredPermission) => {
       const token = req.headers.authorization?.replace("Bearer ", "");
 
       if (!token) {
-        return res.status(401).json({
+        const authError = AppError.unauthorized("Access token required", {
+          tokenError: true,
+          missingHeader: true,
+        });
+        return res.status(authError.status).json({
           success: false,
-          message: "Access token required",
+          error: {
+            message: authError.message,
+            code: authError.code,
+            status: authError.status,
+            tokenError: authError.tokenError,
+            missingHeader: authError.missingHeader,
+          },
+          correlationId:
+            req.correlationId ||
+            req.headers["x-correlation-id"] ||
+            require("crypto").randomUUID(),
         });
       }
 
@@ -32,9 +47,23 @@ module.exports.requirePermission = (requiredPermission) => {
           };
           return next();
         } catch (error) {
-          return res.status(401).json({
+          const authError = AppError.unauthorized("Invalid token", {
+            tokenError: true,
+            jwtError: error.message,
+          });
+          return res.status(authError.status).json({
             success: false,
-            message: "Invalid token",
+            error: {
+              message: authError.message,
+              code: authError.code,
+              status: authError.status,
+              tokenError: authError.tokenError,
+              jwtError: authError.jwtError,
+            },
+            correlationId:
+              req.correlationId ||
+              req.headers["x-correlation-id"] ||
+              require("crypto").randomUUID(),
           });
         }
       }
@@ -55,18 +84,46 @@ module.exports.requirePermission = (requiredPermission) => {
         !decoded.permissions ||
         !decoded.permissions.includes(requiredPermission)
       ) {
-        return res.status(403).json({
+        const forbiddenError = AppError.forbidden("Insufficient permissions", {
+          requiredPermission,
+          userPermissions: decoded.permissions || [],
+        });
+        return res.status(forbiddenError.status).json({
           success: false,
-          message: "Insufficient permissions",
+          error: {
+            message: forbiddenError.message,
+            code: forbiddenError.code,
+            status: forbiddenError.status,
+            requiredPermission: forbiddenError.requiredPermission,
+            userPermissions: forbiddenError.userPermissions,
+          },
+          correlationId:
+            req.correlationId ||
+            req.headers["x-correlation-id"] ||
+            require("crypto").randomUUID(),
         });
       }
 
       req.user = decoded;
       next();
     } catch (error) {
-      return res.status(401).json({
+      const authError = AppError.unauthorized("Invalid token", {
+        tokenError: true,
+        jwtError: error.message,
+      });
+      return res.status(authError.status).json({
         success: false,
-        message: "Invalid token",
+        error: {
+          message: authError.message,
+          code: authError.code,
+          status: authError.status,
+          tokenError: authError.tokenError,
+          jwtError: authError.jwtError,
+        },
+        correlationId:
+          req.correlationId ||
+          req.headers["x-correlation-id"] ||
+          require("crypto").randomUUID(),
       });
     }
   };
@@ -78,9 +135,23 @@ module.exports.requireRole = (requiredRole) => {
       const token = req.headers.authorization?.replace("Bearer ", "");
 
       if (!token) {
-        return res.status(401).json({
+        const authError = AppError.unauthorized("Access token required", {
+          tokenError: true,
+          missingHeader: true,
+        });
+        return res.status(authError.status).json({
           success: false,
-          message: "Access token required",
+          error: {
+            message: authError.message,
+            code: authError.code,
+            status: authError.status,
+            tokenError: authError.tokenError,
+            missingHeader: authError.missingHeader,
+          },
+          correlationId:
+            req.correlationId ||
+            req.headers["x-correlation-id"] ||
+            require("crypto").randomUUID(),
         });
       }
 
@@ -104,9 +175,23 @@ module.exports.requireRole = (requiredRole) => {
           };
           return next();
         } catch (error) {
-          return res.status(401).json({
+          const authError = AppError.unauthorized("Invalid token", {
+            tokenError: true,
+            jwtError: error.message,
+          });
+          return res.status(authError.status).json({
             success: false,
-            message: "Invalid token",
+            error: {
+              message: authError.message,
+              code: authError.code,
+              status: authError.status,
+              tokenError: authError.tokenError,
+              jwtError: authError.jwtError,
+            },
+            correlationId:
+              req.correlationId ||
+              req.headers["x-correlation-id"] ||
+              require("crypto").randomUUID(),
           });
         }
       }
@@ -127,18 +212,49 @@ module.exports.requireRole = (requiredRole) => {
         (role) => role.code === requiredRole
       );
       if (!hasRequiredRole) {
-        return res.status(403).json({
+        const forbiddenError = AppError.forbidden(
+          "Insufficient role privileges",
+          {
+            requiredRole,
+            userRoles: decoded.roles || [],
+          }
+        );
+        return res.status(forbiddenError.status).json({
           success: false,
-          message: "Insufficient role privileges",
+          error: {
+            message: forbiddenError.message,
+            code: forbiddenError.code,
+            status: forbiddenError.status,
+            requiredRole: forbiddenError.requiredRole,
+            userRoles: forbiddenError.userRoles,
+          },
+          correlationId:
+            req.correlationId ||
+            req.headers["x-correlation-id"] ||
+            require("crypto").randomUUID(),
         });
       }
 
       req.user = decoded;
       next();
     } catch (error) {
-      return res.status(401).json({
+      const authError = AppError.unauthorized("Invalid token", {
+        tokenError: true,
+        jwtError: error.message,
+      });
+      return res.status(authError.status).json({
         success: false,
-        message: "Invalid token",
+        error: {
+          message: authError.message,
+          code: authError.code,
+          status: authError.status,
+          tokenError: authError.tokenError,
+          jwtError: authError.jwtError,
+        },
+        correlationId:
+          req.correlationId ||
+          req.headers["x-correlation-id"] ||
+          require("crypto").randomUUID(),
       });
     }
   };
@@ -150,9 +266,23 @@ module.exports.requireAnyRole = (requiredRoles) => {
       const token = req.headers.authorization?.replace("Bearer ", "");
 
       if (!token) {
-        return res.status(401).json({
+        const authError = AppError.unauthorized("Access token required", {
+          tokenError: true,
+          missingHeader: true,
+        });
+        return res.status(authError.status).json({
           success: false,
-          message: "Access token required",
+          error: {
+            message: authError.message,
+            code: authError.code,
+            status: authError.status,
+            tokenError: authError.tokenError,
+            missingHeader: authError.missingHeader,
+          },
+          correlationId:
+            req.correlationId ||
+            req.headers["x-correlation-id"] ||
+            require("crypto").randomUUID(),
         });
       }
 
@@ -173,18 +303,49 @@ module.exports.requireAnyRole = (requiredRoles) => {
       );
 
       if (!hasAnyRequiredRole) {
-        return res.status(403).json({
+        const forbiddenError = AppError.forbidden(
+          "Insufficient role privileges",
+          {
+            requiredRole,
+            userRoles: decoded.roles || [],
+          }
+        );
+        return res.status(forbiddenError.status).json({
           success: false,
-          message: "Insufficient role privileges",
+          error: {
+            message: forbiddenError.message,
+            code: forbiddenError.code,
+            status: forbiddenError.status,
+            requiredRole: forbiddenError.requiredRole,
+            userRoles: forbiddenError.userRoles,
+          },
+          correlationId:
+            req.correlationId ||
+            req.headers["x-correlation-id"] ||
+            require("crypto").randomUUID(),
         });
       }
 
       req.user = decoded;
       next();
     } catch (error) {
-      return res.status(401).json({
+      const authError = AppError.unauthorized("Invalid token", {
+        tokenError: true,
+        jwtError: error.message,
+      });
+      return res.status(authError.status).json({
         success: false,
-        message: "Invalid token",
+        error: {
+          message: authError.message,
+          code: authError.code,
+          status: authError.status,
+          tokenError: authError.tokenError,
+          jwtError: authError.jwtError,
+        },
+        correlationId:
+          req.correlationId ||
+          req.headers["x-correlation-id"] ||
+          require("crypto").randomUUID(),
       });
     }
   };
@@ -196,27 +357,72 @@ module.exports.requireUserType = (requiredUserType) => {
       const token = req.headers.authorization?.replace("Bearer ", "");
 
       if (!token) {
-        return res.status(401).json({
+        const authError = AppError.unauthorized("Access token required", {
+          tokenError: true,
+          missingHeader: true,
+        });
+        return res.status(authError.status).json({
           success: false,
-          message: "Access token required",
+          error: {
+            message: authError.message,
+            code: authError.code,
+            status: authError.status,
+            tokenError: authError.tokenError,
+            missingHeader: authError.missingHeader,
+          },
+          correlationId:
+            req.correlationId ||
+            req.headers["x-correlation-id"] ||
+            require("crypto").randomUUID(),
         });
       }
 
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
       if (decoded.userType !== requiredUserType) {
-        return res.status(403).json({
+        const forbiddenError = AppError.forbidden(
+          "Access denied for this user type",
+          {
+            requiredUserType,
+            userType: decoded.userType,
+          }
+        );
+        return res.status(forbiddenError.status).json({
           success: false,
-          message: "Access denied for this user type",
+          error: {
+            message: forbiddenError.message,
+            code: forbiddenError.code,
+            status: forbiddenError.status,
+            requiredUserType: forbiddenError.requiredUserType,
+            userType: forbiddenError.userType,
+          },
+          correlationId:
+            req.correlationId ||
+            req.headers["x-correlation-id"] ||
+            require("crypto").randomUUID(),
         });
       }
 
       req.user = decoded;
       next();
     } catch (error) {
-      return res.status(401).json({
+      const authError = AppError.unauthorized("Invalid token", {
+        tokenError: true,
+        jwtError: error.message,
+      });
+      return res.status(authError.status).json({
         success: false,
-        message: "Invalid token",
+        error: {
+          message: authError.message,
+          code: authError.code,
+          status: authError.status,
+          tokenError: authError.tokenError,
+          jwtError: authError.jwtError,
+        },
+        correlationId:
+          req.correlationId ||
+          req.headers["x-correlation-id"] ||
+          require("crypto").randomUUID(),
       });
     }
   };
@@ -228,9 +434,23 @@ module.exports.requireSuperUser = () => {
       const token = req.headers.authorization?.replace("Bearer ", "");
 
       if (!token) {
-        return res.status(401).json({
+        const authError = AppError.unauthorized("Access token required", {
+          tokenError: true,
+          missingHeader: true,
+        });
+        return res.status(authError.status).json({
           success: false,
-          message: "Access token required",
+          error: {
+            message: authError.message,
+            code: authError.code,
+            status: authError.status,
+            tokenError: authError.tokenError,
+            missingHeader: authError.missingHeader,
+          },
+          correlationId:
+            req.correlationId ||
+            req.headers["x-correlation-id"] ||
+            require("crypto").randomUUID(),
         });
       }
 
@@ -240,18 +460,47 @@ module.exports.requireSuperUser = () => {
         (role) => role.code === "SU"
       );
       if (!hasSuperUserRole) {
-        return res.status(403).json({
+        const forbiddenError = AppError.forbidden(
+          "Super User access required",
+          {
+            userRoles: decoded.roles || [],
+          }
+        );
+        return res.status(forbiddenError.status).json({
           success: false,
-          message: "Super User access required",
+          error: {
+            message: forbiddenError.message,
+            code: forbiddenError.code,
+            status: forbiddenError.status,
+            userRoles: forbiddenError.userRoles,
+          },
+          correlationId:
+            req.correlationId ||
+            req.headers["x-correlation-id"] ||
+            require("crypto").randomUUID(),
         });
       }
 
       req.user = decoded;
       next();
     } catch (error) {
-      return res.status(401).json({
+      const authError = AppError.unauthorized("Invalid token", {
+        tokenError: true,
+        jwtError: error.message,
+      });
+      return res.status(authError.status).json({
         success: false,
-        message: "Invalid token",
+        error: {
+          message: authError.message,
+          code: authError.code,
+          status: authError.status,
+          tokenError: authError.tokenError,
+          jwtError: authError.jwtError,
+        },
+        correlationId:
+          req.correlationId ||
+          req.headers["x-correlation-id"] ||
+          require("crypto").randomUUID(),
       });
     }
   };

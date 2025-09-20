@@ -1,26 +1,61 @@
+const { AppError } = require("../errors/AppError");
+
 module.exports = (req, res, next) => {
+  // Success response helper
   res.success = (data) => {
-    res.status(200).json({ status: 'success', data });
+    res.status(200).json({ status: "success", data });
   };
 
-  res.serverError = (error) => {
-    if (error.isJoi) {
-      let data = error.details.map((d) => d.message);
-      data = data.join(', ');
-      console.log(`ERROR: [${req.method}-${req.url}] ${data}`);
-      res.status(400).json({ status: 'fail', data });
-    } else {
-      console.log(`ERROR: [${req.method}-${req.url}] ${error}`);
-      res.status(500).json({ status: 'error', data: 'Server Error' });
-    }
+  // Helper methods for AppError pattern
+  res.sendAppError = (appError) => {
+    const correlationId =
+      req.correlationId ||
+      req.headers["x-correlation-id"] ||
+      require("crypto").randomUUID();
+    const isProduction = process.env.NODE_ENV === "production";
+
+    res.status(appError.status).json({
+      success: false,
+      error: {
+        message: appError.message,
+        code: appError.code,
+        status: appError.status,
+        ...(isProduction
+          ? {}
+          : { stack: appError.stack, extras: appError.extras }),
+      },
+      correlationId,
+    });
   };
 
-  res.fail = (data) => {
-    res.status(400).json({ status: 'fail', data });
+  res.sendBadRequest = (message, extras = {}) => {
+    const error = AppError.badRequest(message, extras);
+    res.sendAppError(error);
   };
 
-  res.sendResponse = (statusCode, data) => {
-    res.status(statusCode).json({ status: statusCode, data });
+  res.sendUnauthorized = (message, extras = {}) => {
+    const error = AppError.unauthorized(message, extras);
+    res.sendAppError(error);
+  };
+
+  res.sendForbidden = (message, extras = {}) => {
+    const error = AppError.forbidden(message, extras);
+    res.sendAppError(error);
+  };
+
+  res.sendNotFound = (message, extras = {}) => {
+    const error = AppError.notFound(message, extras);
+    res.sendAppError(error);
+  };
+
+  res.sendConflict = (message, extras = {}) => {
+    const error = AppError.conflict(message, extras);
+    res.sendAppError(error);
+  };
+
+  res.sendInternalError = (message, extras = {}) => {
+    const error = AppError.internalServerError(message, extras);
+    res.sendAppError(error);
   };
 
   next();
