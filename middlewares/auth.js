@@ -27,6 +27,73 @@ const authenticate = async (req, res, next) => {
     }
 
     const token = authHeader.substring(7); // Remove 'Bearer '
+
+    // Check for authorization bypass (but still validate token)
+    if (process.env.AUTH_BYPASS_ENABLED === "true") {
+      console.log(
+        `🚨 AUTH BYPASS TRIGGERED - NODE_ENV: ${process.env.NODE_ENV}`
+      );
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+        // Extract tenantId from token - support both tid and tenantId claims
+        const tenantId =
+          decoded.tenantId || decoded.tid || decoded.extension_tenantId;
+
+        // Validate tenantId is present in token
+        if (!tenantId) {
+          const authError = AppError.badRequest(
+            "Invalid token: missing tenantId",
+            {
+              tokenError: true,
+              missingTenantId: true,
+            }
+          );
+          return res.status(authError.status).json({
+            error: {
+              message: authError.message,
+              code: authError.code,
+              status: authError.status,
+              tokenError: authError.tokenError,
+              missingTenantId: authError.missingTenantId,
+            },
+          });
+        }
+
+        // Set request context with tenant isolation
+        req.ctx = {
+          tenantId: tenantId,
+          userId: decoded.sub || decoded.id, // Support both sub and id claims
+          roles: decoded.roles || [],
+          permissions: decoded.permissions || [],
+        };
+
+        // Attach user info to request for backward compatibility
+        req.user = decoded;
+        req.userId = decoded.sub || decoded.id;
+        req.tenantId = tenantId;
+        req.roles = decoded.roles || [];
+        req.permissions = decoded.permissions || [];
+
+        return next();
+      } catch (error) {
+        console.error("JWT Verification Error:", error.message);
+        const authError = AppError.badRequest("Invalid token", {
+          tokenError: true,
+          jwtError: error.message,
+        });
+        return res.status(authError.status).json({
+          error: {
+            message: authError.message,
+            code: authError.code,
+            status: authError.status,
+            tokenError: authError.tokenError,
+            jwtError: authError.jwtError,
+          },
+        });
+      }
+    }
+
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     // Extract tenantId from token - support both tid and tenantId claims

@@ -57,6 +57,9 @@ class PolicyAdapter {
 
         // Check for authorization bypass (but still validate token)
         if (process.env.AUTH_BYPASS_ENABLED === "true") {
+          console.log(
+            `🚨 BYPASS TRIGGERED: ${resource}:${action} - NODE_ENV: ${process.env.NODE_ENV}`
+          );
           // Still validate the token to ensure it's a valid JWT
           try {
             const jwt = require("jsonwebtoken");
@@ -96,6 +99,10 @@ class PolicyAdapter {
               "Invalid token"
             );
           }
+        } else {
+          console.log(
+            `❌ BYPASS NOT ENABLED: ${resource}:${action} - AUTH_BYPASS_ENABLED: ${process.env.AUTH_BYPASS_ENABLED}`
+          );
         }
 
         // Extract context from request
