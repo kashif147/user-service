@@ -7,6 +7,7 @@
  */
 
 const PolicyClient = require("../sdks/node-policy-client");
+const { AppError } = require("../errors/AppError");
 
 class PolicyMiddleware {
   constructor(baseURL, options = {}) {
@@ -50,19 +51,31 @@ class PolicyMiddleware {
             };
             return next();
           } catch (error) {
-            return res.status(401).json({
-              success: false,
-              error: "Invalid token",
-              code: "INVALID_TOKEN",
-            });
+            return next(AppError.unauthorized("Invalid token"));
           }
         }
 
         if (!token) {
-          return res.status(401).json({
+          const authError = AppError.unauthorized(
+            "Authorization token required",
+            {
+              tokenError: true,
+              missingHeader: true,
+            }
+          );
+          return res.status(authError.status).json({
             success: false,
-            error: "Authorization token required",
-            code: "MISSING_TOKEN",
+            error: {
+              message: authError.message,
+              code: authError.code,
+              status: authError.status,
+              tokenError: authError.tokenError,
+              missingHeader: authError.missingHeader,
+            },
+            correlationId:
+              req.correlationId ||
+              req.headers["x-correlation-id"] ||
+              require("crypto").randomUUID(),
           });
         }
 
@@ -91,21 +104,52 @@ class PolicyMiddleware {
           req.policyContext = result;
           next();
         } else {
-          return res.status(403).json({
+          const forbiddenError = AppError.forbidden(
+            "Insufficient permissions",
+            {
+              resource,
+              action,
+              reason: result.reason,
+            }
+          );
+          return res.status(forbiddenError.status).json({
             success: false,
-            error: "Insufficient permissions",
-            reason: result.reason,
-            code: "PERMISSION_DENIED",
-            resource,
-            action,
+            error: {
+              message: forbiddenError.message,
+              code: forbiddenError.code,
+              status: forbiddenError.status,
+              resource: forbiddenError.resource,
+              action: forbiddenError.action,
+              reason: forbiddenError.reason,
+            },
+            correlationId:
+              req.correlationId ||
+              req.headers["x-correlation-id"] ||
+              require("crypto").randomUUID(),
           });
         }
       } catch (error) {
         console.error("Policy middleware error:", error);
-        return res.status(500).json({
+        const serverError = AppError.internalServerError(
+          "Authorization service error",
+          {
+            policyServiceError: true,
+            originalError: error.message,
+          }
+        );
+        return res.status(serverError.status).json({
           success: false,
-          error: "Authorization service error",
-          code: "POLICY_SERVICE_ERROR",
+          error: {
+            message: serverError.message,
+            code: serverError.code,
+            status: serverError.status,
+            policyServiceError: serverError.policyServiceError,
+            originalError: serverError.originalError,
+          },
+          correlationId:
+            req.correlationId ||
+            req.headers["x-correlation-id"] ||
+            require("crypto").randomUUID(),
         });
       }
     };

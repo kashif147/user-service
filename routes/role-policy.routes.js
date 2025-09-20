@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const RoleController = require("../controllers/role.controller");
+const { AppError } = require("../errors/AppError");
 
 // NEW WAY: Use centralized policy system
 const PolicyClient = require("../sdks/node-policy-client");
@@ -228,14 +229,14 @@ async function examplePolicyController(req, res) {
 }
 
 // Example: Conditional endpoint based on permissions
-router.get("/roles/:id/details", async (req, res) => {
+router.get("/roles/:id/details", async (req, res, next) => {
   const token = req.headers.authorization?.substring(7);
 
   // Check if user can access detailed role information
   const result = await policy.evaluate(token, "role", "read");
 
   if (!result.success) {
-    return res.status(403).json({ error: "Access denied" });
+    return next(AppError.forbidden("Access denied"));
   }
 
   // User has access, proceed with detailed information

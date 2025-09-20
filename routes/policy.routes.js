@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const policyService = require("../services/policyEvaluationService");
 const crypto = require("crypto");
+const { AppError } = require("../errors/AppError");
 
 /**
  * Centralized RBAC Policy Evaluation Endpoints
@@ -18,21 +19,14 @@ const crypto = require("crypto");
  *
  * Evaluates a single authorization request
  */
-router.post("/evaluate", async (req, res) => {
+router.post("/evaluate", async (req, res, next) => {
   try {
     const { token, resource, action, context } = req.body;
 
     if (!token || !resource || !action) {
-      return res.status(400).json({
-        authorized: false,
-        reason: "MISSING_FIELDS",
-        requiredRoles: [],
-        requiredPermissions: [],
-        userRoles: [],
-        userPermissions: [],
-        policyVersion: "1.0.0",
-        correlationId: req.headers["x-correlation-id"] || crypto.randomUUID(),
-      });
+      return next(
+        AppError.badRequest("Missing required fields: token, resource, action")
+      );
     }
 
     const result = await policyService.evaluatePolicy({
@@ -76,17 +70,7 @@ router.post("/evaluate", async (req, res) => {
     }
   } catch (error) {
     console.error("Policy evaluation error:", error);
-    res.status(500).json({
-      authorized: false,
-      reason: "EVALUATION_ERROR",
-      error: error.message,
-      requiredRoles: [],
-      requiredPermissions: [],
-      userRoles: [],
-      userPermissions: [],
-      policyVersion: "1.0.0",
-      correlationId: req.headers["x-correlation-id"] || crypto.randomUUID(),
-    });
+    return next(AppError.internalServerError("Policy evaluation failed"));
   }
 });
 
@@ -97,36 +81,16 @@ router.post("/evaluate", async (req, res) => {
  * Evaluates multiple authorization requests in a single call
  * Useful for mobile apps that need to check multiple permissions upfront
  */
-router.post("/evaluate-batch", async (req, res) => {
+router.post("/evaluate-batch", async (req, res, next) => {
   try {
     const { requests } = req.body;
 
     if (!requests || !Array.isArray(requests)) {
-      return res.status(400).json({
-        authorized: false,
-        reason: "INVALID_REQUESTS",
-        error: "Missing or invalid requests array",
-        requiredRoles: [],
-        requiredPermissions: [],
-        userRoles: [],
-        userPermissions: [],
-        policyVersion: "1.0.0",
-        correlationId: req.headers["x-correlation-id"] || crypto.randomUUID(),
-      });
+      return next(AppError.badRequest("Missing or invalid requests array"));
     }
 
     if (requests.length > 50) {
-      return res.status(400).json({
-        authorized: false,
-        reason: "TOO_MANY_REQUESTS",
-        error: "Too many requests (max 50)",
-        requiredRoles: [],
-        requiredPermissions: [],
-        userRoles: [],
-        userPermissions: [],
-        policyVersion: "1.0.0",
-        correlationId: req.headers["x-correlation-id"] || crypto.randomUUID(),
-      });
+      return next(AppError.badRequest("Too many requests (max 50)"));
     }
 
     const results = await policyService.evaluateBatchPolicy(requests);
@@ -144,17 +108,7 @@ router.post("/evaluate-batch", async (req, res) => {
     });
   } catch (error) {
     console.error("Batch policy evaluation error:", error);
-    res.status(500).json({
-      authorized: false,
-      reason: "BATCH_EVALUATION_ERROR",
-      error: error.message,
-      requiredRoles: [],
-      requiredPermissions: [],
-      userRoles: [],
-      userPermissions: [],
-      policyVersion: "1.0.0",
-      correlationId: req.headers["x-correlation-id"] || crypto.randomUUID(),
-    });
+    return next(AppError.internalServerError("Batch policy evaluation failed"));
   }
 });
 
@@ -165,28 +119,20 @@ router.post("/evaluate-batch", async (req, res) => {
  * Returns all permissions a user has for a specific resource
  * Useful for UI rendering (showing/hiding buttons, menus, etc.)
  */
-router.get("/permissions/:resource", async (req, res) => {
+router.get("/permissions/:resource", async (req, res, next) => {
   try {
     const { resource } = req.params;
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return res.status(401).json({
-        success: false,
-        error: "Authorization header required",
-        code: "MISSING_TOKEN",
-      });
+      return next(AppError.unauthorized("Authorization header required"));
     }
 
     const token = authHeader.substring(7);
     const result = await policyService.getEffectivePermissions(token, resource);
 
     if (!result.success) {
-      return res.status(401).json({
-        success: false,
-        error: result.error,
-        code: "INVALID_TOKEN",
-      });
+      return next(AppError.unauthorized(result.error));
     }
 
     res.json({
@@ -200,11 +146,7 @@ router.get("/permissions/:resource", async (req, res) => {
     });
   } catch (error) {
     console.error("Get permissions error:", error);
-    res.status(500).json({
-      success: false,
-      error: "Internal server error",
-      code: "PERMISSIONS_ERROR",
-    });
+    return next(AppError.internalServerError("Failed to get permissions"));
   }
 });
 
@@ -214,27 +156,19 @@ router.get("/permissions/:resource", async (req, res) => {
  *
  * Returns all system-level permissions for frontend initialization
  */
-router.get("/permissions/system", async (req, res) => {
+router.get("/permissions/system", async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return res.status(401).json({
-        success: false,
-        error: "Authorization header required",
-        code: "MISSING_TOKEN",
-      });
+      return next(AppError.unauthorized("Authorization header required"));
     }
 
     const token = authHeader.substring(7);
     const tokenValidation = await policyService.validateToken(token);
 
     if (!tokenValidation.valid) {
-      return res.status(401).json({
-        success: false,
-        error: tokenValidation.error,
-        code: "INVALID_TOKEN",
-      });
+      return next(AppError.unauthorized(tokenValidation.error));
     }
 
     // Get all permissions for system initialization
@@ -249,11 +183,9 @@ router.get("/permissions/system", async (req, res) => {
     });
   } catch (error) {
     console.error("Get system permissions error:", error);
-    res.status(500).json({
-      success: false,
-      error: "Internal server error",
-      code: "PERMISSIONS_ERROR",
-    });
+    return next(
+      AppError.internalServerError("Failed to get system permissions")
+    );
   }
 });
 
@@ -263,27 +195,19 @@ router.get("/permissions/system", async (req, res) => {
  *
  * Returns all role definitions for frontend initialization
  */
-router.get("/permissions/roles", async (req, res) => {
+router.get("/permissions/roles", async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return res.status(401).json({
-        success: false,
-        error: "Authorization header required",
-        code: "MISSING_TOKEN",
-      });
+      return next(AppError.unauthorized("Authorization header required"));
     }
 
     const token = authHeader.substring(7);
     const tokenValidation = await policyService.validateToken(token);
 
     if (!tokenValidation.valid) {
-      return res.status(401).json({
-        success: false,
-        error: tokenValidation.error,
-        code: "INVALID_TOKEN",
-      });
+      return next(AppError.unauthorized(tokenValidation.error));
     }
 
     // Get role hierarchy for frontend
@@ -298,11 +222,7 @@ router.get("/permissions/roles", async (req, res) => {
     });
   } catch (error) {
     console.error("Get role definitions error:", error);
-    res.status(500).json({
-      success: false,
-      error: "Internal server error",
-      code: "ROLES_ERROR",
-    });
+    return next(AppError.internalServerError("Failed to get role definitions"));
   }
 });
 
@@ -312,27 +232,19 @@ router.get("/permissions/roles", async (req, res) => {
  *
  * Returns route-specific permissions for frontend navigation
  */
-router.get("/permissions/routes", async (req, res) => {
+router.get("/permissions/routes", async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return res.status(401).json({
-        success: false,
-        error: "Authorization header required",
-        code: "MISSING_TOKEN",
-      });
+      return next(AppError.unauthorized("Authorization header required"));
     }
 
     const token = authHeader.substring(7);
     const tokenValidation = await policyService.validateToken(token);
 
     if (!tokenValidation.valid) {
-      return res.status(401).json({
-        success: false,
-        error: tokenValidation.error,
-        code: "INVALID_TOKEN",
-      });
+      return next(AppError.unauthorized(tokenValidation.error));
     }
 
     // Define route permissions mapping
@@ -354,11 +266,9 @@ router.get("/permissions/routes", async (req, res) => {
     });
   } catch (error) {
     console.error("Get route permissions error:", error);
-    res.status(500).json({
-      success: false,
-      error: "Internal server error",
-      code: "ROUTE_PERMISSIONS_ERROR",
-    });
+    return next(
+      AppError.internalServerError("Failed to get route permissions")
+    );
   }
 });
 
@@ -369,23 +279,13 @@ router.get("/permissions/routes", async (req, res) => {
  * Simple authorization check using token from Authorization header
  * Most commonly used endpoint for microservices
  */
-router.get("/check/:resource/:action", async (req, res) => {
+router.get("/check/:resource/:action", async (req, res, next) => {
   try {
     const { resource, action } = req.params;
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return res.status(401).json({
-        authorized: false,
-        reason: "MISSING_TOKEN",
-        error: "Authorization header required",
-        requiredRoles: [],
-        requiredPermissions: [],
-        userRoles: [],
-        userPermissions: [],
-        policyVersion: "1.0.0",
-        correlationId: req.headers["x-correlation-id"] || crypto.randomUUID(),
-      });
+      return next(AppError.unauthorized("Authorization header required"));
     }
 
     const token = authHeader.substring(7);
@@ -429,17 +329,7 @@ router.get("/check/:resource/:action", async (req, res) => {
     }
   } catch (error) {
     console.error("Quick check error:", error);
-    res.status(500).json({
-      authorized: false,
-      reason: "CHECK_ERROR",
-      error: error.message,
-      requiredRoles: [],
-      requiredPermissions: [],
-      userRoles: [],
-      userPermissions: [],
-      policyVersion: "1.0.0",
-      correlationId: req.headers["x-correlation-id"] || crypto.randomUUID(),
-    });
+    return next(AppError.internalServerError("Authorization check failed"));
   }
 });
 
@@ -523,7 +413,7 @@ router.get("/info", (req, res) => {
  * Returns comprehensive UI authorization data for building permission-aware interfaces
  * Includes navigation, actions, features, and page access permissions
  */
-router.post("/ui/initialize", async (req, res) => {
+router.post("/ui/initialize", async (req, res, next) => {
   try {
     const { token, uiConfig } = req.body;
     const authHeader = req.headers.authorization;
@@ -536,21 +426,13 @@ router.post("/ui/initialize", async (req, res) => {
         : null);
 
     if (!authToken) {
-      return res.status(401).json({
-        success: false,
-        error: "Authorization token required",
-        code: "MISSING_TOKEN",
-      });
+      return next(AppError.unauthorized("Authorization token required"));
     }
 
     // Validate token first
     const tokenValidation = await policyService.validateToken(authToken);
     if (!tokenValidation.valid) {
-      return res.status(401).json({
-        success: false,
-        error: tokenValidation.error,
-        code: "INVALID_TOKEN",
-      });
+      return next(AppError.unauthorized(tokenValidation.error));
     }
 
     // Default UI configuration if not provided
@@ -686,11 +568,7 @@ router.post("/ui/initialize", async (req, res) => {
     });
   } catch (error) {
     console.error("UI initialization error:", error);
-    res.status(500).json({
-      success: false,
-      error: "Internal server error",
-      code: "UI_INIT_ERROR",
-    });
+    return next(AppError.internalServerError("UI initialization failed"));
   }
 });
 
@@ -702,7 +580,7 @@ router.post("/ui/initialize", async (req, res) => {
  * Get cache statistics
  * GET /policy/cache/stats
  */
-router.get("/cache/stats", async (req, res) => {
+router.get("/cache/stats", async (req, res, next) => {
   try {
     const stats = await policyService.cache.getStats();
     res.json({
@@ -711,10 +589,7 @@ router.get("/cache/stats", async (req, res) => {
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message,
-    });
+    return next(AppError.internalServerError("Failed to get cache stats"));
   }
 });
 
@@ -722,7 +597,7 @@ router.get("/cache/stats", async (req, res) => {
  * Clear policy cache
  * DELETE /policy/cache
  */
-router.delete("/cache", async (req, res) => {
+router.delete("/cache", async (req, res, next) => {
   try {
     await policyService.cache.clear();
     res.json({
@@ -731,10 +606,7 @@ router.delete("/cache", async (req, res) => {
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message,
-    });
+    return next(AppError.internalServerError("Failed to clear cache"));
   }
 });
 
@@ -742,7 +614,7 @@ router.delete("/cache", async (req, res) => {
  * Clear specific cache entry
  * DELETE /policy/cache/:key
  */
-router.delete("/cache/:key", async (req, res) => {
+router.delete("/cache/:key", async (req, res, next) => {
   try {
     const { key } = req.params;
     await policyService.cache.delete(key);
@@ -752,10 +624,7 @@ router.delete("/cache/:key", async (req, res) => {
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message,
-    });
+    return next(AppError.internalServerError("Failed to clear cache entry"));
   }
 });
 
