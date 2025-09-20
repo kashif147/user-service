@@ -1,4 +1,5 @@
 const policyService = require("../services/policyEvaluationService");
+const { AppError } = require("../errors/AppError");
 
 /**
  * Policy Controller
@@ -11,16 +12,14 @@ const policyService = require("../services/policyEvaluationService");
  * Single Policy Evaluation
  * POST /policy/evaluate
  */
-module.exports.evaluatePolicy = async (req, res) => {
+module.exports.evaluatePolicy = async (req, res, next) => {
   try {
     const { token, resource, action, context } = req.body;
 
     if (!token || !resource || !action) {
-      return res.status(400).json({
-        success: false,
-        error: "Missing required fields: token, resource, action",
-        code: "MISSING_FIELDS",
-      });
+      return next(
+        AppError.badRequest("Missing required fields: token, resource, action")
+      );
     }
 
     const result = await policyService.evaluatePolicy({
@@ -44,11 +43,7 @@ module.exports.evaluatePolicy = async (req, res) => {
     });
   } catch (error) {
     console.error("Policy evaluation error:", error);
-    res.status(500).json({
-      success: false,
-      error: "Internal server error",
-      code: "EVALUATION_ERROR",
-    });
+    return next(AppError.internalServerError("Policy evaluation failed"));
   }
 };
 
@@ -56,29 +51,21 @@ module.exports.evaluatePolicy = async (req, res) => {
  * Batch Policy Evaluation
  * POST /policy/evaluate-batch
  */
-module.exports.evaluateBatchPolicy = async (req, res) => {
+module.exports.evaluateBatchPolicy = async (req, res, next) => {
   try {
     const { requests } = req.body;
 
     if (!requests || !Array.isArray(requests)) {
-      return res.status(400).json({
-        success: false,
-        error: "Missing or invalid requests array",
-        code: "INVALID_REQUESTS",
-      });
+      return next(AppError.badRequest("Missing or invalid requests array"));
     }
 
     if (requests.length > 50) {
-      return res.status(400).json({
-        success: false,
-        error: "Too many requests (max 50)",
-        code: "TOO_MANY_REQUESTS",
-      });
+      return next(AppError.badRequest("Too many requests (max 50)"));
     }
 
     const results = await policyService.evaluateBatchPolicy(requests);
 
-    res.json({
+    res.status(200).json({
       success: true,
       results,
       count: results.length,
@@ -86,11 +73,7 @@ module.exports.evaluateBatchPolicy = async (req, res) => {
     });
   } catch (error) {
     console.error("Batch policy evaluation error:", error);
-    res.status(500).json({
-      success: false,
-      error: "Internal server error",
-      code: "BATCH_EVALUATION_ERROR",
-    });
+    return next(AppError.internalServerError("Batch policy evaluation failed"));
   }
 };
 
@@ -98,31 +81,23 @@ module.exports.evaluateBatchPolicy = async (req, res) => {
  * Get Effective Permissions
  * GET /policy/permissions/:resource
  */
-module.exports.getEffectivePermissions = async (req, res) => {
+module.exports.getEffectivePermissions = async (req, res, next) => {
   try {
     const { resource } = req.params;
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return res.status(401).json({
-        success: false,
-        error: "Authorization header required",
-        code: "MISSING_TOKEN",
-      });
+      return next(AppError.unauthorized("Authorization header required"));
     }
 
     const token = authHeader.substring(7);
     const result = await policyService.getEffectivePermissions(token, resource);
 
     if (!result.success) {
-      return res.status(401).json({
-        success: false,
-        error: result.error,
-        code: "INVALID_TOKEN",
-      });
+      return next(AppError.unauthorized(result.error));
     }
 
-    res.json({
+    res.status(200).json({
       success: true,
       resource,
       permissions: result.permissions,
@@ -133,11 +108,7 @@ module.exports.getEffectivePermissions = async (req, res) => {
     });
   } catch (error) {
     console.error("Get permissions error:", error);
-    res.status(500).json({
-      success: false,
-      error: "Internal server error",
-      code: "PERMISSIONS_ERROR",
-    });
+    return next(AppError.internalServerError("Failed to retrieve permissions"));
   }
 };
 
@@ -145,17 +116,13 @@ module.exports.getEffectivePermissions = async (req, res) => {
  * Quick Authorization Check
  * GET /policy/check/:resource/:action
  */
-module.exports.quickCheck = async (req, res) => {
+module.exports.quickCheck = async (req, res, next) => {
   try {
     const { resource, action } = req.params;
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return res.status(401).json({
-        success: false,
-        error: "Authorization header required",
-        code: "MISSING_TOKEN",
-      });
+      return next(AppError.unauthorized("Authorization header required"));
     }
 
     const token = authHeader.substring(7);
@@ -179,11 +146,7 @@ module.exports.quickCheck = async (req, res) => {
     });
   } catch (error) {
     console.error("Quick check error:", error);
-    res.status(500).json({
-      success: false,
-      error: "Internal server error",
-      code: "CHECK_ERROR",
-    });
+    return next(AppError.internalServerError("Authorization check failed"));
   }
 };
 
@@ -192,7 +155,7 @@ module.exports.quickCheck = async (req, res) => {
  * GET /policy/health
  */
 module.exports.healthCheck = (req, res) => {
-  res.json({
+  res.status(200).json({
     success: true,
     service: "RBAC Policy Evaluation Service",
     status: "healthy",
@@ -206,7 +169,7 @@ module.exports.healthCheck = (req, res) => {
  * GET /policy/info
  */
 module.exports.getPolicyInfo = (req, res) => {
-  res.json({
+  res.status(200).json({
     success: true,
     resources: {
       portal: {
@@ -271,7 +234,7 @@ module.exports.getPolicyInfo = (req, res) => {
  * UI Initialization
  * POST /policy/ui/initialize
  */
-module.exports.initializeUI = async (req, res) => {
+module.exports.initializeUI = async (req, res, next) => {
   try {
     const { token, uiConfig } = req.body;
     const authHeader = req.headers.authorization;
@@ -284,21 +247,13 @@ module.exports.initializeUI = async (req, res) => {
         : null);
 
     if (!authToken) {
-      return res.status(401).json({
-        success: false,
-        error: "Authorization token required",
-        code: "MISSING_TOKEN",
-      });
+      return next(AppError.unauthorized("Authorization token required"));
     }
 
     // Validate token first
     const tokenValidation = await policyService.validateToken(authToken);
     if (!tokenValidation.valid) {
-      return res.status(401).json({
-        success: false,
-        error: tokenValidation.error,
-        code: "INVALID_TOKEN",
-      });
+      return next(AppError.unauthorized(tokenValidation.error));
     }
 
     // Default UI configuration if not provided
@@ -428,68 +383,57 @@ module.exports.initializeUI = async (req, res) => {
       timestamp: new Date().toISOString(),
     };
 
-    res.json({
+    res.status(200).json({
       success: true,
       ...uiData,
     });
   } catch (error) {
     console.error("UI initialization error:", error);
-    res.status(500).json({
-      success: false,
-      error: "Internal server error",
-      code: "UI_INIT_ERROR",
-    });
+    return next(AppError.internalServerError("UI initialization failed"));
   }
 };
 
 /**
  * Cache Management
  */
-module.exports.getCacheStats = async (req, res) => {
+module.exports.getCacheStats = async (req, res, next) => {
   try {
     const stats = await policyService.cache.getStats();
-    res.json({
+    res.status(200).json({
       success: true,
       stats,
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message,
-    });
+    return next(
+      AppError.internalServerError("Failed to retrieve cache statistics")
+    );
   }
 };
 
-module.exports.clearCache = async (req, res) => {
+module.exports.clearCache = async (req, res, next) => {
   try {
     await policyService.cache.clear();
-    res.json({
+    res.status(200).json({
       success: true,
       message: "Policy cache cleared",
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message,
-    });
+    return next(AppError.internalServerError("Failed to clear cache"));
   }
 };
 
-module.exports.deleteCacheEntry = async (req, res) => {
+module.exports.deleteCacheEntry = async (req, res, next) => {
   try {
     const { key } = req.params;
     await policyService.cache.delete(key);
-    res.json({
+    res.status(200).json({
       success: true,
       message: `Cache entry ${key} cleared`,
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message,
-    });
+    return next(AppError.internalServerError("Failed to delete cache entry"));
   }
 };

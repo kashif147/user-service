@@ -44,7 +44,7 @@ const generateETag = (userData) => {
 /**
  * Get user profile with minimal data for /me endpoint
  */
-const getMeProfile = async (req, res) => {
+const getMeProfile = async (req, res, next) => {
   try {
     const correlationId =
       req.headers["x-correlation-id"] || crypto.randomUUID();
@@ -215,18 +215,9 @@ const getMeProfile = async (req, res) => {
     const correlationId =
       req.headers["x-correlation-id"] || crypto.randomUUID();
 
-    // Don't expose internal errors in production
-    const isProduction = process.env.NODE_ENV === "production";
-    const errorMessage = isProduction ? "Internal server error" : error.message;
-
-    res.status(500).json({
-      error: {
-        message: errorMessage,
-        code: "INTERNAL_ERROR",
-        status: 500,
-        correlationId,
-      },
-    });
+    return next(
+      AppError.internalServerError("Failed to retrieve user profile")
+    );
   }
 };
 

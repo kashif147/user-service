@@ -1,62 +1,72 @@
 const TenantHandler = require("../handlers/tenant.handler");
+const { AppError } = require("../errors/AppError");
 
 // Create tenant
-module.exports.createTenant = async (req, res) => {
+module.exports.createTenant = async (req, res, next) => {
   try {
     const createdBy = req.ctx?.userId || "system";
     const tenant = await TenantHandler.createTenant(req.body, createdBy);
-    res.success(tenant);
+    res.status(201).json({ status: "success", data: tenant });
   } catch (error) {
-    res.fail(error.message);
+    return next(AppError.internalServerError("Failed to create tenant"));
   }
 };
 
 // Get all tenants
-module.exports.getAllTenants = async (req, res) => {
+module.exports.getAllTenants = async (req, res, next) => {
   try {
     const filters = {
       status: req.query.status,
       plan: req.query.plan,
     };
     const tenants = await TenantHandler.getAllTenants(filters);
-    res.success(tenants);
+    res.status(200).json({ status: "success", data: tenants });
   } catch (error) {
-    res.fail(error.message);
+    return next(AppError.internalServerError("Failed to retrieve tenants"));
   }
 };
 
 // Get tenant by ID
-module.exports.getTenantById = async (req, res) => {
+module.exports.getTenantById = async (req, res, next) => {
   try {
     const tenant = await TenantHandler.getTenantById(req.params.id);
-    res.success(tenant);
+    if (!tenant) {
+      return next(AppError.notFound("Tenant not found"));
+    }
+    res.status(200).json({ status: "success", data: tenant });
   } catch (error) {
-    res.fail(error.message);
+    return next(AppError.internalServerError("Failed to retrieve tenant"));
   }
 };
 
 // Get tenant by code
-module.exports.getTenantByCode = async (req, res) => {
+module.exports.getTenantByCode = async (req, res, next) => {
   try {
     const tenant = await TenantHandler.getTenantByCode(req.params.code);
-    res.success(tenant);
+    if (!tenant) {
+      return next(AppError.notFound("Tenant not found"));
+    }
+    res.status(200).json({ status: "success", data: tenant });
   } catch (error) {
-    res.fail(error.message);
+    return next(AppError.internalServerError("Failed to retrieve tenant"));
   }
 };
 
 // Get tenant by domain
-module.exports.getTenantByDomain = async (req, res) => {
+module.exports.getTenantByDomain = async (req, res, next) => {
   try {
     const tenant = await TenantHandler.getTenantByDomain(req.params.domain);
-    res.success(tenant);
+    if (!tenant) {
+      return next(AppError.notFound("Tenant not found"));
+    }
+    res.status(200).json({ status: "success", data: tenant });
   } catch (error) {
-    res.fail(error.message);
+    return next(AppError.internalServerError("Failed to retrieve tenant"));
   }
 };
 
 // Update tenant
-module.exports.updateTenant = async (req, res) => {
+module.exports.updateTenant = async (req, res, next) => {
   try {
     const updatedBy = req.ctx?.userId || "system";
     const tenant = await TenantHandler.updateTenant(
@@ -64,19 +74,25 @@ module.exports.updateTenant = async (req, res) => {
       req.body,
       updatedBy
     );
-    res.success(tenant);
+    if (!tenant) {
+      return next(AppError.notFound("Tenant not found"));
+    }
+    res.status(200).json({ status: "success", data: tenant });
   } catch (error) {
-    res.fail(error.message);
+    return next(AppError.internalServerError("Failed to update tenant"));
   }
 };
 
 // Delete tenant
-module.exports.deleteTenant = async (req, res) => {
+module.exports.deleteTenant = async (req, res, next) => {
   try {
     const result = await TenantHandler.deleteTenant(req.params.id);
-    res.success(result.message);
+    if (!result) {
+      return next(AppError.notFound("Tenant not found"));
+    }
+    res.status(200).json({ status: "success", data: result.message });
   } catch (error) {
-    res.fail(error.message);
+    return next(AppError.internalServerError("Failed to delete tenant"));
   }
 };
 
