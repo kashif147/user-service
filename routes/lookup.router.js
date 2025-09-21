@@ -29,4 +29,20 @@ router
     lookupController.getLookup
   );
 
+// Get lookup hierarchy - returns lookup with complete parent chain
+router
+  .route("/:id/hierarchy")
+  .get(
+    defaultPolicyAdapter.middleware("lookup", "read"),
+    lookupController.getLookupHierarchy
+  );
+
+// Get all lookups by type with their hierarchy
+router
+  .route("/by-type/:lookuptypeId/hierarchy")
+  .get(
+    defaultPolicyAdapter.middleware("lookup", "read"),
+    lookupController.getLookupsByTypeWithHierarchy
+  );
+
 module.exports = router;
