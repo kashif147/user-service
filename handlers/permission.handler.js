@@ -1,5 +1,5 @@
-const Permission = require("../models/permission");
-const Role = require("../models/role");
+const Permission = require("../models/permission.model");
+const Role = require("../models/role.model");
 
 module.exports.createPermission = async (permissionData, createdBy) => {
   try {

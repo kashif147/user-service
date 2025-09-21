@@ -20,6 +20,9 @@
     "test-auth": "node scripts/test-auth.js",
     "test-auth-quick": "node scripts/quick-auth-test.js",
     "generate-pkce": "node scripts/generate-pkce.js",
+    "seed-countries": "NODE_ENV=staging node scripts/seed-countries.js",
+    "seed-countries:dev": "NODE_ENV=development node scripts/seed-countries.js",
+    "verify-countries": "./verify-countries.sh",
     "test-me": "./test-me-endpoint.sh",
     "test-me-integration": "jest tests/me-endpoint-integration.test.js"
   },

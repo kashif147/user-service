@@ -8,6 +8,7 @@
 const roleHierarchyService = require("../services/roleHierarchyService");
 const permissionsService = require("../services/permissionsService");
 const cacheService = require("../services/cacheService");
+const lookupCacheService = require("../services/lookupCacheService");
 
 // Clear all caches
 module.exports.clearAllCaches = async (req, res) => {
@@ -23,6 +24,9 @@ module.exports.clearAllCaches = async (req, res) => {
     // Clear Redis cache
     await cacheService.clear();
 
+    // Clear lookup caches
+    await lookupCacheService.clearAllCaches();
+
     res.success({
       message: "All caches cleared successfully",
       timestamp: new Date().toISOString(),
@@ -31,6 +35,9 @@ module.exports.clearAllCaches = async (req, res) => {
         "permissions_map",
         "role_permissions",
         "redis_cache",
+        "lookup_cache",
+        "lookuptype_cache",
+        "country_cache",
       ],
     });
   } catch (error) {
@@ -85,6 +92,7 @@ module.exports.getCacheStats = async (req, res) => {
     const redisStats = await cacheService.getStats();
     const roleHierarchy = await roleHierarchyService.getRoleHierarchy();
     const permissions = await permissionsService.getAllPermissions();
+    const lookupStats = await lookupCacheService.getCacheStats();
 
     res.success({
       message: "Cache statistics retrieved successfully",
@@ -99,6 +107,7 @@ module.exports.getCacheStats = async (req, res) => {
           cached: permissions.length > 0,
           permissionCount: permissions.length,
         },
+        lookup: lookupStats,
       },
     });
   } catch (error) {
@@ -192,5 +201,59 @@ module.exports.testCachePerformance = async (req, res) => {
   } catch (error) {
     console.error("Cache performance test error:", error);
     res.fail(`Failed to test cache performance: ${error.message}`);
+  }
+};
+
+// Clear lookup caches
+module.exports.clearLookupCaches = async (req, res) => {
+  try {
+    console.log("🧹 Clearing lookup caches...");
+
+    await lookupCacheService.clearAllCaches();
+
+    res.success({
+      message: "Lookup caches cleared successfully",
+      timestamp: new Date().toISOString(),
+      clearedCaches: ["lookup_cache", "lookuptype_cache"],
+    });
+  } catch (error) {
+    console.error("Lookup cache clear error:", error);
+    res.fail(`Failed to clear lookup caches: ${error.message}`);
+  }
+};
+
+// Get lookup cache statistics
+module.exports.getLookupCacheStats = async (req, res) => {
+  try {
+    console.log("📊 Getting lookup cache statistics...");
+
+    const stats = await lookupCacheService.getCacheStats();
+
+    res.success({
+      message: "Lookup cache statistics retrieved successfully",
+      timestamp: new Date().toISOString(),
+      stats: stats,
+    });
+  } catch (error) {
+    console.error("Lookup cache stats error:", error);
+    res.fail(`Failed to get lookup cache statistics: ${error.message}`);
+  }
+};
+
+// Clear country caches
+module.exports.clearCountryCaches = async (req, res) => {
+  try {
+    console.log("🧹 Clearing country caches...");
+
+    await lookupCacheService.invalidateCountryCache();
+
+    res.success({
+      message: "Country caches cleared successfully",
+      timestamp: new Date().toISOString(),
+      clearedCaches: ["country_cache"],
+    });
+  } catch (error) {
+    console.error("Country cache clear error:", error);
+    res.fail(`Failed to clear country caches: ${error.message}`);
   }
 };

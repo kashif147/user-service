@@ -1,4 +1,4 @@
-const Role = require("../models/role");
+const Role = require("../models/role.model");
 
 /**
  * Assigns default role to a user based on their user type
@@ -52,7 +52,7 @@ module.exports.assignDefaultRole = async (user, userType, tenantId) => {
  */
 module.exports.userHasRoles = async (userId, tenantId) => {
   try {
-    const User = require("../models/user");
+    const User = require("../models/user.model");
     const user = await User.findOne({ _id: userId, tenantId }).populate(
       "roles"
     );

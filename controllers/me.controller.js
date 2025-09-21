@@ -1,7 +1,7 @@
 const crypto = require("crypto");
-const User = require("../models/user");
-const Role = require("../models/role");
-const Permission = require("../models/permission");
+const User = require("../models/user.model");
+const Role = require("../models/role.model");
+const Permission = require("../models/permission.model");
 const PolicyCache = require("../services/policyCache");
 const { AppError } = require("../errors/AppError");
 

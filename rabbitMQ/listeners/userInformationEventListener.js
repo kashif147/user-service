@@ -1,5 +1,5 @@
 // const { subscribeToEvent } = require("message-bus/src/subscriber");
-// const User = require("../models/user");
+// const User = require("../models/user.model");
 // const { USER_INFORMATION_EVENTS } = require("message-bus/src/events/userInformationEvents");
 
 // class UserInformationEventListener {

@@ -10,7 +10,7 @@
 require("dotenv").config({ path: ".env.staging" });
 
 const mongoose = require("mongoose");
-const Role = require("../models/role");
+const Role = require("../models/role.model");
 
 async function connectDB() {
   try {

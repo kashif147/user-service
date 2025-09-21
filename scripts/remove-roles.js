@@ -3,7 +3,7 @@ require("dotenv").config({
   path: `.env.${process.env.NODE_ENV || "development"}`,
 });
 
-const User = require("../models/user");
+const User = require("../models/user.model");
 
 async function removeRolesFromUsers(options = {}) {
   const { dryRun = false, force = false, userType = null } = options;

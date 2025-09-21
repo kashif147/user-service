@@ -1,5 +1,5 @@
 const RoleHandler = require("../handlers/role.handler");
-const User = require("../models/user");
+const User = require("../models/user.model");
 const { AppError } = require("../errors/AppError");
 
 // Initialize roles
@@ -240,7 +240,7 @@ module.exports.getAllUsers = async (req, res, next) => {
 
 module.exports.testDefaultRoleAssignment = async (req, res, next) => {
   try {
-    const User = require("../models/user");
+    const User = require("../models/user.model");
     const { assignDefaultRole } = require("../helpers/roleAssignment");
 
     const { userType, email, fullName } = req.body;

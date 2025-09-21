@@ -1,7 +1,7 @@
-const Role = require("../models/role");
-const User = require("../models/user");
-const Tenant = require("../models/tenant");
-const Permission = require("../models/permission");
+const Role = require("../models/role.model");
+const User = require("../models/user.model");
+const Tenant = require("../models/tenant.model");
+const Permission = require("../models/permission.model");
 const mongoose = require("mongoose");
 
 module.exports.initializeRoles = async (tenantId) => {

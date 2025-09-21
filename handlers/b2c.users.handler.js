@@ -1,6 +1,6 @@
 const axios = require("axios");
-const B2CUser = require("../models/user");
-const Role = require("../models/role");
+const B2CUser = require("../models/user.model");
+const Role = require("../models/role.model");
 const jwt = require("jsonwebtoken");
 const { assignDefaultRole } = require("../helpers/roleAssignment");
 

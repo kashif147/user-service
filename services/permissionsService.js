@@ -6,8 +6,8 @@
  * with dynamic, database-driven configuration.
  */
 
-const Permission = require("../models/permission");
-const Role = require("../models/role");
+const Permission = require("../models/permission.model");
+const Role = require("../models/role.model");
 const cache = require("./cacheService");
 
 class PermissionsService {

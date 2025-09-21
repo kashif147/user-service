@@ -1,7 +1,7 @@
 require("dotenv").config({ path: ".env.staging" });
 const mongoose = require("mongoose");
-const User = require("../models/user");
-const Role = require("../models/role");
+const User = require("../models/user.model");
+const Role = require("../models/role.model");
 
 async function getUsersWithSystemRoles() {
   try {

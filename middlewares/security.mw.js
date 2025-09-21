@@ -2,7 +2,7 @@ const rateLimit = require("express-rate-limit");
 const helmet = require("helmet");
 const { AppError } = require("../errors/AppError");
 const { connectDB } = require("../config/db");
-const User = require("../models/user");
+const User = require("../models/user.model");
 
 /**
  * Security Headers Middleware

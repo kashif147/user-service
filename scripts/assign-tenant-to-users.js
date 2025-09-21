@@ -8,8 +8,8 @@
 
 require("dotenv").config({ path: ".env.development" });
 const mongoose = require("mongoose");
-const User = require("../models/user");
-const Role = require("../models/role");
+const User = require("../models/user.model");
+const Role = require("../models/role.model");
 
 const TARGET_TENANT_ID = "39866a06-30bc-4a89-80c6-9dd9357dd453";
 

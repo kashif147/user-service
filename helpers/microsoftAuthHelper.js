@@ -1,5 +1,5 @@
 const axios = require("axios");
-const B2CUser = require("../models/user");
+const B2CUser = require("../models/user.model");
 const jwt = require("jsonwebtoken");
 
 const TENANT_NAME = process.env.MS_TENANT_NAME;
