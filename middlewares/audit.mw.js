@@ -63,6 +63,25 @@ class AuditLogger {
     });
   }
 
+  async logLogout(req, success, details = {}) {
+    await this.log({
+      requestId: req.requestId,
+      userId: req.ctx?.userId,
+      tenantId: req.ctx?.tenantId,
+      action: "LOGOUT",
+      resource: "AUTH",
+      result: success ? "SUCCESS" : "FAILURE",
+      ipAddress: req.ip || req.connection.remoteAddress,
+      userAgent: req.get("User-Agent"),
+      details: {
+        logoutTime: new Date().toISOString(),
+        tokensRevoked: success,
+        ...details,
+      },
+      riskLevel: "MEDIUM",
+    });
+  }
+
   async logRoleAssignment(req, targetUserId, roleId, success) {
     await this.log({
       requestId: req.requestId,

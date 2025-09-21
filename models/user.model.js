@@ -25,6 +25,7 @@ const UserSchema = new mongoose.Schema({
   userPolicy: { type: String, default: null }, // `tfp` ADB2C
   userType: { type: String, enum: ["PORTAL", "CRM"], default: "PORTAL" }, // PORTAL for B2C, CRM for Azure AD
   userLastLogin: { type: Date, default: Date.now }, // current timestamp
+  userLastLogout: { type: Date, default: null }, // logout timestamp
   password: { type: String },
 
   // RBAC fields
