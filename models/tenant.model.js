@@ -9,7 +9,6 @@ const TenantSchema = new mongoose.Schema({
   code: {
     type: String,
     required: true,
-    unique: true,
     trim: true,
     uppercase: true,
   },
@@ -20,7 +19,6 @@ const TenantSchema = new mongoose.Schema({
   domain: {
     type: String,
     required: true,
-    unique: true,
     lowercase: true,
   },
   contactEmail: {
