@@ -1,4 +1,5 @@
 const RefreshTokenHelper = require("../helpers/refreshToken");
+const UserHandler = require("../handlers/user.handler");
 const { AppError } = require("../errors/AppError");
 
 /**
@@ -123,6 +124,58 @@ class AuthController {
     } catch (error) {
       console.log("❌ Revoke all tokens failed:", error.message);
       return next(AppError.internalServerError("Failed to revoke all tokens"));
+    }
+  }
+
+  /**
+   * Logout user and revoke all tokens
+   * POST /auth/logout
+   */
+  static async logout(req, res, next) {
+    try {
+      console.log("=== User Logout Request ===");
+
+      const userId = req.ctx?.userId;
+      const tenantId = req.ctx?.tenantId;
+      const userEmail = req.ctx?.email;
+
+      if (!userId) {
+        return next(AppError.unauthorized("User authentication required"));
+      }
+
+      // Use user handler for comprehensive logout
+      const logoutResult = await UserHandler.handleLogout(userId, tenantId);
+
+      // Log logout event for audit
+      const auditLogger = require("../middlewares/audit.mw");
+      await auditLogger.logLogout(req, true, {
+        userId: userId,
+        tenantId: tenantId,
+        userEmail: userEmail,
+        tokensRevoked: true,
+      });
+
+      console.log("✅ User logged out successfully:", userEmail);
+
+      return res.status(200).json({
+        success: true,
+        message: "Logged out successfully",
+        data: {
+          userId: userId,
+          logoutTime: logoutResult.logoutTime,
+        },
+      });
+    } catch (error) {
+      console.log("❌ Logout failed:", error.message);
+
+      // Log failed logout attempt
+      const auditLogger = require("../middlewares/audit.mw");
+      await auditLogger.logLogout(req, false, {
+        error: error.message,
+        tokensRevoked: false,
+      });
+
+      return next(AppError.internalServerError("Failed to logout"));
     }
   }
 }
