@@ -1,4 +1,4 @@
-// models/LookupType.js
+// models/lookupType.js
 const mongoose = require('mongoose');
 
 const lookupTypeSchema = new mongoose.Schema({

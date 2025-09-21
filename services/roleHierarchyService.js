@@ -6,7 +6,7 @@
  * with dynamic, database-driven configuration.
  */
 
-const Role = require("../models/role");
+const Role = require("../models/role.model");
 const cache = require("./cacheService");
 
 class RoleHierarchyService {

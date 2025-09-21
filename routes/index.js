@@ -25,6 +25,7 @@ router.use("/api", require("./cache.routes"));
 
 router.use("/lookup", require("./lookup.router"));
 router.use("/lookuptype", require("./lookuptype.router"));
+router.use("/countries", require("./country.routes"));
 
 // User profile endpoint
 router.use("/", require("./me.routes"));

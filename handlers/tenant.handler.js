@@ -1,6 +1,6 @@
-const Tenant = require("../models/tenant");
-const Role = require("../models/role");
-const User = require("../models/user");
+const Tenant = require("../models/tenant.model");
+const Role = require("../models/role.model");
+const User = require("../models/user.model");
 
 module.exports.createTenant = async (tenantData, createdBy) => {
   try {

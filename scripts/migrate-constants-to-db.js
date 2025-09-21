@@ -9,10 +9,10 @@
  */
 
 const mongoose = require("mongoose");
-const User = require("../models/user");
-const Role = require("../models/role");
-const Permission = require("../models/permission");
-const Tenant = require("../models/tenant");
+const User = require("../models/user.model");
+const Role = require("../models/role.model");
+const Permission = require("../models/permission.model");
+const Tenant = require("../models/tenant.model");
 const axios = require("axios");
 
 // Default roles and permissions data (fallback if API not available)

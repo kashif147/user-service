@@ -57,4 +57,24 @@ router.get(
   CacheController.getRolePermissions
 );
 
+// Lookup cache management routes
+router.post(
+  "/lookup/clear",
+  defaultPolicyAdapter.middleware("admin", "write"),
+  CacheController.clearLookupCaches
+);
+
+router.get(
+  "/lookup/stats",
+  defaultPolicyAdapter.middleware("admin", "read"),
+  CacheController.getLookupCacheStats
+);
+
+// Country cache management routes
+router.post(
+  "/country/clear",
+  defaultPolicyAdapter.middleware("admin", "write"),
+  CacheController.clearCountryCaches
+);
+
 module.exports = router;

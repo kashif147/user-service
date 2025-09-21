@@ -7,8 +7,8 @@
 
 require("dotenv").config({ path: ".env.development" });
 const mongoose = require("mongoose");
-const User = require("../models/user");
-const Role = require("../models/role");
+const User = require("../models/user.model");
+const Role = require("../models/role.model");
 
 async function quickAssignRoles() {
   try {

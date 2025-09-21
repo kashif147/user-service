@@ -109,13 +109,21 @@
 //       deleteLookupType
 //    }
 
-const LookupType = require("../models/LookupType");
+const LookupType = require("../models/lookupType.model");
+const lookupCacheService = require("../services/lookupCacheService");
 
 const getAllLookupType = async (req, res) => {
   try {
-    const lookupTypes = await LookupType.find();
-    if (!lookupTypes)
+    // Use cache service to get all lookup types
+    const lookupTypes = await lookupCacheService.getAllLookupTypes(async () => {
+      // Database query function
+      return await LookupType.find();
+    });
+
+    if (!lookupTypes) {
       return res.status(204).json({ message: "No Lookup types found." });
+    }
+
     res.json(lookupTypes);
   } catch (error) {
     res.status(500).json({ error: "Server error" });
@@ -125,10 +133,20 @@ const getAllLookupType = async (req, res) => {
 const getLookupType = async (req, res) => {
   try {
     const { id } = req.params;
-    const lookupType = await LookupType.findById(id);
+
+    // Use cache service to get lookup type by ID
+    const lookupType = await lookupCacheService.getLookupTypeById(
+      id,
+      async () => {
+        // Database query function
+        return await LookupType.findById(id);
+      }
+    );
+
     if (!lookupType) {
       return res.status(404).json({ error: "LookupType not found" });
     }
+
     res.json(lookupType);
   } catch (error) {
     res.status(500).json({ error: "Server error" });
@@ -160,6 +178,9 @@ const createNewLookupType = async (req, res) => {
     // Event emission can be added here when needed
 
     res.status(201).json(lookupType);
+
+    // Invalidate cache after successful creation
+    await lookupCacheService.invalidateLookupTypeCache();
   } catch (error) {
     if (error.name === "ValidationError") {
       return res.status(400).json({ error: error.message });
@@ -201,6 +222,12 @@ const updateLookupType = async (req, res) => {
     // Save the updated document, applying validation
     await lookupTypes.save();
 
+    // Invalidate cache after successful update
+    await lookupCacheService.invalidateLookupTypeCache();
+    await lookupCacheService.invalidateLookupTypeCache(
+      lookupTypes._id.toString()
+    );
+
     // Event emission can be added here when needed
 
     res.json(lookupTypes);
@@ -234,6 +261,10 @@ const deleteLookupType = async (req, res) => {
   };
 
   const result = await lookuptype.deleteOne({ _id: req.body.id });
+
+  // Invalidate cache after successful deletion
+  await lookupCacheService.invalidateLookupTypeCache();
+  await lookupCacheService.invalidateLookupTypeCache(req.body.id);
 
   // Event emission can be added here when needed
 

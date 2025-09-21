@@ -1,21 +1,25 @@
-const Lookup = require("../models/Lookup");
+const Lookup = require("../models/lookup.model");
 const { AppError } = require("../errors/AppError");
+const lookupCacheService = require("../services/lookupCacheService");
 // const { publishEvent } = require("message-bus");
 
 const getAllLookup = async (req, res, next) => {
   try {
-    // Fetch all Lookup documents and populate lookuptypeId with fields from LookupType
-    const lookups = await Lookup.find({})
-      .populate({
-        path: "lookuptypeId",
-        select: "code lookuptype displayname", // Fields to include from LookupType
-      })
-      .populate({
-        path: "Parentlookupid",
-        select: "lookupname ", // Fields to include from LookupType
-      });
+    // Use cache service to get all lookups
+    const lookups = await lookupCacheService.getAllLookups(async () => {
+      // Database query function
+      return await Lookup.find({})
+        .populate({
+          path: "lookuptypeId",
+          select: "code lookuptype displayname",
+        })
+        .populate({
+          path: "Parentlookupid",
+          select: "lookupname",
+        });
+    });
 
-    // Send the populated data as a JSON res
+    // Format the data
     const formattedRegions = lookups.map((lookups) => ({
       _id: lookups?._id,
       code: lookups?.code,
@@ -23,10 +27,10 @@ const getAllLookup = async (req, res, next) => {
       DisplayName: lookups?.DisplayName,
       Parentlookupid: lookups?.Parentlookupid
         ? lookups?.Parentlookupid._id
-        : null, // Keep only the ID
+        : null,
       Parentlookup: lookups?.Parentlookupid
         ? lookups?.Parentlookupid.lookupname
-        : null, // Include name separately
+        : null,
       lookuptypeId: {
         _id: lookups?.lookuptypeId ? lookups?.lookuptypeId?._id : null,
         code: lookups?.lookuptypeId ? lookups?.lookuptypeId?.code : null,
@@ -37,6 +41,7 @@ const getAllLookup = async (req, res, next) => {
       isactive: lookups?.isactive,
       isdeleted: lookups?.isdeleted,
     }));
+
     res.status(200).json(formattedRegions);
   } catch (error) {
     console.error("Error fetching lookups:", error);
@@ -48,16 +53,19 @@ const getLookup = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    // Fetch specific Lookup document by ID and populate lookuptypeId with fields from LookupType
-    const lookup = await Lookup.findById(id)
-      .populate({
-        path: "lookuptypeId",
-        select: "code lookuptype displayname", // Fields to include from LookupType
-      })
-      .populate({
-        path: "Parentlookupid",
-        select: "lookupname ", // Fields to include from LookupType
-      });
+    // Use cache service to get lookup by ID
+    const lookup = await lookupCacheService.getLookupById(id, async () => {
+      // Database query function
+      return await Lookup.findById(id)
+        .populate({
+          path: "lookuptypeId",
+          select: "code lookuptype displayname",
+        })
+        .populate({
+          path: "Parentlookupid",
+          select: "lookupname",
+        });
+    });
 
     if (!lookup) {
       return next(AppError.notFound("Lookup not found"));
@@ -70,10 +78,10 @@ const getLookup = async (req, res, next) => {
       DisplayName: lookup?.DisplayName,
       Parentlookupid: lookup?.Parentlookupid
         ? lookup?.Parentlookupid._id
-        : null, // Keep only the ID
+        : null,
       Parentlookup: lookup?.Parentlookupid
         ? lookup?.Parentlookupid.lookupname
-        : null, // Include name separately
+        : null,
       lookuptypeId: {
         _id: lookup?.lookuptypeId ? lookup?.lookuptypeId?._id : null,
         code: lookup?.lookuptypeId ? lookup?.lookuptypeId?.code : null,
@@ -141,6 +149,9 @@ const createNewLookup = async (req, res) => {
     // }
 
     res.status(201).json(lookup);
+
+    // Invalidate cache after successful creation
+    await lookupCacheService.invalidateLookupCache();
   } catch (error) {
     if (error.name === "ValidationError") {
       return res.status(400).json({ error: error.message });
@@ -192,6 +203,10 @@ const updateLookup = async (req, res) => {
     if (userid) lookup.userid = userid;
 
     await lookup.save();
+
+    // Invalidate cache after successful update
+    await lookupCacheService.invalidateLookupCache();
+    await lookupCacheService.invalidateLookupCache(lookup._id.toString());
 
     // Emit event for Profile Service
     // try {
@@ -248,6 +263,10 @@ const deleteLookup = async (req, res) => {
   };
 
   const result = await lookup.deleteOne({ _id: req.body.id });
+
+  // Invalidate cache after successful deletion
+  await lookupCacheService.invalidateLookupCache();
+  await lookupCacheService.invalidateLookupCache(req.body.id);
 
   // Emit event for Profile Service
   // try {

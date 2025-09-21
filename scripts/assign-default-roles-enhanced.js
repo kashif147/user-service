@@ -3,8 +3,8 @@ require("dotenv").config({
   path: `.env.${process.env.NODE_ENV || "development"}`,
 });
 
-const User = require("../models/user");
-const Role = require("../models/role");
+const User = require("../models/user.model");
+const Role = require("../models/role.model");
 const {
   assignDefaultRole,
   getDefaultRoleCode,
