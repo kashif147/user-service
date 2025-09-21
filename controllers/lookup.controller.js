@@ -47,14 +47,9 @@ const getAllLookup = async (req, res, next) => {
 const getLookup = async (req, res, next) => {
   try {
     const { id } = req.params;
-    // const lookup = await Lookup.findById(id);
-    // if (!lookup) {
-    //   return res.status(404).json({ error: 'Lookup not found' });
-    // }
-    // res.json(lookup);
 
-    // Fetch all Lookup documents and populate lookuptypeId with fields from LookupType
-    const lookups = await Lookup.find({})
+    // Fetch specific Lookup document by ID and populate lookuptypeId with fields from LookupType
+    const lookup = await Lookup.findById(id)
       .populate({
         path: "lookuptypeId",
         select: "code lookuptype displayname", // Fields to include from LookupType
@@ -63,28 +58,34 @@ const getLookup = async (req, res, next) => {
         path: "Parentlookupid",
         select: "lookupname ", // Fields to include from LookupType
       });
-    const formattedRegions = lookups.map((lookups) => ({
-      _id: lookups?._id,
-      code: lookups?.code,
-      lookupname: lookups?.lookupname,
-      DisplayName: lookups?.DisplayName,
-      Parentlookupid: lookups?.Parentlookupid
-        ? lookups?.Parentlookupid._id
+
+    if (!lookup) {
+      return next(AppError.notFound("Lookup not found"));
+    }
+
+    const formattedLookup = {
+      _id: lookup?._id,
+      code: lookup?.code,
+      lookupname: lookup?.lookupname,
+      DisplayName: lookup?.DisplayName,
+      Parentlookupid: lookup?.Parentlookupid
+        ? lookup?.Parentlookupid._id
         : null, // Keep only the ID
-      Parentlookup: lookups?.Parentlookupid
-        ? lookups?.Parentlookupid.lookupname
+      Parentlookup: lookup?.Parentlookupid
+        ? lookup?.Parentlookupid.lookupname
         : null, // Include name separately
       lookuptypeId: {
-        _id: lookups?.lookuptypeId ? lookups?.lookuptypeId?._id : null,
-        code: lookups?.lookuptypeId ? lookups?.lookuptypeId?.code : null,
-        lookuptype: lookups?.lookuptypeId
-          ? lookups?.lookuptypeId?.lookuptype
+        _id: lookup?.lookuptypeId ? lookup?.lookuptypeId?._id : null,
+        code: lookup?.lookuptypeId ? lookup?.lookuptypeId?.code : null,
+        lookuptype: lookup?.lookuptypeId
+          ? lookup?.lookuptypeId?.lookuptype
           : null,
       },
-      isactive: lookups?.isactive,
-      isdeleted: lookups?.isdeleted,
-    }));
-    res.status(200).json(formattedRegions);
+      isactive: lookup?.isactive,
+      isdeleted: lookup?.isdeleted,
+    };
+
+    res.status(200).json(formattedLookup);
   } catch (error) {
     return next(AppError.internalServerError("Failed to retrieve lookup"));
   }
