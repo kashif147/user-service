@@ -99,7 +99,7 @@ const getLookup = async (req, res, next) => {
   }
 };
 
-const createNewLookup = async (req, res) => {
+const createNewLookup = async (req, res, next) => {
   try {
     const {
       code,
@@ -113,9 +113,7 @@ const createNewLookup = async (req, res) => {
     } = req.body;
 
     if (!code || !lookupname || !userid) {
-      return res
-        .status(400)
-        .json({ error: "Code, Lookup, User ID are required" });
+      return next(AppError.badRequest("Code, Lookup, User ID are required"));
     }
 
     const lookup = await Lookup.create({
@@ -154,16 +152,16 @@ const createNewLookup = async (req, res) => {
     await lookupCacheService.invalidateLookupCache();
   } catch (error) {
     if (error.name === "ValidationError") {
-      return res.status(400).json({ error: error.message });
+      return next(AppError.badRequest(error.message));
     }
     if (error.code === 11000) {
-      return res.status(400).json({ error: "Code must be unique" });
+      return next(AppError.badRequest("Code must be unique"));
     }
-    res.status(500).json({ error: "Server error" });
+    return next(AppError.internalServerError("Failed to create lookup"));
   }
 };
 
-const updateLookup = async (req, res) => {
+const updateLookup = async (req, res, next) => {
   try {
     const {
       id,
@@ -179,7 +177,7 @@ const updateLookup = async (req, res) => {
 
     const lookup = await Lookup.findById(id);
     if (!lookup) {
-      return res.status(404).json({ error: "Lookup not found" });
+      return next(AppError.notFound("Lookup not found"));
     }
 
     // Store old values for event
@@ -233,21 +231,18 @@ const updateLookup = async (req, res) => {
     res.json(lookup);
   } catch (error) {
     if (error.name === "ValidationError") {
-      return res.status(400).json({ error: error.message });
+      return next(AppError.badRequest(error.message));
     }
-    res.status(500).json({ error: "Server error" });
+    return next(AppError.internalServerError("Failed to update lookup"));
   }
 };
 
-const deleteLookup = async (req, res) => {
-  if (!req?.body?.id)
-    return res.status(400).json({ message: "Lookup ID required." });
+const deleteLookup = async (req, res, next) => {
+  if (!req?.body?.id) return next(AppError.badRequest("Lookup ID required"));
 
   const lookup = await Lookup.findOne({ _id: req.body.id }).exec();
   if (!lookup) {
-    return res
-      .status(240)
-      .json({ message: ` No lookups matches ID ${req.body.id}. ` });
+    return next(AppError.notFound(`No lookups matches ID ${req.body.id}`));
   }
 
   // Store lookup data for event

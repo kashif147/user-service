@@ -1,9 +1,10 @@
 const crypto = require("crypto");
+const { AppError } = require("../errors/AppError");
 
 /**
  * Generate PKCE parameters for Azure AD authentication
  */
-module.exports.generatePKCE = async (req, res) => {
+module.exports.generatePKCE = async (req, res, next) => {
   try {
     // Generate code verifier (128 characters)
     const charset =
@@ -83,9 +84,9 @@ module.exports.generatePKCE = async (req, res) => {
       },
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message,
-    });
+    console.error("PKCE generation error:", error);
+    return next(
+      AppError.internalServerError("Failed to generate PKCE parameters")
+    );
   }
 };
