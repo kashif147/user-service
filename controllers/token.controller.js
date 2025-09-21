@@ -1,28 +1,23 @@
 const jwt = require("jsonwebtoken");
+const { AppError } = require("../errors/AppError");
 
 /**
  * Token inspection endpoint for testing
  * This endpoint helps decode and inspect JWT tokens during testing
  */
-module.exports.decodeToken = async (req, res) => {
+module.exports.decodeToken = async (req, res, next) => {
   try {
     const { token } = req.body;
 
     if (!token) {
-      return res.status(400).json({
-        success: false,
-        error: "Token is required",
-      });
+      return next(AppError.badRequest("Token is required"));
     }
 
     // Decode token without verification (for inspection)
     const decoded = jwt.decode(token);
 
     if (!decoded) {
-      return res.status(400).json({
-        success: false,
-        error: "Invalid token format",
-      });
+      return next(AppError.badRequest("Invalid token format"));
     }
 
     // Extract relevant claims
@@ -84,25 +79,20 @@ module.exports.decodeToken = async (req, res) => {
       raw: decoded,
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message,
-    });
+    console.error("Token decode error:", error);
+    return next(AppError.internalServerError("Failed to decode token"));
   }
 };
 
 /**
  * Validate internal JWT endpoint
  */
-module.exports.validateInternalJWT = async (req, res) => {
+module.exports.validateInternalJWT = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return res.status(401).json({
-        success: false,
-        error: "Access token required",
-      });
+      return next(AppError.unauthorized("Access token required"));
     }
 
     const token = authHeader.substring(7);
@@ -135,17 +125,11 @@ module.exports.validateInternalJWT = async (req, res) => {
         },
       });
     } catch (jwtError) {
-      res.status(401).json({
-        success: false,
-        error: "Invalid token",
-        details: jwtError.message,
-      });
+      return next(AppError.unauthorized("Invalid token"));
     }
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message,
-    });
+    console.error("JWT validation error:", error);
+    return next(AppError.internalServerError("Failed to validate JWT"));
   }
 };
 
@@ -153,16 +137,12 @@ module.exports.validateInternalJWT = async (req, res) => {
  * External service token validation endpoint
  * Simplified endpoint for other services to validate tokens
  */
-module.exports.validateTokenForService = async (req, res) => {
+module.exports.validateTokenForService = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return res.status(401).json({
-        success: false,
-        error: "Bearer token required",
-        code: "MISSING_TOKEN",
-      });
+      return next(AppError.unauthorized("Bearer token required"));
     }
 
     const token = authHeader.substring(7);
@@ -185,26 +165,20 @@ module.exports.validateTokenForService = async (req, res) => {
         expiresAt: new Date(decoded.exp * 1000).toISOString(),
       });
     } catch (jwtError) {
-      res.status(401).json({
-        success: false,
-        valid: false,
-        error: "Invalid or expired token",
-        code: "INVALID_TOKEN",
-      });
+      return next(AppError.unauthorized("Invalid or expired token"));
     }
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: "Internal server error",
-      code: "SERVER_ERROR",
-    });
+    console.error("Token validation service error:", error);
+    return next(
+      AppError.internalServerError("Failed to validate token for service")
+    );
   }
 };
 
 /**
  * Generate test token for development/testing
  */
-module.exports.generateTestToken = async (req, res) => {
+module.exports.generateTestToken = async (req, res, next) => {
   try {
     const {
       userId = "test-user",
@@ -233,9 +207,7 @@ module.exports.generateTestToken = async (req, res) => {
       expiresIn: "24h",
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message,
-    });
+    console.error("Test token generation error:", error);
+    return next(AppError.internalServerError("Failed to generate test token"));
   }
 };

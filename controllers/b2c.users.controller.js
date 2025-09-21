@@ -1,9 +1,10 @@
 const B2CUsersHandler = require("../handlers/b2c.users.handler");
 const jwtHelper = require("../helpers/jwt");
+const { AppError } = require("../errors/AppError");
 // const { emitMicrosoftAuthEvent } = require("../rabbitMQ/events/userEvents");
 
 // Handle GET request from Azure B2C redirect
-module.exports.handleMicrosoftRedirect = async (req, res) => {
+module.exports.handleMicrosoftRedirect = async (req, res, next) => {
   try {
     console.log("=== B2C GET Request Debug ===");
     console.log("Request URL:", req.url);
@@ -42,15 +43,11 @@ module.exports.handleMicrosoftRedirect = async (req, res) => {
     return res.redirect(`/b2c-test.html?code=${code}&state=${state}`);
   } catch (error) {
     console.error("Azure B2C Redirect Error:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Authentication failed",
-      error: error.message,
-    });
+    return next(AppError.internalServerError("Azure B2C redirect failed"));
   }
 };
 
-module.exports.handleMicrosoftCallback = async (req, res) => {
+module.exports.handleMicrosoftCallback = async (req, res, next) => {
   try {
     console.log("=== B2C POST Request Debug ===");
     console.log("Request URL:", req.url);
@@ -64,10 +61,9 @@ module.exports.handleMicrosoftCallback = async (req, res) => {
       console.log("❌ Missing required parameters:");
       console.log("- Code:", code ? "Present" : "Missing");
       console.log("- CodeVerifier:", codeVerifier ? "Present" : "Missing");
-      return res.status(400).json({
-        success: false,
-        message: "Authorization code and codeVerifier are required",
-      });
+      return next(
+        AppError.badRequest("Authorization code and codeVerifier are required")
+      );
     }
 
     console.log("✅ Both code and codeVerifier received");
@@ -132,10 +128,8 @@ module.exports.handleMicrosoftCallback = async (req, res) => {
     });
   } catch (error) {
     console.error("Microsoft Auth Error:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Authentication failed",
-      error: error.message,
-    });
+    return next(
+      AppError.internalServerError("Microsoft authentication failed")
+    );
   }
 };

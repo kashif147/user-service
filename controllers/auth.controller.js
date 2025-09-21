@@ -147,7 +147,7 @@ class AuthController {
       const logoutResult = await UserHandler.handleLogout(userId, tenantId);
 
       // Log logout event for audit
-      const auditLogger = require("../middlewares/audit.mw");
+      const { auditLogger } = require("../middlewares/audit.mw");
       await auditLogger.logLogout(req, true, {
         userId: userId,
         tenantId: tenantId,
@@ -169,7 +169,7 @@ class AuthController {
       console.log("❌ Logout failed:", error.message);
 
       // Log failed logout attempt
-      const auditLogger = require("../middlewares/audit.mw");
+      const { auditLogger } = require("../middlewares/audit.mw");
       await auditLogger.logLogout(req, false, {
         error: error.message,
         tokensRevoked: false,

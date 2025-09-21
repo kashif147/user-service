@@ -1,24 +1,18 @@
 const AzureADHandler = require("../handlers/azure.ad.handler");
 const jwtHelper = require("../helpers/jwt");
+const { AppError } = require("../errors/AppError");
 
 // Handle GET request from Azure redirect
-module.exports.handleAzureADRedirect = async (req, res) => {
+module.exports.handleAzureADRedirect = async (req, res, next) => {
   try {
     const { code, state, error } = req.query;
 
     if (error) {
-      return res.status(400).json({
-        success: false,
-        message: "Azure AD authentication error",
-        error: error,
-      });
+      return next(AppError.badRequest("Azure AD authentication error"));
     }
 
     if (!code) {
-      return res.status(400).json({
-        success: false,
-        message: "Authorization code is required",
-      });
+      return next(AppError.badRequest("Authorization code is required"));
     }
 
     // Redirect back to the test page with the authorization code
@@ -29,23 +23,18 @@ module.exports.handleAzureADRedirect = async (req, res) => {
     return res.redirect(redirectUrl);
   } catch (error) {
     console.error("Azure AD Redirect Error:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Authentication failed",
-      error: error.message,
-    });
+    return next(AppError.internalServerError("Azure AD redirect failed"));
   }
 };
 
-module.exports.handleAzureADCallback = async (req, res) => {
+module.exports.handleAzureADCallback = async (req, res, next) => {
   try {
     const { code, codeVerifier } = req.body;
 
     if (!code || !codeVerifier) {
-      return res.status(400).json({
-        success: false,
-        message: "Authorization code and codeVerifier are required",
-      });
+      return next(
+        AppError.badRequest("Authorization code and codeVerifier are required")
+      );
     }
 
     console.log("Processing Azure AD authentication...");
@@ -98,10 +87,6 @@ module.exports.handleAzureADCallback = async (req, res) => {
     });
   } catch (error) {
     console.error("Azure AD authentication failed:", error.message);
-    return res.status(500).json({
-      success: false,
-      message: "Authentication failed",
-      error: error.message,
-    });
+    return next(AppError.internalServerError("Azure AD authentication failed"));
   }
 };

@@ -1,4 +1,5 @@
 // const LookupType = require('../model/LookupType');
+const { AppError } = require("../errors/AppError");
 
 // const getAllLookupType = async (req, res) =>
 // {
@@ -112,7 +113,7 @@
 const LookupType = require("../models/lookupType.model");
 const lookupCacheService = require("../services/lookupCacheService");
 
-const getAllLookupType = async (req, res) => {
+const getAllLookupType = async (req, res, next) => {
   try {
     // Use cache service to get all lookup types
     const lookupTypes = await lookupCacheService.getAllLookupTypes(async () => {
@@ -126,11 +127,13 @@ const getAllLookupType = async (req, res) => {
 
     res.json(lookupTypes);
   } catch (error) {
-    res.status(500).json({ error: "Server error" });
+    return next(
+      AppError.internalServerError("Failed to retrieve lookup types")
+    );
   }
 };
 
-const getLookupType = async (req, res) => {
+const getLookupType = async (req, res, next) => {
   try {
     const { id } = req.params;
 
@@ -144,16 +147,16 @@ const getLookupType = async (req, res) => {
     );
 
     if (!lookupType) {
-      return res.status(404).json({ error: "LookupType not found" });
+      return next(AppError.notFound("LookupType not found"));
     }
 
     res.json(lookupType);
   } catch (error) {
-    res.status(500).json({ error: "Server error" });
+    return next(AppError.internalServerError("Failed to retrieve lookup type"));
   }
 };
 
-const createNewLookupType = async (req, res) => {
+const createNewLookupType = async (req, res, next) => {
   try {
     const { code, lookuptype, DisplayName, isdeleted, isactive, userid } =
       req.body;
@@ -183,12 +186,12 @@ const createNewLookupType = async (req, res) => {
     await lookupCacheService.invalidateLookupTypeCache();
   } catch (error) {
     if (error.name === "ValidationError") {
-      return res.status(400).json({ error: error.message });
+      return next(AppError.badRequest(error.message));
     }
     if (error.code === 11000) {
-      return res.status(400).json({ error: "Code must be unique" });
+      return next(AppError.badRequest("Code must be unique"));
     }
-    res.status(500).json({ error: "Server error" });
+    return next(AppError.internalServerError("Failed to create lookup type"));
   }
 };
 
@@ -199,7 +202,7 @@ const updateLookupType = async (req, res) => {
     // Find the LookupType document by ID
     const lookupTypes = await LookupType.findById(id);
     if (!lookupTypes) {
-      return res.status(404).json({ error: "LookupType not found" });
+      return next(AppError.notFound("LookupType not found"));
     }
 
     // Store old values for audit
@@ -233,15 +236,15 @@ const updateLookupType = async (req, res) => {
     res.json(lookupTypes);
   } catch (error) {
     if (error.name === "ValidationError") {
-      return res.status(400).json({ error: error.message });
+      return next(AppError.badRequest(error.message));
     }
-    res.status(500).json({ error: "Server error" });
+    return next(AppError.internalServerError("Failed to update lookup type"));
   }
 };
 
-const deleteLookupType = async (req, res) => {
+const deleteLookupType = async (req, res, next) => {
   if (!req?.body?.id)
-    return res.status(400).json({ message: "LookupType ID required." });
+    return next(AppError.badRequest("LookupType ID required"));
 
   const lookuptype = await LookupType.findOne({ _id: req.body.id }).exec();
   if (!lookuptype) {
