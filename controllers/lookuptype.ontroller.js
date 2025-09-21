@@ -184,6 +184,7 @@ const createNewLookupType = async (req, res, next) => {
 
     // Invalidate cache after successful creation
     await lookupCacheService.invalidateLookupTypeCache();
+    await lookupCacheService.invalidateHierarchyCache();
   } catch (error) {
     if (error.name === "ValidationError") {
       return next(AppError.badRequest(error.message));
@@ -230,6 +231,10 @@ const updateLookupType = async (req, res) => {
     await lookupCacheService.invalidateLookupTypeCache(
       lookupTypes._id.toString()
     );
+    await lookupCacheService.invalidateHierarchyCache(
+      null,
+      lookupTypes._id.toString()
+    );
 
     // Event emission can be added here when needed
 
@@ -268,6 +273,7 @@ const deleteLookupType = async (req, res, next) => {
   // Invalidate cache after successful deletion
   await lookupCacheService.invalidateLookupTypeCache();
   await lookupCacheService.invalidateLookupTypeCache(req.body.id);
+  await lookupCacheService.invalidateHierarchyCache(null, req.body.id);
 
   // Event emission can be added here when needed
 

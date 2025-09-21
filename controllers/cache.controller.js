@@ -38,6 +38,8 @@ module.exports.clearAllCaches = async (req, res) => {
         "lookup_cache",
         "lookuptype_cache",
         "country_cache",
+        "hierarchy_cache",
+        "lookuptype_hierarchy_cache",
       ],
     });
   } catch (error) {
