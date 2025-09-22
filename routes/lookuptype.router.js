@@ -4,7 +4,7 @@ const lookuptypeController = require("../controllers/lookuptype.ontroller.js");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter.js");
 
 router
-  .route("/")
+  .route("/lookuptype")
   .get(
     defaultPolicyAdapter.middleware("lookupType", "read"),
     lookuptypeController.getAllLookupType
@@ -23,7 +23,7 @@ router
   );
 
 router
-  .route("/:id")
+  .route("/lookuptype/:id")
   .get(
     defaultPolicyAdapter.middleware("lookupType", "read"),
     lookuptypeController.getLookupType

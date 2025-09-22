@@ -4,7 +4,7 @@ const lookupController = require("../controllers/lookup.controller.js");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter.js");
 
 router
-  .route("/")
+  .route("/lookup")
   .get(
     defaultPolicyAdapter.middleware("lookup", "read"),
     lookupController.getAllLookup
@@ -23,7 +23,7 @@ router
   );
 
 router
-  .route("/:id")
+  .route("/lookup/:id")
   .get(
     defaultPolicyAdapter.middleware("lookup", "read"),
     lookupController.getLookup
@@ -31,7 +31,7 @@ router
 
 // Get lookup hierarchy - returns lookup with complete parent chain
 router
-  .route("/:id/hierarchy")
+  .route("/lookup/:id/hierarchy")
   .get(
     defaultPolicyAdapter.middleware("lookup", "read"),
     lookupController.getLookupHierarchy
@@ -39,7 +39,7 @@ router
 
 // Get all lookups by type with their hierarchy
 router
-  .route("/by-type/:lookuptypeId/hierarchy")
+  .route("/lookup/by-type/:lookuptypeId/hierarchy")
   .get(
     defaultPolicyAdapter.middleware("lookup", "read"),
     lookupController.getLookupsByTypeWithHierarchy

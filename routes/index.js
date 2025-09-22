@@ -23,8 +23,8 @@ router.use("/api", require("./tenantScoped.routes"));
 // Cache management API routes (Super User only)
 router.use("/api", require("./cache.routes"));
 
-router.use("/lookup", require("./lookup.router"));
-router.use("/lookuptype", require("./lookuptype.router"));
+router.use("/api", require("./lookup.router"));
+router.use("/api", require("./lookuptype.router"));
 router.use("/countries", require("./country.routes"));
 
 // User profile endpoint
