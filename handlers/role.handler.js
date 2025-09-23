@@ -25,13 +25,13 @@ module.exports.initializeRoles = async (tenantId) => {
   }
 };
 
-module.exports.getAllRoles = async (tenantId, userType = null) => {
+module.exports.getAllRoles = async (tenantId, category = null) => {
   try {
     const query = { tenantId, isActive: true };
-    if (userType) {
-      query.userType = userType;
+    if (category) {
+      query.category = category;
     }
-    return await Role.find(query).sort({ userType: 1, name: 1 });
+    return await Role.find(query).sort({ category: 1, name: 1 });
   } catch (error) {
     throw new Error(`Error fetching roles: ${error.message}`);
   }
@@ -373,7 +373,7 @@ module.exports.getAllRolesList = async (tenantId = null) => {
 
     const roles = await Role.find(filter)
       .populate("tenantId", "name code")
-      .sort({ userType: 1, name: 1 });
+      .sort({ category: 1, name: 1 });
 
     // Transform to match sample roles format
     return roles.map((role) => ({
@@ -382,7 +382,7 @@ module.exports.getAllRolesList = async (tenantId = null) => {
       description: role.description,
       tenantId: role.tenantId?._id?.toString(),
       tenantName: role.tenantId?.name,
-      category: role.userType,
+      category: role.category,
       permissions: role.permissions,
       status: role.isActive ? "active" : "inactive",
       isSystemRole: role.isSystemRole,
@@ -398,7 +398,7 @@ module.exports.getRolesByCategory = async (tenantId = null) => {
   try {
     const roles = await this.getAllRolesList(tenantId);
 
-    // Group roles by category (userType)
+    // Group roles by category
     return roles.reduce((acc, role) => {
       const category = role.category || "OTHER";
       if (!acc[category]) {

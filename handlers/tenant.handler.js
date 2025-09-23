@@ -329,7 +329,7 @@ const initializeTenantRoles = async (tenantId) => {
           name: role.name,
           code: role.code,
           description: role.description,
-          userType: role.userType,
+          category: role.category,
           permissions: role.permissions,
           isSystemRole: role.isSystemRole,
           tenantId: tenantId,
