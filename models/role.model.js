@@ -22,7 +22,7 @@ const RoleSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
-  userType: {
+  category: {
     type: String,
     enum: ["PORTAL", "CRM", "SYSTEM"],
     required: true,

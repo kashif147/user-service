@@ -27,9 +27,9 @@ module.exports.createRole = async (req, res, next) => {
 
 module.exports.getAllRoles = async (req, res, next) => {
   try {
-    const { userType } = req.query;
+    const { category } = req.query;
     const tenantId = req.ctx.tenantId;
-    const roles = await RoleHandler.getAllRoles(tenantId, userType);
+    const roles = await RoleHandler.getAllRoles(tenantId, category);
     res.status(200).json({ status: "success", data: roles });
   } catch (error) {
     return next(AppError.internalServerError("Failed to retrieve roles"));
@@ -229,10 +229,22 @@ module.exports.getUsersByRole = async (req, res, next) => {
 module.exports.getAllUsers = async (req, res, next) => {
   try {
     const tenantId = req.ctx.tenantId;
+    const Tenant = require("../models/tenant.model");
+
+    // Get tenant information
+    const tenant = await Tenant.findById(tenantId).select("name");
+
     const users = await User.find({ tenantId })
       .populate("roles")
       .select("-password -tokens");
-    res.status(200).json({ status: "success", data: users });
+
+    // Add tenant name to each user
+    const usersWithTenantName = users.map((user) => ({
+      ...user.toObject(),
+      tenantName: tenant?.name || null,
+    }));
+
+    res.status(200).json({ status: "success", data: usersWithTenantName });
   } catch (error) {
     return next(AppError.internalServerError("Failed to retrieve users"));
   }

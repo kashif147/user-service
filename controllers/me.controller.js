@@ -102,7 +102,7 @@ const getMeProfile = async (req, res, next) => {
         .populate({
           path: "roles",
           match: { isActive: true },
-          select: "name code description userType",
+          select: "name code description category",
         })
         .select(
           "userEmail userFirstName userLastName userFullName userType tenantId isActive createdAt"
@@ -172,7 +172,7 @@ const getMeProfile = async (req, res, next) => {
           code: role.code,
           name: role.name,
           description: role.description,
-          userType: role.userType,
+          category: role.category,
         })),
         permissions: [...new Set(permissions)], // Remove duplicates
         isActive: user.isActive,
