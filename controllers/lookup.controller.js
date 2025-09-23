@@ -304,25 +304,9 @@ const getLookupHierarchy = async (req, res, next) => {
           return null;
         }
 
-        // Build hierarchy array
+        // Build hierarchy array (only parents/ancestors, not the requested object itself)
         const hierarchy = [];
         let currentLookup = lookup;
-
-        // Add current lookup to hierarchy
-        hierarchy.push({
-          _id: currentLookup._id,
-          code: currentLookup.code,
-          lookupname: currentLookup.lookupname,
-          DisplayName: currentLookup.DisplayName,
-          lookuptypeId: {
-            _id: currentLookup.lookuptypeId?._id,
-            code: currentLookup.lookuptypeId?.code,
-            lookuptype: currentLookup.lookuptypeId?.lookuptype,
-            displayname: currentLookup.lookuptypeId?.displayname,
-          },
-          isactive: currentLookup.isactive,
-          isdeleted: currentLookup.isdeleted,
-        });
 
         // If current lookup has a parent, fetch the complete parent chain
         if (currentLookup.Parentlookupid) {
@@ -443,23 +427,7 @@ const getLookupsByTypeWithHierarchy = async (req, res, next) => {
             const hierarchy = [];
             let currentLookup = lookup;
 
-            // Add current lookup to hierarchy
-            hierarchy.push({
-              _id: currentLookup._id,
-              code: currentLookup.code,
-              lookupname: currentLookup.lookupname,
-              DisplayName: currentLookup.DisplayName,
-              lookuptypeId: {
-                _id: currentLookup.lookuptypeId?._id,
-                code: currentLookup.lookuptypeId?.code,
-                lookuptype: currentLookup.lookuptypeId?.lookuptype,
-                displayname: currentLookup.lookuptypeId?.displayname,
-              },
-              isactive: currentLookup.isactive,
-              isdeleted: currentLookup.isdeleted,
-            });
-
-            // Build parent chain
+            // Build parent chain (only parents/ancestors, not the lookup itself)
             let parentId = currentLookup.Parentlookupid;
             while (parentId) {
               const parent = await Lookup.findById(parentId).populate({
