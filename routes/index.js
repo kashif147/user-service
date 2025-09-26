@@ -25,7 +25,11 @@ router.use("/api", require("./cache.routes"));
 
 router.use("/api", require("./lookup.router"));
 router.use("/api", require("./lookuptype.router"));
-router.use("/countries", require("./country.routes"));
+router.use("/api", require("./productType.routes"));
+router.use("/api", require("./product.routes"));
+router.use("/api", require("./pricing.routes"));
+router.use("/api", require("./country.routes"));
+// router.use("/countries", require("./country.routes"));
 
 // User profile endpoint
 router.use("/", require("./me.routes"));
