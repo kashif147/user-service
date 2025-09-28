@@ -1,0 +1,326 @@
+{
+  "info": {
+    "name": "Pricing Management API",
+    "description": "API endpoints for managing product pricing with support for different product types (Membership, Events, CPD)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": "1.0.0"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{authToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "authToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "productId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "pricingId",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Get All Pricing",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/pricing",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "pricing"]
+        },
+        "description": "Retrieve all pricing records. Optionally filter by productId query parameter."
+      },
+      "response": []
+    },
+    {
+      "name": "Get All Pricing by Product",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/pricing?productId={{productId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "pricing"],
+          "query": [
+            {
+              "key": "productId",
+              "value": "{{productId}}"
+            }
+          ]
+        },
+        "description": "Retrieve all pricing records for a specific product."
+      },
+      "response": []
+    },
+    {
+      "name": "Create Pricing - Membership",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"productId\": \"{{productId}}\",\n  \"currency\": \"EUR\",\n  \"price\": 29999,\n  \"effectiveFrom\": \"2024-01-01\",\n  \"effectiveTo\": \"2024-12-31\",\n  \"status\": \"Active\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/pricing",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "pricing"]
+        },
+        "description": "Create pricing for a membership product. Requires price field."
+      },
+      "response": []
+    },
+    {
+      "name": "Create Pricing - Events",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"productId\": \"{{productId}}\",\n  \"currency\": \"EUR\",\n  \"memberPrice\": 5000,\n  \"nonMemberPrice\": 7550,\n  \"effectiveFrom\": \"2024-01-01\",\n  \"effectiveTo\": \"2024-12-31\",\n  \"status\": \"Active\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/pricing",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "pricing"]
+        },
+        "description": "Create pricing for an events product. Requires memberPrice and nonMemberPrice fields."
+      },
+      "response": []
+    },
+    {
+      "name": "Create Pricing - CPD",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"productId\": \"{{productId}}\",\n  \"currency\": \"EUR\",\n  \"memberPrice\": 20000,\n  \"nonMemberPrice\": 30000,\n  \"effectiveFrom\": \"2024-01-01\",\n  \"effectiveTo\": \"2024-12-31\",\n  \"status\": \"Active\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/pricing",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "pricing"]
+        },
+        "description": "Create pricing for a Continuous Professional Development product. Requires memberPrice and nonMemberPrice fields."
+      },
+      "response": []
+    },
+    {
+      "name": "Get Pricing by Product",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/pricing/by-product/{{productId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "pricing", "by-product", "{{productId}}"]
+        },
+        "description": "Get all pricing records for a specific product."
+      },
+      "response": []
+    },
+    {
+      "name": "Get Current Pricing",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/pricing/current/{{productId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "pricing", "current", "{{productId}}"]
+        },
+        "description": "Get the current active pricing for a specific product."
+      },
+      "response": []
+    },
+    {
+      "name": "Get Single Pricing",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/pricing/{{pricingId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "pricing", "{{pricingId}}"]
+        },
+        "description": "Get a specific pricing record by ID."
+      },
+      "response": []
+    },
+    {
+      "name": "Update Pricing - Membership",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"currency\": \"EUR\",\n  \"price\": 34999,\n  \"effectiveFrom\": \"2024-01-01\",\n  \"effectiveTo\": \"2024-12-31\",\n  \"status\": \"Active\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/pricing/{{pricingId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "pricing", "{{pricingId}}"]
+        },
+        "description": "Update pricing for a membership product."
+      },
+      "response": []
+    },
+    {
+      "name": "Update Pricing - Events/CPD",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"currency\": \"EUR\",\n  \"memberPrice\": 6000,\n  \"nonMemberPrice\": 8550,\n  \"effectiveFrom\": \"2024-01-01\",\n  \"effectiveTo\": \"2024-12-31\",\n  \"status\": \"Active\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/pricing/{{pricingId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "pricing", "{{pricingId}}"]
+        },
+        "description": "Update pricing for events or CPD products."
+      },
+      "response": []
+    },
+    {
+      "name": "Delete Pricing",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/pricing/{{pricingId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "pricing", "{{pricingId}}"]
+        },
+        "description": "Soft delete a pricing record."
+      },
+      "response": []
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Auto-set variables from response if available",
+          "if (pm.response && pm.response.json()) {",
+          "    const response = pm.response.json();",
+          "    if (response.data && response.data._id) {",
+          "        if (response.data.product && response.data.product._id) {",
+          "            pm.collectionVariables.set('productId', response.data.product._id);",
+          "        }",
+          "        pm.collectionVariables.set('pricingId', response.data._id);",
+          "    }",
+          "}"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Basic response validation",
+          "pm.test('Status code is successful', function () {",
+          "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+          "});",
+          "",
+          "pm.test('Response has success field', function () {",
+          "    const jsonData = pm.response.json();",
+          "    pm.expect(jsonData).to.have.property('success');",
+          "    pm.expect(jsonData.success).to.be.true;",
+          "});",
+          "",
+          "// Auto-extract IDs for subsequent requests",
+          "if (pm.response.json() && pm.response.json().data) {",
+          "    const data = pm.response.json().data;",
+          "    if (data._id) {",
+          "        pm.collectionVariables.set('pricingId', data._id);",
+          "    }",
+          "    if (data.product && data.product._id) {",
+          "        pm.collectionVariables.set('productId', data.product._id);",
+          "    }",
+          "}"
+        ]
+      }
+    }
+  ]
+}

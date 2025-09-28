@@ -96,7 +96,7 @@ async function assignDefaultRoles() {
           isActive: true,
         });
         availableRoles.forEach((role) => {
-          console.log(`   - ${role.code}: ${role.name} (${role.userType})`);
+          console.log(`   - ${role.code}: ${role.name} (${role.category})`);
         });
         totalErrors += users.length;
         continue;

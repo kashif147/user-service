@@ -1,0 +1,580 @@
+{
+  "info": {
+    "name": "Product Management API",
+    "description": "Complete API collection for Product Types, Products, and Pricing management with RBAC",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": "1.0.0"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{jwt_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "jwt_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "product_type_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "product_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "pricing_id",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Product Types",
+      "item": [
+        {
+          "name": "Get All Product Types",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/product-types",
+              "host": ["{{base_url}}"],
+              "path": ["api", "product-types"]
+            },
+            "description": "Retrieve all product types for the authenticated user's tenant"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Product Type by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/product-types/{{product_type_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "product-types", "{{product_type_id}}"]
+            },
+            "description": "Retrieve a specific product type by ID"
+          },
+          "response": []
+        },
+        {
+          "name": "Create Product Type",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const response = pm.response.json();",
+                  "    if (response.data && response.data._id) {",
+                  "        pm.collectionVariables.set('product_type_id', response.data._id);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Professional Events\",\n  \"code\": \"EVENTS\",\n  \"description\": \"Conferences, seminars, and networking events\",\n  \"status\": \"Active\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/product-types",
+              "host": ["{{base_url}}"],
+              "path": ["api", "product-types"]
+            },
+            "description": "Create a new product type (requires write permissions)"
+          },
+          "response": []
+        },
+        {
+          "name": "Update Product Type",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Professional Events\",\n  \"code\": \"EVENTS-UPD\",\n  \"description\": \"Updated description for conferences, seminars, and networking events\",\n  \"status\": \"Active\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/product-types/{{product_type_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "product-types", "{{product_type_id}}"]
+            },
+            "description": "Update an existing product type (requires write permissions)"
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Product Type",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/product-types/{{product_type_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "product-types", "{{product_type_id}}"]
+            },
+            "description": "Delete a product type (requires delete permissions, soft delete)"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Products",
+      "item": [
+        {
+          "name": "Get All Products",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/products",
+              "host": ["{{base_url}}"],
+              "path": ["api", "products"]
+            },
+            "description": "Retrieve all products for the authenticated user's tenant"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Products by Product Type (Drill-down)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/products/by-type/{{product_type_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "products", "by-type", "{{product_type_id}}"]
+            },
+            "description": "Get all products within a specific product type (drill-down functionality)"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Product by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/products/{{product_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "products", "{{product_id}}"]
+            },
+            "description": "Retrieve a specific product by ID with pricing history"
+          },
+          "response": []
+        },
+        {
+          "name": "Create Product",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const response = pm.response.json();",
+                  "    if (response.data && response.data._id) {",
+                  "        pm.collectionVariables.set('product_id', response.data._id);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Conference Registration\",\n  \"code\": \"EVENTS-CONF\",\n  \"description\": \"Annual conference registration for members\",\n  \"productTypeId\": \"{{product_type_id}}\",\n  \"status\": \"Active\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/products",
+              "host": ["{{base_url}}"],
+              "path": ["api", "products"]
+            },
+            "description": "Create a new product (requires write permissions)"
+          },
+          "response": []
+        },
+        {
+          "name": "Update Product",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Conference Registration\",\n  \"code\": \"EVENTS-CONF-UPD\",\n  \"description\": \"Updated annual conference registration for members\",\n  \"status\": \"Active\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/products/{{product_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "products", "{{product_id}}"]
+            },
+            "description": "Update an existing product (requires write permissions)"
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Product",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/products/{{product_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "products", "{{product_id}}"]
+            },
+            "description": "Delete a product (requires delete permissions, soft delete)"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Pricing",
+      "item": [
+        {
+          "name": "Get All Pricing",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/pricing",
+              "host": ["{{base_url}}"],
+              "path": ["api", "pricing"]
+            },
+            "description": "Retrieve all pricing records for the authenticated user's tenant"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Pricing by Product",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/pricing/by-product/{{product_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "pricing", "by-product", "{{product_id}}"]
+            },
+            "description": "Get all pricing history for a specific product"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Current Pricing",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/pricing/current/{{product_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "pricing", "current", "{{product_id}}"]
+            },
+            "description": "Get current active pricing for a product"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Pricing by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/pricing/{{pricing_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "pricing", "{{pricing_id}}"]
+            },
+            "description": "Retrieve a specific pricing record by ID"
+          },
+          "response": []
+        },
+        {
+          "name": "Create Pricing",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const response = pm.response.json();",
+                  "    if (response.data && response.data._id) {",
+                  "        pm.collectionVariables.set('pricing_id', response.data._id);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productId\": \"{{product_id}}\",\n  \"currency\": \"EUR\",\n  \"price\": 150,\n  \"effectiveFrom\": \"2025-01-01\",\n  \"effectiveTo\": \"2025-12-31\",\n  \"status\": \"Active\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/pricing",
+              "host": ["{{base_url}}"],
+              "path": ["api", "pricing"]
+            },
+            "description": "Create a new pricing record (requires write permissions)"
+          },
+          "response": []
+        },
+        {
+          "name": "Update Pricing",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currency\": \"EUR\",\n  \"price\": 175,\n  \"effectiveFrom\": \"2025-01-01\",\n  \"effectiveTo\": \"2025-12-31\",\n  \"status\": \"Active\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/pricing/{{pricing_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "pricing", "{{pricing_id}}"]
+            },
+            "description": "Update an existing pricing record (requires write permissions)"
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Pricing",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/pricing/{{pricing_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "pricing", "{{pricing_id}}"]
+            },
+            "description": "Delete a pricing record (requires delete permissions, soft delete)"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Get Test Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const response = pm.response.json();",
+                  "    if (response.data && response.data.token) {",
+                  "        pm.collectionVariables.set('jwt_token', response.data.token);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userType\": \"PORTAL\",\n  \"email\": \"test@example.com\",\n  \"fullName\": \"Test User\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/roles/test-token",
+              "host": ["{{base_url}}"],
+              "path": ["api", "roles", "test-token"]
+            },
+            "description": "Generate a test JWT token for API testing"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Sample Data Setup",
+      "item": [
+        {
+          "name": "Setup Complete Product Management Flow",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// This is a pre-request script to set up the complete flow",
+                  "console.log('Setting up complete product management flow...');"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/",
+              "host": ["{{base_url}}"],
+              "path": [""]
+            },
+            "description": "Use this to set up the complete flow: 1) Get test token, 2) Create product type, 3) Create product, 4) Create pricing"
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Global pre-request script",
+          "console.log('Making request to:', pm.request.url.toString());"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Global test script",
+          "pm.test('Response time is less than 5000ms', function () {",
+          "    pm.expect(pm.response.responseTime).to.be.below(5000);",
+          "});",
+          "",
+          "pm.test('Response has success field', function () {",
+          "    const response = pm.response.json();",
+          "    pm.expect(response).to.have.property('success');",
+          "});"
+        ]
+      }
+    }
+  ]
+}

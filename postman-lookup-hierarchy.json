@@ -1,0 +1,310 @@
+{
+  "info": {
+    "name": "Lookup Hierarchy API",
+    "description": "Postman collection for the new Lookup Hierarchy endpoints",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000",
+      "type": "string",
+      "description": "Base URL for the User Service API"
+    },
+    {
+      "key": "authToken",
+      "value": "",
+      "type": "string",
+      "description": "Bearer token for authentication"
+    },
+    {
+      "key": "workLocationTypeId",
+      "value": "68d036e2662428d1c504b3ad",
+      "type": "string",
+      "description": "WORKLOC lookup type ID"
+    },
+    {
+      "key": "branchTypeId",
+      "value": "68d0369c662428d1c504b3aa",
+      "type": "string",
+      "description": "BRANCH lookup type ID"
+    },
+    {
+      "key": "regionTypeId",
+      "value": "68d0362a662428d1c504b3a8",
+      "type": "string",
+      "description": "REGION lookup type ID"
+    },
+    {
+      "key": "sampleWorkLocationId",
+      "value": "68d03cc23cacdcd15fdd74bb",
+      "type": "string",
+      "description": "Sample work location ID (360 Medical)"
+    },
+    {
+      "key": "sampleBranchId",
+      "value": "68d03cb93cacdcd15fdd6e83",
+      "type": "string",
+      "description": "Sample branch ID (Cork Vol/Private Branch)"
+    },
+    {
+      "key": "sampleRegionId",
+      "value": "68d03cb83cacdcd15fdd6e4d",
+      "type": "string",
+      "description": "Sample region ID (South - South East)"
+    }
+  ],
+  "item": [
+    {
+      "name": "Lookup Hierarchy Endpoints",
+      "item": [
+        {
+          "name": "Get Lookup Hierarchy - Work Location",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lookup/{{sampleWorkLocationId}}/hierarchy",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "lookup", "{{sampleWorkLocationId}}", "hierarchy"]
+            },
+            "description": "Get hierarchy for a specific work location (360 Medical). Returns work location + branch + region."
+          }
+        },
+        {
+          "name": "Get Lookup Hierarchy - Branch",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lookup/{{sampleBranchId}}/hierarchy",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "lookup", "{{sampleBranchId}}", "hierarchy"]
+            },
+            "description": "Get hierarchy for a specific branch (Cork Vol/Private Branch). Returns branch + region."
+          }
+        },
+        {
+          "name": "Get Lookup Hierarchy - Region",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lookup/{{sampleRegionId}}/hierarchy",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "lookup", "{{sampleRegionId}}", "hierarchy"]
+            },
+            "description": "Get hierarchy for a specific region (South - South East). Returns region only."
+          }
+        },
+        {
+          "name": "Get All Work Locations with Hierarchy",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lookup/by-type/{{workLocationTypeId}}/hierarchy",
+              "host": ["{{baseUrl}}"],
+              "path": [
+                "api",
+                "lookup",
+                "by-type",
+                "{{workLocationTypeId}}",
+                "hierarchy"
+              ]
+            },
+            "description": "Get all work locations (1,473) with their complete hierarchies (work location + branch + region)."
+          }
+        },
+        {
+          "name": "Get All Branches with Hierarchy",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lookup/by-type/{{branchTypeId}}/hierarchy",
+              "host": ["{{baseUrl}}"],
+              "path": [
+                "api",
+                "lookup",
+                "by-type",
+                "{{branchTypeId}}",
+                "hierarchy"
+              ]
+            },
+            "description": "Get all branches (46) with their hierarchies (branch + region)."
+          }
+        },
+        {
+          "name": "Get All Regions with Hierarchy",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lookup/by-type/{{regionTypeId}}/hierarchy",
+              "host": ["{{baseUrl}}"],
+              "path": [
+                "api",
+                "lookup",
+                "by-type",
+                "{{regionTypeId}}",
+                "hierarchy"
+              ]
+            },
+            "description": "Get all regions (4) with their hierarchies (region only)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Test Data Examples",
+      "item": [
+        {
+          "name": "Test - Dublin North East Work Location",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lookup/68d03cba3cacdcd15fdd6ead/hierarchy",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "lookup", "68d03cba3cacdcd15fdd6ead", "hierarchy"]
+            },
+            "description": "Test with a work location from Dublin North East region."
+          }
+        },
+        {
+          "name": "Test - Kerry Work Location",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lookup/68d03cc23cacdcd15fdd74bb/hierarchy",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "lookup", "68d03cc23cacdcd15fdd74bb", "hierarchy"]
+            },
+            "description": "Test with a work location from Kerry branch."
+          }
+        },
+        {
+          "name": "Test - Cork Work Location",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lookup/68d03cc33cacdcd15fdd74bc/hierarchy",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "lookup", "68d03cc33cacdcd15fdd74bc", "hierarchy"]
+            },
+            "description": "Test with a work location from Cork branch."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Utility Endpoints",
+      "item": [
+        {
+          "name": "Get Lookup Type IDs",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lookuptype",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "lookuptype"]
+            },
+            "description": "Get all lookup types to find the correct IDs for hierarchy queries."
+          }
+        },
+        {
+          "name": "Get All Lookups (Basic)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lookup",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "lookup"]
+            },
+            "description": "Get all lookups without hierarchy information."
+          }
+        },
+        {
+          "name": "Get Specific Lookup by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lookup/{{sampleWorkLocationId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "lookup", "{{sampleWorkLocationId}}"]
+            },
+            "description": "Get a specific lookup by ID without hierarchy information."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Logout User",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/logout",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "logout"]
+            },
+            "description": "Logout current user and revoke all tokens"
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"your_refresh_token_here\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/refresh",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "refresh"]
+            },
+            "description": "Refresh access token using refresh token"
+          }
+        }
+      ]
+    }
+  ]
+}

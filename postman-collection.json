@@ -19,6 +19,30 @@
       "key": "tenantId",
       "value": "",
       "type": "string"
+    },
+    {
+      "key": "workLocationTypeId",
+      "value": "68d036e2662428d1c504b3ad",
+      "type": "string",
+      "description": "WORKLOC lookup type ID"
+    },
+    {
+      "key": "branchTypeId",
+      "value": "68d0369c662428d1c504b3aa",
+      "type": "string",
+      "description": "BRANCH lookup type ID"
+    },
+    {
+      "key": "regionTypeId",
+      "value": "68d0362a662428d1c504b3a8",
+      "type": "string",
+      "description": "REGION lookup type ID"
+    },
+    {
+      "key": "sampleWorkLocationId",
+      "value": "68d03cc23cacdcd15fdd74bb",
+      "type": "string",
+      "description": "Sample work location ID (360 Medical)"
     }
   ],
   "item": [
@@ -146,15 +170,35 @@
           }
         },
         {
+          "name": "Logout User",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/logout",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "logout"]
+            },
+            "description": "Logout current user and revoke all tokens"
+          }
+        },
+        {
           "name": "Revoke All Tokens",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
             "url": {
               "raw": "{{baseUrl}}/auth/revoke-all",
               "host": ["{{baseUrl}}"],
               "path": ["auth", "revoke-all"]
-            }
+            },
+            "description": "Revoke all refresh tokens for current user"
           }
         }
       ]
@@ -788,9 +832,9 @@
               { "key": "Authorization", "value": "Bearer {{authToken}}" }
             ],
             "url": {
-              "raw": "{{baseUrl}}/lookup",
+              "raw": "{{baseUrl}}/api/lookup",
               "host": ["{{baseUrl}}"],
-              "path": ["lookup"]
+              "path": ["api", "lookup"]
             }
           }
         },
@@ -804,12 +848,12 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"New Lookup\",\n  \"code\": \"NEW_LOOKUP\",\n  \"type\": \"lookup_type_id\"\n}"
+              "raw": "{\n  \"code\": \"NEW_LOOKUP\",\n  \"lookupname\": \"New Lookup\",\n  \"DisplayName\": \"New Lookup Display Name\",\n  \"Parentlookupid\": null,\n  \"lookuptypeId\": \"lookup_type_id_here\",\n  \"isdeleted\": false,\n  \"isactive\": true,\n  \"userid\": \"user_id_here\"\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/lookup",
+              "raw": "{{baseUrl}}/api/lookup",
               "host": ["{{baseUrl}}"],
-              "path": ["lookup"]
+              "path": ["api", "lookup"]
             }
           }
         },
@@ -821,9 +865,103 @@
               { "key": "Authorization", "value": "Bearer {{authToken}}" }
             ],
             "url": {
-              "raw": "{{baseUrl}}/lookup/:id",
+              "raw": "{{baseUrl}}/api/lookup/:id",
               "host": ["{{baseUrl}}"],
-              "path": ["lookup", ":id"]
+              "path": ["api", "lookup", ":id"]
+            }
+          }
+        },
+        {
+          "name": "Get Lookup Hierarchy",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lookup/{{sampleWorkLocationId}}/hierarchy",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "lookup", "{{sampleWorkLocationId}}", "hierarchy"]
+            }
+          }
+        },
+        {
+          "name": "Get Lookups by Type with Hierarchy",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lookup/by-type/{{workLocationTypeId}}/hierarchy",
+              "host": ["{{baseUrl}}"],
+              "path": [
+                "api",
+                "lookup",
+                "by-type",
+                "{{workLocationTypeId}}",
+                "hierarchy"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get All Work Locations with Hierarchy",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lookup/by-type/{{workLocationTypeId}}/hierarchy",
+              "host": ["{{baseUrl}}"],
+              "path": [
+                "api",
+                "lookup",
+                "by-type",
+                "{{workLocationTypeId}}",
+                "hierarchy"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get All Branches with Hierarchy",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lookup/by-type/{{branchTypeId}}/hierarchy",
+              "host": ["{{baseUrl}}"],
+              "path": [
+                "api",
+                "lookup",
+                "by-type",
+                "{{branchTypeId}}",
+                "hierarchy"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get All Regions with Hierarchy",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/lookup/by-type/{{regionTypeId}}/hierarchy",
+              "host": ["{{baseUrl}}"],
+              "path": [
+                "api",
+                "lookup",
+                "by-type",
+                "{{regionTypeId}}",
+                "hierarchy"
+              ]
             }
           }
         },
@@ -837,12 +975,12 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"Updated Lookup Name\"\n}"
+              "raw": "{\n  \"id\": \"lookup_id_here\",\n  \"lookupname\": \"Updated Lookup Name\",\n  \"DisplayName\": \"Updated Display Name\"\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/lookup",
+              "raw": "{{baseUrl}}/api/lookup",
               "host": ["{{baseUrl}}"],
-              "path": ["lookup"]
+              "path": ["api", "lookup"]
             }
           }
         },
@@ -851,12 +989,131 @@
           "request": {
             "method": "DELETE",
             "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"lookup_id_here\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/lookup",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "lookup"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Country Management",
+      "item": [
+        {
+          "name": "Get All Countries",
+          "request": {
+            "method": "GET",
+            "header": [
               { "key": "Authorization", "value": "Bearer {{authToken}}" }
             ],
             "url": {
-              "raw": "{{baseUrl}}/lookup",
+              "raw": "{{baseUrl}}/countries",
               "host": ["{{baseUrl}}"],
-              "path": ["lookup"]
+              "path": ["countries"]
+            }
+          }
+        },
+        {
+          "name": "Search Countries",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/countries/search?q=search_term",
+              "host": ["{{baseUrl}}"],
+              "path": ["countries", "search"],
+              "query": [{ "key": "q", "value": "search_term" }]
+            }
+          }
+        },
+        {
+          "name": "Get Country by Code",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/countries/code/:code",
+              "host": ["{{baseUrl}}"],
+              "path": ["countries", "code", ":code"]
+            }
+          }
+        },
+        {
+          "name": "Get Country by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/countries/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["countries", ":id"]
+            }
+          }
+        },
+        {
+          "name": "Create Country",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"US\",\n  \"name\": \"USA\",\n  \"displayname\": \"United States\",\n  \"callingCodes\": [\"+1\"]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/countries",
+              "host": ["{{baseUrl}}"],
+              "path": ["countries"]
+            }
+          }
+        },
+        {
+          "name": "Update Country",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"displayname\": \"Updated Country Name\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/countries/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["countries", ":id"]
+            }
+          }
+        },
+        {
+          "name": "Delete Country",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/countries/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["countries", ":id"]
             }
           }
         }

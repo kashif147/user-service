@@ -99,7 +99,7 @@ async function assignSuperUserRole() {
         isActive: true,
       });
       availableRoles.forEach((role) => {
-        console.log(`   - ${role.code}: ${role.name} (${role.userType})`);
+        console.log(`   - ${role.code}: ${role.name} (${role.category})`);
       });
       return;
     }

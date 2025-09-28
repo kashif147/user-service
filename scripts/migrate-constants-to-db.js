@@ -451,7 +451,7 @@ async function createRoles(tenants) {
           name: roleDefinition.name,
           code: roleDefinition.code,
           description: roleDefinition.description,
-          userType: roleDefinition.userType,
+          category: roleDefinition.userType,
           permissions: Array.isArray(roleDefinition.permissions)
             ? roleDefinition.permissions
             : [],
@@ -574,12 +574,12 @@ async function generateMigrationSummary() {
     console.log("\n  Sample Roles:");
     const sampleRoles = await Role.find()
       .limit(5)
-      .select("name code userType tenantId")
+      .select("name code category tenantId")
       .populate("tenantId", "name");
     sampleRoles.forEach((role) => {
       const tenantName = role.tenantId?.name || "Unknown";
       console.log(
-        `    - ${role.name} (${role.code}) - ${role.userType} - Tenant: ${tenantName}`
+        `    - ${role.name} (${role.code}) - ${role.category} - Tenant: ${tenantName}`
       );
     });
   }

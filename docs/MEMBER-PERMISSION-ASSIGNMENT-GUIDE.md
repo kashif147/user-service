@@ -237,7 +237,7 @@ NODE_ENV=staging node assign-portal-permissions-to-member.js
 ### MEMBER Role Not Found
 
 - Ensure MEMBER role exists in your staging database
-- Check that the role has `userType: "PORTAL"` and `isActive: true`
+- Check that the role has `category: "PORTAL"` and `isActive: true`
 
 ### Permissions Not Found
 
