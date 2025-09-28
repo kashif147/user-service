@@ -243,7 +243,9 @@ module.exports.getAllUsers = async (req, res, next) => {
 
     // Get tenant information
     console.log("getAllUsers - fetching tenant with ID:", tenantId);
-    const tenant = await Tenant.findById(tenantId).select("name");
+    const tenant = await Tenant.findOne({
+      "authenticationConnections.directoryId": tenantId,
+    }).select("name");
     console.log("getAllUsers - tenant found:", tenant);
 
     console.log("getAllUsers - fetching users for tenantId:", tenantId);
