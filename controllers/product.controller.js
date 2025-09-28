@@ -356,7 +356,7 @@ const updateProduct = async (req, res, next) => {
         code: code.toUpperCase(),
         tenantId,
         isDeleted: false,
-        _id: { $ne: id },
+        _id: { $ne: product._id },
       });
 
       if (existingProduct) {
