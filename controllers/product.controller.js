@@ -250,7 +250,7 @@ const getProduct = async (req, res, next) => {
 const createProduct = async (req, res, next) => {
   try {
     const { name, code, description, productTypeId, status } = req.body;
-    const { userId, tenantId } = req.user;
+    const { userId, tenantId } = req.ctx;
 
     if (!name || !code || !productTypeId) {
       return next(
@@ -338,7 +338,7 @@ const updateProduct = async (req, res, next) => {
   try {
     const { id } = req.params;
     const { name, code, description, productTypeId, status } = req.body;
-    const { userId, tenantId } = req.user;
+    const { userId, tenantId } = req.ctx;
 
     const product = await Product.findOne({
       _id: id,
@@ -469,7 +469,7 @@ const updateProduct = async (req, res, next) => {
 const deleteProduct = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { userId, tenantId } = req.user;
+    const { userId, tenantId } = req.ctx;
 
     const product = await Product.findOne({
       _id: id,
