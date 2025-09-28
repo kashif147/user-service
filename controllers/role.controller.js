@@ -229,14 +229,28 @@ module.exports.getUsersByRole = async (req, res, next) => {
 module.exports.getAllUsers = async (req, res, next) => {
   try {
     const tenantId = req.ctx.tenantId;
+
+    // Debug logging
+    console.log("getAllUsers - tenantId:", tenantId);
+    console.log("getAllUsers - req.ctx:", req.ctx);
+
+    if (!tenantId) {
+      console.error("getAllUsers - tenantId is missing from request context");
+      return next(AppError.badRequest("Tenant ID is required"));
+    }
+
     const Tenant = require("../models/tenant.model");
 
     // Get tenant information
+    console.log("getAllUsers - fetching tenant with ID:", tenantId);
     const tenant = await Tenant.findById(tenantId).select("name");
+    console.log("getAllUsers - tenant found:", tenant);
 
+    console.log("getAllUsers - fetching users for tenantId:", tenantId);
     const users = await User.find({ tenantId })
       .populate("roles")
       .select("-password -tokens");
+    console.log("getAllUsers - users found:", users.length);
 
     // Add tenant name to each user
     const usersWithTenantName = users.map((user) => ({
@@ -246,7 +260,15 @@ module.exports.getAllUsers = async (req, res, next) => {
 
     res.status(200).json({ status: "success", data: usersWithTenantName });
   } catch (error) {
-    return next(AppError.internalServerError("Failed to retrieve users"));
+    console.error("getAllUsers - error details:", {
+      message: error.message,
+      stack: error.stack,
+      name: error.name,
+      tenantId: req.ctx?.tenantId,
+    });
+    return next(
+      AppError.internalServerError(`Failed to retrieve users: ${error.message}`)
+    );
   }
 };
 
