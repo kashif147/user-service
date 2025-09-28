@@ -227,7 +227,7 @@ const updateProductType = async (req, res, next) => {
         code: code.toUpperCase(),
         tenantId,
         isDeleted: false,
-        _id: { $ne: id },
+        _id: { $ne: productType._id },
       });
 
       console.log("Duplicate check result:", existingProductType);
