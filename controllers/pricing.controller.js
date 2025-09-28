@@ -4,7 +4,7 @@ const { AppError } = require("../errors/AppError");
 
 const getAllPricing = async (req, res, next) => {
   try {
-    const { tenantId } = req.user;
+    const { tenantId } = req.ctx;
     const { productId } = req.query;
 
     let query = {
@@ -35,6 +35,9 @@ const getAllPricing = async (req, res, next) => {
         : null,
       currency: pricingItem.currency,
       price: pricingItem.price,
+      memberPrice: pricingItem.memberPrice,
+      nonMemberPrice: pricingItem.nonMemberPrice,
+      productType: pricingItem.productType,
       effectiveFrom: pricingItem.effectiveFrom,
       effectiveTo: pricingItem.effectiveTo,
       status: pricingItem.status,
@@ -71,7 +74,7 @@ const getAllPricing = async (req, res, next) => {
 const getPricingByProduct = async (req, res, next) => {
   try {
     const { productId } = req.params;
-    const { tenantId } = req.user;
+    const { tenantId } = req.ctx;
 
     // Verify product exists
     const product = await Product.findOne({
@@ -103,6 +106,9 @@ const getPricingByProduct = async (req, res, next) => {
       },
       currency: pricingItem.currency,
       price: pricingItem.price,
+      memberPrice: pricingItem.memberPrice,
+      nonMemberPrice: pricingItem.nonMemberPrice,
+      productType: pricingItem.productType,
       effectiveFrom: pricingItem.effectiveFrom,
       effectiveTo: pricingItem.effectiveTo,
       status: pricingItem.status,
@@ -147,7 +153,7 @@ const getPricingByProduct = async (req, res, next) => {
 const getCurrentPricing = async (req, res, next) => {
   try {
     const { productId } = req.params;
-    const { tenantId } = req.user;
+    const { tenantId } = req.ctx;
 
     // Verify product exists
     const product = await Product.findOne({
@@ -211,7 +217,7 @@ const getCurrentPricing = async (req, res, next) => {
 const getPricing = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { tenantId } = req.user;
+    const { tenantId } = req.ctx;
 
     const pricing = await Pricing.findOne({
       _id: id,
@@ -272,27 +278,58 @@ const getPricing = async (req, res, next) => {
 
 const createPricing = async (req, res, next) => {
   try {
-    const { productId, currency, price, effectiveFrom, effectiveTo, status } =
-      req.body;
-    const { userId, tenantId } = req.user;
+    const {
+      productId,
+      currency,
+      price,
+      memberPrice,
+      nonMemberPrice,
+      effectiveFrom,
+      effectiveTo,
+      status,
+    } = req.body;
+    const { userId, tenantId } = req.ctx;
 
-    if (!productId || !currency || !price || !effectiveFrom) {
+    if (!productId || !currency || !effectiveFrom) {
       return next(
         AppError.badRequest(
-          "Product ID, currency, price, and effective from date are required"
+          "Product ID, currency, and effective from date are required"
         )
       );
     }
 
-    // Verify product exists
+    // Verify product exists and get product type
     const product = await Product.findOne({
       _id: productId,
       tenantId,
       isDeleted: false,
-    });
+    }).populate("productTypeId", "code");
 
     if (!product) {
       return next(AppError.badRequest("Invalid product"));
+    }
+
+    const productTypeCode = product.productTypeId?.code;
+
+    // Validate pricing based on product type
+    if (productTypeCode === "MEMBERSHIP") {
+      if (!price) {
+        return next(
+          AppError.badRequest("Price is required for membership products")
+        );
+      }
+    } else if (
+      ["EVENTS", "CONTINUOUS_PROFESSIONAL_DEVELOPMENT"].includes(
+        productTypeCode
+      )
+    ) {
+      if (!memberPrice || !nonMemberPrice) {
+        return next(
+          AppError.badRequest(
+            "Member price and non-member price are required for events and CPD products"
+          )
+        );
+      }
     }
 
     // Check for overlapping pricing periods
@@ -321,6 +358,9 @@ const createPricing = async (req, res, next) => {
       productId,
       currency: currency.toUpperCase(),
       price,
+      memberPrice,
+      nonMemberPrice,
+      productType: productTypeCode,
       effectiveFrom: new Date(effectiveFrom),
       effectiveTo: effectiveTo ? new Date(effectiveTo) : null,
       status: status || "Active",
@@ -345,6 +385,9 @@ const createPricing = async (req, res, next) => {
         },
         currency: populatedPricing.currency,
         price: populatedPricing.price,
+        memberPrice: populatedPricing.memberPrice,
+        nonMemberPrice: populatedPricing.nonMemberPrice,
+        productType: populatedPricing.productType,
         effectiveFrom: populatedPricing.effectiveFrom,
         effectiveTo: populatedPricing.effectiveTo,
         status: populatedPricing.status,
@@ -371,8 +414,16 @@ const createPricing = async (req, res, next) => {
 const updatePricing = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { currency, price, effectiveFrom, effectiveTo, status } = req.body;
-    const { userId, tenantId } = req.user;
+    const {
+      currency,
+      price,
+      memberPrice,
+      nonMemberPrice,
+      effectiveFrom,
+      effectiveTo,
+      status,
+    } = req.body;
+    const { userId, tenantId } = req.ctx;
 
     const pricing = await Pricing.findOne({
       _id: id,
@@ -419,6 +470,8 @@ const updatePricing = async (req, res, next) => {
     // Update fields
     if (currency) pricing.currency = currency.toUpperCase();
     if (price !== undefined) pricing.price = price;
+    if (memberPrice !== undefined) pricing.memberPrice = memberPrice;
+    if (nonMemberPrice !== undefined) pricing.nonMemberPrice = nonMemberPrice;
     if (effectiveFrom) pricing.effectiveFrom = new Date(effectiveFrom);
     if (effectiveTo !== undefined)
       pricing.effectiveTo = effectiveTo ? new Date(effectiveTo) : null;
@@ -484,7 +537,7 @@ const updatePricing = async (req, res, next) => {
 const deletePricing = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { userId, tenantId } = req.user;
+    const { userId, tenantId } = req.ctx;
 
     const pricing = await Pricing.findOne({
       _id: id,
