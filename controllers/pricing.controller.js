@@ -290,12 +290,22 @@ const createPricing = async (req, res, next) => {
     } = req.body;
     const { userId, tenantId } = req.ctx;
 
+    console.log("Pricing creation - userId:", userId, "tenantId:", tenantId);
+    console.log(
+      "Pricing creation - req.ctx:",
+      JSON.stringify(req.ctx, null, 2)
+    );
+
     if (!productId || !currency || !effectiveFrom) {
       return next(
         AppError.badRequest(
           "Product ID, currency, and effective from date are required"
         )
       );
+    }
+
+    if (!userId) {
+      return next(AppError.badRequest("User ID is required"));
     }
 
     // Verify product exists and get product type

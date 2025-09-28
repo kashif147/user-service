@@ -28,14 +28,6 @@ const pricingSchema = new mongoose.Schema(
         },
         message: "Price must be a positive number",
       },
-      set: function (v) {
-        // Convert euros to cents for storage
-        return Math.round(v * 100);
-      },
-      get: function (v) {
-        // Convert cents to euros for retrieval
-        return v / 100;
-      },
     },
     memberPrice: {
       type: Number,
@@ -52,14 +44,6 @@ const pricingSchema = new mongoose.Schema(
         },
         message: "Member price must be a positive number",
       },
-      set: function (v) {
-        // Convert euros to cents for storage
-        return Math.round(v * 100);
-      },
-      get: function (v) {
-        // Convert cents to euros for retrieval
-        return v / 100;
-      },
     },
     nonMemberPrice: {
       type: Number,
@@ -75,14 +59,6 @@ const pricingSchema = new mongoose.Schema(
           return v >= 0;
         },
         message: "Non-member price must be a positive number",
-      },
-      set: function (v) {
-        // Convert euros to cents for storage
-        return Math.round(v * 100);
-      },
-      get: function (v) {
-        // Convert cents to euros for retrieval
-        return v / 100;
       },
     },
     productType: {
@@ -137,8 +113,8 @@ const pricingSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-    toJSON: { virtuals: true, getters: true },
-    toObject: { virtuals: true, getters: true },
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true },
   }
 );
 
