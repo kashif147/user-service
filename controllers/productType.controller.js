@@ -113,7 +113,18 @@ const getProductType = async (req, res, next) => {
 const createProductType = async (req, res, next) => {
   try {
     const { name, code, description, status } = req.body;
-    const { userId, tenantId } = req.user;
+    const { id: userId, tenantId } = req.user;
+
+    console.log(
+      "ProductType creation - userId:",
+      userId,
+      "tenantId:",
+      tenantId
+    );
+    console.log(
+      "ProductType creation - req.user:",
+      JSON.stringify(req.user, null, 2)
+    );
 
     if (!name || !code) {
       return next(AppError.badRequest("Name and code are required"));
@@ -137,7 +148,7 @@ const createProductType = async (req, res, next) => {
       status: status || "Active",
       isActive: status === "Active",
       createdBy: userId,
-      tenantId,
+      tenantId: tenantId,
     });
 
     const populatedProductType = await ProductType.findById(
@@ -166,6 +177,12 @@ const createProductType = async (req, res, next) => {
     });
   } catch (error) {
     console.error("Error creating product type:", error);
+    console.error("Error details:", {
+      name: error.name,
+      message: error.message,
+      code: error.code,
+      stack: error.stack,
+    });
     if (error.name === "ValidationError") {
       return next(AppError.badRequest(error.message));
     }
@@ -180,7 +197,7 @@ const updateProductType = async (req, res, next) => {
   try {
     const { id } = req.params;
     const { name, code, description, status } = req.body;
-    const { userId, tenantId } = req.user;
+    const { id: userId, tenantId } = req.user;
 
     const productType = await ProductType.findOne({
       _id: id,
@@ -267,7 +284,7 @@ const updateProductType = async (req, res, next) => {
 const deleteProductType = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { userId, tenantId } = req.user;
+    const { id: userId, tenantId } = req.user;
 
     const productType = await ProductType.findOne({
       _id: id,
