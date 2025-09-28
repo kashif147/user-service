@@ -249,10 +249,18 @@ module.exports.getAllUsers = async (req, res, next) => {
     console.log("getAllUsers - tenant found:", tenant);
 
     console.log("getAllUsers - fetching users for tenantId:", tenantId);
-    const users = await User.find({ tenantId })
-      .populate("roles")
-      .select("-password -tokens");
-    console.log("getAllUsers - users found:", users.length);
+    let users;
+    try {
+      users = await User.find({ tenantId })
+        .populate("roles")
+        .select("-password -tokens");
+      console.log("getAllUsers - users found:", users.length);
+    } catch (populateError) {
+      console.error("getAllUsers - populate error:", populateError);
+      // Try without populate to isolate the issue
+      users = await User.find({ tenantId }).select("-password -tokens");
+      console.log("getAllUsers - users found without populate:", users.length);
+    }
 
     // Add tenant name to each user
     const usersWithTenantName = users.map((user) => ({

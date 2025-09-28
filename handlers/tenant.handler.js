@@ -47,7 +47,9 @@ module.exports.getAllTenants = async (filters = {}) => {
 
 module.exports.getTenantById = async (tenantId) => {
   try {
-    const tenant = await Tenant.findById(tenantId);
+    const tenant = await Tenant.findOne({
+      "authenticationConnections.directoryId": tenantId,
+    });
     if (!tenant) {
       throw new Error("Tenant not found");
     }
@@ -83,8 +85,8 @@ module.exports.getTenantByDomain = async (domain) => {
 
 module.exports.updateTenant = async (tenantId, updateData, updatedBy) => {
   try {
-    const tenant = await Tenant.findByIdAndUpdate(
-      tenantId,
+    const tenant = await Tenant.findOneAndUpdate(
+      { "authenticationConnections.directoryId": tenantId },
       { ...updateData, updatedBy },
       { new: true, runValidators: true }
     );
@@ -108,8 +110,8 @@ module.exports.deleteTenant = async (tenantId) => {
     }
 
     // Soft delete - mark as inactive
-    const tenant = await Tenant.findByIdAndUpdate(
-      tenantId,
+    const tenant = await Tenant.findOneAndUpdate(
+      { "authenticationConnections.directoryId": tenantId },
       { isActive: false, status: "INACTIVE" },
       { new: true }
     );
@@ -150,8 +152,8 @@ module.exports.updateTenantStatus = async (tenantId, status, updatedBy) => {
       throw new Error("Invalid status");
     }
 
-    const tenant = await Tenant.findByIdAndUpdate(
-      tenantId,
+    const tenant = await Tenant.findOneAndUpdate(
+      { "authenticationConnections.directoryId": tenantId },
       { status, updatedBy },
       { new: true }
     );
@@ -174,7 +176,9 @@ module.exports.addAuthenticationConnection = async (
   updatedBy
 ) => {
   try {
-    const tenant = await Tenant.findById(tenantId);
+    const tenant = await Tenant.findOne({
+      "authenticationConnections.directoryId": tenantId,
+    });
     if (!tenant) {
       throw new Error("Tenant not found");
     }
@@ -213,7 +217,9 @@ module.exports.updateAuthenticationConnection = async (
   updatedBy
 ) => {
   try {
-    const tenant = await Tenant.findById(tenantId);
+    const tenant = await Tenant.findOne({
+      "authenticationConnections.directoryId": tenantId,
+    });
     if (!tenant) {
       throw new Error("Tenant not found");
     }
@@ -263,7 +269,9 @@ module.exports.removeAuthenticationConnection = async (
   updatedBy
 ) => {
   try {
-    const tenant = await Tenant.findById(tenantId);
+    const tenant = await Tenant.findOne({
+      "authenticationConnections.directoryId": tenantId,
+    });
     if (!tenant) {
       throw new Error("Tenant not found");
     }
@@ -290,9 +298,9 @@ module.exports.removeAuthenticationConnection = async (
 
 module.exports.getAuthenticationConnections = async (tenantId) => {
   try {
-    const tenant = await Tenant.findById(tenantId).select(
-      "authenticationConnections"
-    );
+    const tenant = await Tenant.findOne({
+      "authenticationConnections.directoryId": tenantId,
+    }).select("authenticationConnections");
     if (!tenant) {
       throw new Error("Tenant not found");
     }
