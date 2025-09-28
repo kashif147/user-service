@@ -31,6 +31,9 @@ router.use("/api", require("./pricing.routes"));
 router.use("/api", require("./country.routes"));
 // router.use("/countries", require("./country.routes"));
 
+// User management API routes
+router.use("/api", require("./user.routes"));
+
 // User profile endpoint
 router.use("/", require("./me.routes"));
 
