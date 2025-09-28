@@ -214,7 +214,7 @@ const updateProductType = async (req, res, next) => {
     }
 
     // Check if new code already exists for this tenant (excluding current record)
-    if (code && code.toUpperCase() !== productType.code) {
+    if (code) {
       const existingProductType = await ProductType.findOne({
         code: code.toUpperCase(),
         tenantId,

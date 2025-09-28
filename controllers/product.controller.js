@@ -5,7 +5,7 @@ const { AppError } = require("../errors/AppError");
 
 const getAllProducts = async (req, res, next) => {
   try {
-    const { tenantId } = req.user;
+    const { tenantId } = req.ctx;
     const { productTypeId } = req.query;
 
     let query = {
@@ -81,7 +81,7 @@ const getAllProducts = async (req, res, next) => {
 const getProductsByType = async (req, res, next) => {
   try {
     const { productTypeId } = req.params;
-    const { tenantId } = req.user;
+    const { tenantId } = req.ctx;
 
     // Verify product type exists
     const productType = await ProductType.findOne({
@@ -166,7 +166,7 @@ const getProductsByType = async (req, res, next) => {
 const getProduct = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { tenantId } = req.user;
+    const { tenantId } = req.ctx;
 
     const product = await Product.findOne({
       _id: id,
@@ -351,7 +351,7 @@ const updateProduct = async (req, res, next) => {
     }
 
     // Check if new code already exists for this tenant (excluding current record)
-    if (code && code.toUpperCase() !== product.code) {
+    if (code) {
       const existingProduct = await Product.findOne({
         code: code.toUpperCase(),
         tenantId,
