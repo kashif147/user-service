@@ -113,7 +113,7 @@ const getProductType = async (req, res, next) => {
 const createProductType = async (req, res, next) => {
   try {
     const { name, code, description, status } = req.body;
-    const { id: userId, tenantId } = req.user;
+    const { userId, tenantId } = req.ctx;
 
     console.log(
       "ProductType creation - userId:",
@@ -122,12 +122,16 @@ const createProductType = async (req, res, next) => {
       tenantId
     );
     console.log(
-      "ProductType creation - req.user:",
-      JSON.stringify(req.user, null, 2)
+      "ProductType creation - req.ctx:",
+      JSON.stringify(req.ctx, null, 2)
     );
 
     if (!name || !code) {
       return next(AppError.badRequest("Name and code are required"));
+    }
+
+    if (!userId) {
+      return next(AppError.badRequest("User ID is required"));
     }
 
     // Check if code already exists for this tenant
@@ -197,7 +201,7 @@ const updateProductType = async (req, res, next) => {
   try {
     const { id } = req.params;
     const { name, code, description, status } = req.body;
-    const { id: userId, tenantId } = req.user;
+    const { userId, tenantId } = req.ctx;
 
     const productType = await ProductType.findOne({
       _id: id,
@@ -284,7 +288,7 @@ const updateProductType = async (req, res, next) => {
 const deleteProductType = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { id: userId, tenantId } = req.user;
+    const { userId, tenantId } = req.ctx;
 
     const productType = await ProductType.findOne({
       _id: id,
