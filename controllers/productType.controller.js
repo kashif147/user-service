@@ -215,12 +215,22 @@ const updateProductType = async (req, res, next) => {
 
     // Check if new code already exists for this tenant (excluding current record)
     if (code) {
+      console.log("Checking for duplicate code:", {
+        newCode: code.toUpperCase(),
+        currentCode: productType.code,
+        tenantId,
+        currentId: id,
+        productTypeId: productType._id,
+      });
+
       const existingProductType = await ProductType.findOne({
         code: code.toUpperCase(),
         tenantId,
         isDeleted: false,
         _id: { $ne: id },
       });
+
+      console.log("Duplicate check result:", existingProductType);
 
       if (existingProductType) {
         return next(AppError.badRequest("Product type code already exists"));
