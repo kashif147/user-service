@@ -12,7 +12,7 @@ const { defaultPolicyAdapter } = require("../helpers/policyAdapter");
 
 // Get all countries (must come first to avoid conflict with /:id)
 router.get(
-  "/",
+  "/countries",
   defaultPolicyAdapter.middleware("lookup", "read"),
   countryController.getAllCountries
 );
