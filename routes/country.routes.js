@@ -10,20 +10,33 @@ const { defaultPolicyAdapter } = require("../helpers/policyAdapter");
  * based on the policy adapter middleware
  */
 
-// Apply authentication to all routes
-router.use(defaultPolicyAdapter.middleware("lookup", "read"));
-
-// Get all countries
-router.get("/", countryController.getAllCountries);
+// Get all countries (must come first to avoid conflict with /:id)
+router.get(
+  "/",
+  defaultPolicyAdapter.middleware("lookup", "read"),
+  countryController.getAllCountries
+);
 
 // Search countries
-router.get("/search", countryController.searchCountries);
+router.get(
+  "/search",
+  defaultPolicyAdapter.middleware("lookup", "read"),
+  countryController.searchCountries
+);
 
 // Get country by code
-router.get("/code/:code", countryController.getCountryByCode);
+router.get(
+  "/code/:code",
+  defaultPolicyAdapter.middleware("lookup", "read"),
+  countryController.getCountryByCode
+);
 
-// Get single country by ID
-router.get("/:id", countryController.getCountryById);
+// Get single country by ID (must come last)
+router.get(
+  "/:id",
+  defaultPolicyAdapter.middleware("lookup", "read"),
+  countryController.getCountryById
+);
 
 // Create new country (requires write permission)
 router.post(
