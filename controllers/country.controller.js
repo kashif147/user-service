@@ -1,3 +1,4 @@
+const mongoose = require("mongoose");
 const Country = require("../models/country.model");
 const { AppError } = require("../errors/AppError");
 const lookupCacheService = require("../services/lookupCacheService");
@@ -37,6 +38,11 @@ const getAllCountries = async (req, res, next) => {
 const getCountryById = async (req, res, next) => {
   try {
     const { id } = req.params;
+
+    // Validate ObjectId format
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+      return next(AppError.badRequest("Invalid country ID format"));
+    }
 
     // Use cache service to get country by ID
     const country = await lookupCacheService.getCountryById(id, async () => {
@@ -171,6 +177,11 @@ const updateCountry = async (req, res, next) => {
     const { code, name, displayname, callingCodes, isactive, userid } =
       req.body;
 
+    // Validate ObjectId format
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+      return next(AppError.badRequest("Invalid country ID format"));
+    }
+
     const country = await Country.findOne({ _id: id, isdeleted: false });
     if (!country) {
       return next(AppError.notFound("Country not found"));
@@ -246,6 +257,11 @@ const updateCountry = async (req, res, next) => {
 const deleteCountry = async (req, res, next) => {
   try {
     const { id } = req.params;
+
+    // Validate ObjectId format
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+      return next(AppError.badRequest("Invalid country ID format"));
+    }
 
     const country = await Country.findOne({ _id: id, isdeleted: false });
     if (!country) {
