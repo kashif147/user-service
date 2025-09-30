@@ -370,6 +370,10 @@ const deleteProductType = async (req, res, next) => {
 
 const getAllProductTypesWithProducts = async (req, res, next) => {
   try {
+    if (!req.user || !req.user.tenantId) {
+      return next(AppError.unauthorized("User authentication required"));
+    }
+
     const { tenantId } = req.user;
 
     const productTypes = await ProductType.find({
@@ -439,6 +443,11 @@ const getAllProductTypesWithProducts = async (req, res, next) => {
     });
   } catch (error) {
     console.error("Error fetching product types with products:", error);
+    console.error("Error details:", {
+      message: error.message,
+      stack: error.stack,
+      name: error.name,
+    });
     return next(
       AppError.internalServerError(
         "Failed to retrieve product types with products and pricing"
