@@ -17,10 +17,6 @@ const pricingSchema = new mongoose.Schema(
     },
     price: {
       type: Number,
-      required: function () {
-        // Price is required for membership products
-        return this.productType === "MEMBERSHIP";
-      },
       min: 0,
       validate: {
         validator: function (v) {
@@ -31,12 +27,6 @@ const pricingSchema = new mongoose.Schema(
     },
     memberPrice: {
       type: Number,
-      required: function () {
-        // Member price is required for events and CPD products
-        return ["EVENTS", "CONTINUOUS_PROFESSIONAL_DEVELOPMENT"].includes(
-          this.productType
-        );
-      },
       min: 0,
       validate: {
         validator: function (v) {
@@ -47,12 +37,6 @@ const pricingSchema = new mongoose.Schema(
     },
     nonMemberPrice: {
       type: Number,
-      required: function () {
-        // Non-member price is required for events and CPD products
-        return ["EVENTS", "CONTINUOUS_PROFESSIONAL_DEVELOPMENT"].includes(
-          this.productType
-        );
-      },
       min: 0,
       validate: {
         validator: function (v) {
@@ -60,11 +44,6 @@ const pricingSchema = new mongoose.Schema(
         },
         message: "Non-member price must be a positive number",
       },
-    },
-    productType: {
-      type: String,
-      required: true,
-      enum: ["MEMBERSHIP", "EVENTS", "CONTINUOUS_PROFESSIONAL_DEVELOPMENT"],
     },
     effectiveFrom: {
       type: Date,
