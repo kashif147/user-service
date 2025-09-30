@@ -341,10 +341,73 @@ const deleteProductType = async (req, res, next) => {
   }
 };
 
+const getAllProductTypesWithProducts = async (req, res, next) => {
+  try {
+    const { tenantId } = req.user;
+
+    const productTypes = await ProductType.find({
+      tenantId,
+      isDeleted: false,
+    }).sort({ createdAt: -1 });
+
+    const result = await Promise.all(
+      productTypes.map(async (productType) => {
+        const products = await Product.find({
+          productTypeId: productType._id,
+          tenantId,
+          isDeleted: false,
+        })
+          .populate({
+            path: "currentPricing",
+            select:
+              "price memberPrice nonMemberPrice currency effectiveFrom effectiveTo productType status",
+          })
+          .sort({ createdAt: -1 });
+
+        return {
+          _id: productType._id,
+          name: productType.name,
+          code: productType.code,
+          description: productType.description,
+          status: productType.status,
+          isActive: productType.isActive,
+          createdAt: productType.createdAt,
+          updatedAt: productType.updatedAt,
+          products: products.map((product) => ({
+            _id: product._id,
+            name: product.name,
+            code: product.code,
+            description: product.description,
+            status: product.status,
+            isActive: product.isActive,
+            createdAt: product.createdAt,
+            updatedAt: product.updatedAt,
+            currentPricing: product.currentPricing || null,
+          })),
+        };
+      })
+    );
+
+    res.status(200).json({
+      success: true,
+      data: result,
+      count: result.length,
+    });
+  } catch (error) {
+    console.error("Error fetching product types with products:", error);
+    return next(
+      AppError.internalServerError(
+        "Failed to retrieve product types with products and pricing"
+      )
+    );
+  }
+};
+
 module.exports = {
   getAllProductTypes,
   getProductType,
   createProductType,
   updateProductType,
   deleteProductType,
+  getAllProductTypesWithProducts,
 };

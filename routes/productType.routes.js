@@ -3,6 +3,13 @@ const router = express.Router();
 const productTypeController = require("../controllers/productType.controller");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter");
 
+// Get all product types with products and pricing
+router.get(
+  "/product-types/with-products",
+  defaultPolicyAdapter.middleware("product-type", "read"),
+  productTypeController.getAllProductTypesWithProducts
+);
+
 // Product Type CRUD operations
 router
   .route("/product-types")
