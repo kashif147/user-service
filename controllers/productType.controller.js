@@ -1,5 +1,6 @@
 const ProductType = require("../models/productType.model");
 const Product = require("../models/product.model");
+const Pricing = require("../models/pricing.model");
 const { AppError } = require("../errors/AppError");
 
 const getAllProductTypes = async (req, res, next) => {
@@ -382,13 +383,40 @@ const getAllProductTypesWithProducts = async (req, res, next) => {
           productTypeId: productType._id,
           tenantId,
           isDeleted: false,
-        })
-          .populate({
-            path: "currentPricing",
-            select:
-              "price memberPrice nonMemberPrice currency effectiveFrom effectiveTo productType status",
+        }).sort({ createdAt: -1 });
+
+        const productsWithPricing = await Promise.all(
+          products.map(async (product) => {
+            const currentDate = new Date();
+            const currentPricing = await Pricing.findOne({
+              productId: product._id,
+              tenantId,
+              isActive: true,
+              isDeleted: false,
+              effectiveFrom: { $lte: currentDate },
+              $or: [
+                { effectiveTo: { $gte: currentDate } },
+                { effectiveTo: null },
+              ],
+            })
+              .select(
+                "price memberPrice nonMemberPrice currency effectiveFrom effectiveTo productType status"
+              )
+              .sort({ effectiveFrom: -1 });
+
+            return {
+              _id: product._id,
+              name: product.name,
+              code: product.code,
+              description: product.description,
+              status: product.status,
+              isActive: product.isActive,
+              createdAt: product.createdAt,
+              updatedAt: product.updatedAt,
+              currentPricing: currentPricing,
+            };
           })
-          .sort({ createdAt: -1 });
+        );
 
         return {
           _id: productType._id,
@@ -399,17 +427,7 @@ const getAllProductTypesWithProducts = async (req, res, next) => {
           isActive: productType.isActive,
           createdAt: productType.createdAt,
           updatedAt: productType.updatedAt,
-          products: products.map((product) => ({
-            _id: product._id,
-            name: product.name,
-            code: product.code,
-            description: product.description,
-            status: product.status,
-            isActive: product.isActive,
-            createdAt: product.createdAt,
-            updatedAt: product.updatedAt,
-            currentPricing: product.currentPricing || null,
-          })),
+          products: productsWithPricing,
         };
       })
     );
