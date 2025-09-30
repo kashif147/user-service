@@ -12,34 +12,42 @@ const getAllProductTypes = async (req, res, next) => {
     })
       .populate("createdBy", "firstName lastName email")
       .populate("updatedBy", "firstName lastName email")
-      .populate("productsCount")
       .sort({ createdAt: -1 });
 
-    const formattedProductTypes = productTypes.map((productType) => ({
-      _id: productType._id,
-      name: productType.name,
-      code: productType.code,
-      description: productType.description,
-      status: productType.status,
-      isActive: productType.isActive,
-      productsCount: productType.productsCount || 0,
-      createdBy: productType.createdBy
-        ? {
-            _id: productType.createdBy._id,
-            name: `${productType.createdBy.firstName} ${productType.createdBy.lastName}`,
-            email: productType.createdBy.email,
-          }
-        : null,
-      updatedBy: productType.updatedBy
-        ? {
-            _id: productType.updatedBy._id,
-            name: `${productType.updatedBy.firstName} ${productType.updatedBy.lastName}`,
-            email: productType.updatedBy.email,
-          }
-        : null,
-      createdAt: productType.createdAt,
-      updatedAt: productType.updatedAt,
-    }));
+    const formattedProductTypes = await Promise.all(
+      productTypes.map(async (productType) => {
+        const productsCount = await Product.countDocuments({
+          productTypeId: productType._id,
+          isDeleted: false,
+        });
+
+        return {
+          _id: productType._id,
+          name: productType.name,
+          code: productType.code,
+          description: productType.description,
+          status: productType.status,
+          isActive: productType.isActive,
+          productsCount: productsCount,
+          createdBy: productType.createdBy
+            ? {
+                _id: productType.createdBy._id,
+                name: `${productType.createdBy.firstName} ${productType.createdBy.lastName}`,
+                email: productType.createdBy.email,
+              }
+            : null,
+          updatedBy: productType.updatedBy
+            ? {
+                _id: productType.updatedBy._id,
+                name: `${productType.updatedBy.firstName} ${productType.updatedBy.lastName}`,
+                email: productType.updatedBy.email,
+              }
+            : null,
+          createdAt: productType.createdAt,
+          updatedAt: productType.updatedAt,
+        };
+      })
+    );
 
     res.status(200).json({
       success: true,
@@ -48,6 +56,11 @@ const getAllProductTypes = async (req, res, next) => {
     });
   } catch (error) {
     console.error("Error fetching product types:", error);
+    console.error("Error details:", {
+      message: error.message,
+      stack: error.stack,
+      name: error.name,
+    });
     return next(
       AppError.internalServerError("Failed to retrieve product types")
     );
@@ -65,12 +78,16 @@ const getProductType = async (req, res, next) => {
       isDeleted: false,
     })
       .populate("createdBy", "firstName lastName email")
-      .populate("updatedBy", "firstName lastName email")
-      .populate("productsCount");
+      .populate("updatedBy", "firstName lastName email");
 
     if (!productType) {
       return next(AppError.notFound("Product type not found"));
     }
+
+    const productsCount = await Product.countDocuments({
+      productTypeId: productType._id,
+      isDeleted: false,
+    });
 
     const formattedProductType = {
       _id: productType._id,
@@ -79,7 +96,7 @@ const getProductType = async (req, res, next) => {
       description: productType.description,
       status: productType.status,
       isActive: productType.isActive,
-      productsCount: productType.productsCount || 0,
+      productsCount: productsCount,
       createdBy: productType.createdBy
         ? {
             _id: productType.createdBy._id,
@@ -104,6 +121,11 @@ const getProductType = async (req, res, next) => {
     });
   } catch (error) {
     console.error("Error fetching product type:", error);
+    console.error("Error details:", {
+      message: error.message,
+      stack: error.stack,
+      name: error.name,
+    });
     return next(
       AppError.internalServerError("Failed to retrieve product type")
     );
@@ -251,8 +273,12 @@ const updateProductType = async (req, res, next) => {
 
     const updatedProductType = await ProductType.findById(productType._id)
       .populate("createdBy", "firstName lastName email")
-      .populate("updatedBy", "firstName lastName email")
-      .populate("productsCount");
+      .populate("updatedBy", "firstName lastName email");
+
+    const productsCount = await Product.countDocuments({
+      productTypeId: updatedProductType._id,
+      isDeleted: false,
+    });
 
     res.status(200).json({
       success: true,
@@ -263,7 +289,7 @@ const updateProductType = async (req, res, next) => {
         description: updatedProductType.description,
         status: updatedProductType.status,
         isActive: updatedProductType.isActive,
-        productsCount: updatedProductType.productsCount || 0,
+        productsCount: productsCount,
         createdBy: updatedProductType.createdBy
           ? {
               _id: updatedProductType.createdBy._id,
