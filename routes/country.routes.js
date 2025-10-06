@@ -19,42 +19,42 @@ router.get(
 
 // Search countries
 router.get(
-  "/search",
+  "/countries/search",
   defaultPolicyAdapter.middleware("lookup", "read"),
   countryController.searchCountries
 );
 
 // Get country by code
 router.get(
-  "/code/:code",
+  "/countries/code/:code",
   defaultPolicyAdapter.middleware("lookup", "read"),
   countryController.getCountryByCode
 );
 
 // Get single country by ID (must come last)
 router.get(
-  "/:id",
+  "/countries/:id",
   defaultPolicyAdapter.middleware("lookup", "read"),
   countryController.getCountryById
 );
 
 // Create new country (requires write permission)
 router.post(
-  "/",
+  "/countries",
   defaultPolicyAdapter.middleware("lookup", "write"),
   countryController.createCountry
 );
 
 // Update country (requires write permission)
 router.put(
-  "/:id",
+  "/countries/:id",
   defaultPolicyAdapter.middleware("lookup", "write"),
   countryController.updateCountry
 );
 
 // Delete country (requires delete permission)
 router.delete(
-  "/:id",
+  "/countries/:id",
   defaultPolicyAdapter.middleware("lookup", "delete"),
   countryController.deleteCountry
 );
