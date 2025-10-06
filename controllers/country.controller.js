@@ -110,13 +110,15 @@ const getCountryByCode = async (req, res, next) => {
  */
 const createCountry = async (req, res, next) => {
   try {
-    const { code, name, displayname, callingCodes, isactive, userid } =
-      req.body;
+    const { code, name, displayname, callingCodes, isactive } = req.body;
+
+    // Get userId from authenticated user context (set by policyAdapter middleware)
+    const userid = req.ctx?.userId || req.user?.id;
 
     // Validate required fields
-    if (!code || !name || !displayname || !userid) {
+    if (!code || !name || !displayname) {
       return next(
-        AppError.badRequest("Code, name, displayname, and userid are required")
+        AppError.badRequest("Code, name, and displayname are required")
       );
     }
 
@@ -174,8 +176,10 @@ const createCountry = async (req, res, next) => {
 const updateCountry = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { code, name, displayname, callingCodes, isactive, userid } =
-      req.body;
+    const { code, name, displayname, callingCodes, isactive } = req.body;
+
+    // Get userId from authenticated user context (set by policyAdapter middleware)
+    const userid = req.ctx?.userId || req.user?.id;
 
     // Validate ObjectId format
     if (!id || !mongoose.Types.ObjectId.isValid(id)) {
