@@ -29,6 +29,8 @@ router.use("/api", require("./productType.routes"));
 router.use("/api", require("./product.routes"));
 router.use("/api", require("./pricing.routes"));
 router.use("/api", require("./country.routes"));
+router.use("/api", require("./contact.routes"));
+router.use("/api", require("./contactType.routes"));
 // router.use("/countries", require("./country.routes"));
 
 // User management API routes
