@@ -31,7 +31,9 @@ module.exports.getAllRoles = async (tenantId, category = null) => {
     if (category) {
       query.category = category;
     }
-    return await Role.find(query).sort({ category: 1, name: 1 });
+    return await Role.find(query)
+      .populate("permissions", "name code description")
+      .sort({ category: 1, name: 1 });
   } catch (error) {
     throw new Error(`Error fetching roles: ${error.message}`);
   }
@@ -51,7 +53,10 @@ module.exports.getRoleByCode = async (code, tenantId) => {
 
 module.exports.getRoleById = async (roleId, tenantId) => {
   try {
-    const role = await Role.findOne({ _id: roleId, tenantId });
+    const role = await Role.findOne({ _id: roleId, tenantId }).populate(
+      "permissions",
+      "name code description"
+    );
     if (!role) {
       throw new Error("Role not found");
     }
