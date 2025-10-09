@@ -9,7 +9,7 @@ const { AppError } = require("../errors/AppError");
 const getAllContactTypes = async (req, res, next) => {
   try {
     const contactTypes = await ContactType.find({ isdeleted: false })
-      .select("contactType displayName isactive createdAt updatedAt")
+      .select("contactType displayName code isactive createdAt updatedAt")
       .sort({ displayName: 1 });
 
     res.status(200).json({
@@ -41,7 +41,7 @@ const getContactTypeById = async (req, res, next) => {
     const contactType = await ContactType.findOne({
       _id: id,
       isdeleted: false,
-    }).select("contactType displayName isactive createdAt updatedAt");
+    }).select("contactType displayName code isactive createdAt updatedAt");
 
     if (!contactType) {
       return next(AppError.notFound("Contact type not found"));
@@ -66,19 +66,20 @@ const getContactTypeById = async (req, res, next) => {
  */
 const createContactType = async (req, res, next) => {
   try {
-    const { contactType, displayName, isactive } = req.body;
+    const { contactType, displayName, code, isactive } = req.body;
 
     const userid = req.ctx?.userId || req.user?.id;
 
-    if (!contactType || !displayName) {
+    if (!contactType || !displayName || !code) {
       return next(
-        AppError.badRequest("contactType and displayName are required")
+        AppError.badRequest("contactType, displayName, and code are required")
       );
     }
 
     const newContactType = await ContactType.create({
       contactType,
       displayName,
+      code,
       isactive: isactive !== undefined ? isactive : true,
       userid,
     });
@@ -111,7 +112,7 @@ const createContactType = async (req, res, next) => {
 const updateContactType = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { contactType, displayName, isactive } = req.body;
+    const { contactType, displayName, code, isactive } = req.body;
 
     const userid = req.ctx?.userId || req.user?.id;
 
@@ -129,6 +130,7 @@ const updateContactType = async (req, res, next) => {
 
     if (contactType) existingContactType.contactType = contactType;
     if (displayName) existingContactType.displayName = displayName;
+    if (code) existingContactType.code = code;
     if (typeof isactive !== "undefined")
       existingContactType.isactive = isactive;
     if (userid) existingContactType.userid = userid;
@@ -210,9 +212,10 @@ const searchContactTypes = async (req, res, next) => {
       $or: [
         { contactType: { $regex: searchTerm, $options: "i" } },
         { displayName: { $regex: searchTerm, $options: "i" } },
+        { code: { $regex: searchTerm, $options: "i" } },
       ],
     })
-      .select("contactType displayName isactive")
+      .select("contactType displayName code isactive")
       .sort({ displayName: 1 })
       .limit(20);
 
