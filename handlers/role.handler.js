@@ -31,9 +31,46 @@ module.exports.getAllRoles = async (tenantId, category = null) => {
     if (category) {
       query.category = category;
     }
-    return await Role.find(query)
-      .populate("permissions", "name code description")
-      .sort({ category: 1, name: 1 });
+    const roles = await Role.find(query).sort({ category: 1, name: 1 });
+
+    // Transform permissions to include full details
+    const rolesWithPermissions = await Promise.all(
+      roles.map(async (role) => {
+        const roleObj = role.toObject();
+        const transformedPermissions = await Promise.all(
+          roleObj.permissions.map(async (perm) => {
+            // Check if permission is an ObjectId
+            if (mongoose.Types.ObjectId.isValid(perm) && perm.length === 24) {
+              const permDoc = await Permission.findById(perm);
+              if (permDoc) {
+                return {
+                  _id: permDoc._id,
+                  name: permDoc.name,
+                  code: permDoc.code,
+                  description: permDoc.description,
+                };
+              }
+            }
+            // If it's a string code, try to find by code
+            const permByCode = await Permission.findOne({ code: perm });
+            if (permByCode) {
+              return {
+                _id: permByCode._id,
+                name: permByCode.name,
+                code: permByCode.code,
+                description: permByCode.description,
+              };
+            }
+            // Return as-is if not found
+            return { code: perm, name: perm };
+          })
+        );
+        roleObj.permissions = transformedPermissions;
+        return roleObj;
+      })
+    );
+
+    return rolesWithPermissions;
   } catch (error) {
     throw new Error(`Error fetching roles: ${error.message}`);
   }
@@ -53,14 +90,44 @@ module.exports.getRoleByCode = async (code, tenantId) => {
 
 module.exports.getRoleById = async (roleId, tenantId) => {
   try {
-    const role = await Role.findOne({ _id: roleId, tenantId }).populate(
-      "permissions",
-      "name code description"
-    );
+    const role = await Role.findOne({ _id: roleId, tenantId });
     if (!role) {
       throw new Error("Role not found");
     }
-    return role;
+
+    // Transform permissions to include full details
+    const roleObj = role.toObject();
+    const transformedPermissions = await Promise.all(
+      roleObj.permissions.map(async (perm) => {
+        // Check if permission is an ObjectId
+        if (mongoose.Types.ObjectId.isValid(perm) && perm.length === 24) {
+          const permDoc = await Permission.findById(perm);
+          if (permDoc) {
+            return {
+              _id: permDoc._id,
+              name: permDoc.name,
+              code: permDoc.code,
+              description: permDoc.description,
+            };
+          }
+        }
+        // If it's a string code, try to find by code
+        const permByCode = await Permission.findOne({ code: perm });
+        if (permByCode) {
+          return {
+            _id: permByCode._id,
+            name: permByCode.name,
+            code: permByCode.code,
+            description: permByCode.description,
+          };
+        }
+        // Return as-is if not found
+        return { code: perm, name: perm };
+      })
+    );
+    roleObj.permissions = transformedPermissions;
+
+    return roleObj;
   } catch (error) {
     throw new Error(`Error fetching role: ${error.message}`);
   }
