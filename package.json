@@ -31,6 +31,7 @@
     "url": "https://github.com/kashif147/user-service.git"
   },
   "dependencies": {
+    "@membership/policy-middleware": "github:kashif147/policy-middleware",
     "axios": "^1.8.4",
     "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
