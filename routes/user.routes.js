@@ -5,11 +5,7 @@ const { authenticate, requireTenant } = require("../middlewares/auth");
 const { defaultPolicyMiddleware } = require("../middlewares/policy.middleware");
 
 // User registration and login endpoints (no auth required)
-router.post(
-  "/users/register",
-  defaultPolicyMiddleware.requirePermission("user", "create"),
-  UserController.handleRegistration
-);
+router.post("/users/register", UserController.handleRegistration);
 router.post("/users/login", UserController.handleLogin);
 
 // Public user endpoints (no auth required)
