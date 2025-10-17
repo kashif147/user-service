@@ -80,3 +80,38 @@ module.exports.handleLogin = async (req, res, next) => {
     return next(AppError.internalServerError("Login failed"));
   }
 };
+
+module.exports.getUserByEmail = async (req, res, next) => {
+  try {
+    const { email } = req.params;
+
+    // Extract tenantId from request context
+    const tenantId = req.ctx?.tenantId;
+    if (!tenantId) {
+      return next(AppError.badRequest("Tenant context required"));
+    }
+
+    const user = await UserHandler.findUserByEmail(email, tenantId);
+    if (!user) {
+      return next(AppError.notFound("User not found"));
+    }
+
+    // Return user data without sensitive information
+    const userData = {
+      id: user._id,
+      email: user.userEmail,
+      firstName: user.userFirstName,
+      lastName: user.userLastName,
+      fullName: user.userFullName,
+      userType: user.userType,
+      tenantId: user.tenantId,
+      isActive: user.isActive,
+      createdAt: user.createdAt,
+    };
+
+    return res.status(200).json({ status: "success", data: userData });
+  } catch (error) {
+    console.error("Get User by Email Error:", error);
+    return next(AppError.internalServerError("Failed to retrieve user"));
+  }
+};
