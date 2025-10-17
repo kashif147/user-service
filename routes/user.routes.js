@@ -15,4 +15,11 @@ router.post(
 );
 router.post("/users/login", UserController.handleLogin);
 
+// User management endpoints
+router.get(
+  "/users/by-email/:email",
+  defaultPolicyMiddleware.requirePermission("user", "read"),
+  UserController.getUserByEmail
+);
+
 module.exports = router;
