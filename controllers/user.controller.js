@@ -85,13 +85,20 @@ module.exports.getUserByEmail = async (req, res, next) => {
   try {
     const { email } = req.params;
 
-    // Extract tenantId from request context
-    const tenantId = req.ctx?.tenantId;
-    if (!tenantId) {
-      return next(AppError.badRequest("Tenant context required"));
+    // For public endpoint, search across all tenants
+    // If tenantId is provided in query params, use it; otherwise search all
+    const tenantId = req.query.tenantId;
+
+    let user;
+    if (tenantId) {
+      // Search in specific tenant
+      user = await UserHandler.findUserByEmail(email, tenantId);
+    } else {
+      // Search across all tenants (public access)
+      const User = require("../models/user.model");
+      user = await User.findOne({ userEmail: email, isActive: true }).exec();
     }
 
-    const user = await UserHandler.findUserByEmail(email, tenantId);
     if (!user) {
       return next(AppError.notFound("User not found"));
     }

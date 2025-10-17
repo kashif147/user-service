@@ -12,14 +12,11 @@ router.post(
 );
 router.post("/users/login", UserController.handleLogin);
 
+// Public user endpoints (no auth required)
+router.get("/users/by-email/:email", UserController.getUserByEmail);
+
 // Protected user management endpoints (require authentication)
 router.use(authenticate);
 router.use(requireTenant);
-
-router.get(
-  "/users/by-email/:email",
-  defaultPolicyMiddleware.requirePermission("user", "read"),
-  UserController.getUserByEmail
-);
 
 module.exports = router;
