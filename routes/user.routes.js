@@ -4,10 +4,7 @@ const UserController = require("../controllers/user.controller");
 const { authenticate, requireTenant } = require("../middlewares/auth");
 const { defaultPolicyMiddleware } = require("../middlewares/policy.middleware");
 
-// Apply tenant enforcement to all routes (authentication is applied globally)
-router.use(requireTenant);
-
-// User registration and login endpoints
+// User registration and login endpoints (no auth required)
 router.post(
   "/users/register",
   defaultPolicyMiddleware.requirePermission("user", "create"),
@@ -15,7 +12,10 @@ router.post(
 );
 router.post("/users/login", UserController.handleLogin);
 
-// User management endpoints
+// Protected user management endpoints (require authentication)
+router.use(authenticate);
+router.use(requireTenant);
+
 router.get(
   "/users/by-email/:email",
   defaultPolicyMiddleware.requirePermission("user", "read"),
