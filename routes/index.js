@@ -4,6 +4,7 @@ const router = express.Router();
 router.use("/auth", require("./auth.routes"));
 router.use("/token", require("./token.routes"));
 router.use("/pkce", require("./pkce.routes"));
+router.use("/sessions", require("./sessions.routes"));
 
 // Centralized RBAC Policy Evaluation API
 router.use("/policy", require("./policy.routes"));

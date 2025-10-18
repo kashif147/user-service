@@ -12,6 +12,9 @@ router.post(
 );
 router.post("/users/login", UserController.handleLogin);
 
+// Public user validation endpoint for Azure B2C custom policies
+router.post("/users/validate", UserController.validateUser);
+
 // Protected user management endpoints (require authentication)
 router.use(authenticate);
 router.use(requireTenant);
