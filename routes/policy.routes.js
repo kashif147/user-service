@@ -46,6 +46,7 @@ router.post("/evaluate", async (req, res, next) => {
 
     if (result.decision === "PERMIT") {
       res.status(statusCode).json({
+        success: true,
         authorized: true,
         decision: result.decision,
         user: result.user,
@@ -58,7 +59,9 @@ router.post("/evaluate", async (req, res, next) => {
       });
     } else {
       res.status(statusCode).json({
+        success: false,
         authorized: false,
+        decision: result.decision,
         reason: result.reason,
         requiredRoles: result.requiredRoles || [],
         requiredPermissions: result.requiredPermissions || [],
