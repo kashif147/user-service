@@ -122,6 +122,30 @@ module.exports.validateUser = async (req, res, next) => {
     .substr(2, 9)}`;
   const startTime = Date.now();
 
+  // Azure B2C has a 30-second timeout for API connectors
+  // Set response timeout to ensure we respond within 25 seconds
+  const RESPONSE_TIMEOUT = 25000; // 25 seconds
+  let timeoutId = setTimeout(() => {
+    if (!res.headersSent) {
+      console.error(
+        `[${requestId}] ⚠️ Request timeout - responding with error`
+      );
+      return res.status(200).json({
+        version: "1.0.0",
+        action: "ValidationError",
+        userMessage: "Request timed out. Please try again.",
+      });
+    }
+  }, RESPONSE_TIMEOUT);
+
+  // Ensure response is sent only once
+  const sendResponse = (status, data) => {
+    if (!res.headersSent) {
+      clearTimeout(timeoutId);
+      return res.status(status).json(data);
+    }
+  };
+
   try {
     console.log(`\n${"=".repeat(80)}`);
     console.log(`[${requestId}] === Azure B2C User Flow Validation ===`);
@@ -164,7 +188,7 @@ module.exports.validateUser = async (req, res, next) => {
       const duration = Date.now() - startTime;
       console.log(`[${requestId}] Response time: ${duration}ms`);
       console.log(`[${requestId}] ${"=".repeat(80)}\n`);
-      return res.status(200).json({
+      return sendResponse(200, {
         version: "1.0.0",
         action: "ValidationError",
         userMessage: "Email is required.",
@@ -178,7 +202,7 @@ module.exports.validateUser = async (req, res, next) => {
       const duration = Date.now() - startTime;
       console.log(`[${requestId}] Response time: ${duration}ms`);
       console.log(`[${requestId}] ${"=".repeat(80)}\n`);
-      return res.status(200).json({
+      return sendResponse(200, {
         version: "1.0.0",
         action: "ValidationError",
         userMessage: "Please enter a valid email address.",
@@ -191,7 +215,7 @@ module.exports.validateUser = async (req, res, next) => {
       const duration = Date.now() - startTime;
       console.log(`[${requestId}] Response time: ${duration}ms`);
       console.log(`[${requestId}] ${"=".repeat(80)}\n`);
-      return res.status(200).json({
+      return sendResponse(200, {
         version: "1.0.0",
         action: "ValidationError",
         userMessage: "Please enter a valid mobile phone number.",
@@ -204,7 +228,7 @@ module.exports.validateUser = async (req, res, next) => {
       const duration = Date.now() - startTime;
       console.log(`[${requestId}] Response time: ${duration}ms`);
       console.log(`[${requestId}] ${"=".repeat(80)}\n`);
-      return res.status(200).json({
+      return sendResponse(200, {
         version: "1.0.0",
         action: "ValidationError",
         userMessage: "Please enter a valid member number.",
@@ -216,12 +240,30 @@ module.exports.validateUser = async (req, res, next) => {
     console.log(`[${requestId}] 🆔 Client ID: ${client_id || "not provided"}`);
 
     // Search for user across all tenants (public endpoint)
+    // Add timeout to database query to prevent hanging
     const User = require("../models/user.model");
     const dbStartTime = Date.now();
-    const user = await User.findOne({
+
+    // Create a promise with timeout
+    const queryPromise = User.findOne({
       userEmail: email,
       isActive: true,
-    }).exec();
+    })
+      .maxTimeMS(5000) // 5 second timeout for MongoDB query
+      .lean() // Use lean() for faster query
+      .exec();
+
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error("Database query timeout")), 5000);
+    });
+
+    const user = await Promise.race([queryPromise, timeoutPromise]).catch(
+      (error) => {
+        console.error(`[${requestId}] ⚠️ Database query error:`, error.message);
+        return null; // Return null on timeout/error, will be treated as user not found
+      }
+    );
+
     const dbDuration = Date.now() - dbStartTime;
     console.log(`[${requestId}] ⏱️  Database query time: ${dbDuration}ms`);
 
@@ -259,7 +301,7 @@ module.exports.validateUser = async (req, res, next) => {
         `[${requestId}] 📤 Response: action=Continue (Azure B2C will proceed with registration)`
       );
       console.log(`[${requestId}] ${"=".repeat(80)}\n`);
-      return res.status(200).json(responseData);
+      return sendResponse(200, responseData);
     }
 
     console.log(`[${requestId}] 👤 User FOUND in database:`, {
@@ -286,7 +328,7 @@ module.exports.validateUser = async (req, res, next) => {
       );
       console.log(`[${requestId}] ${"=".repeat(80)}\n`);
 
-      return res.status(200).json({
+      return sendResponse(200, {
         version: "1.0.0",
         action: "ValidationError",
         userMessage:
@@ -373,7 +415,7 @@ module.exports.validateUser = async (req, res, next) => {
     console.log(`[${requestId}] 📤 Response: action=Continue`);
     console.log(`[${requestId}] ${"=".repeat(80)}\n`);
 
-    return res.status(200).json(responseData);
+    return sendResponse(200, responseData);
   } catch (error) {
     console.error(`[${requestId}] ❌ User Validation Error:`, error);
     console.error(`[${requestId}] Stack:`, error.stack);
@@ -383,7 +425,7 @@ module.exports.validateUser = async (req, res, next) => {
 
     // Return validation error for unexpected issues
     // NOTE: Must return HTTP 200 even for errors (Azure B2C requirement)
-    return res.status(200).json({
+    return sendResponse(200, {
       version: "1.0.0",
       action: "ValidationError",
       userMessage: "An error occurred during validation. Please try again.",

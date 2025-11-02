@@ -29,8 +29,20 @@ class PolicyCache {
       if (process.env.REDIS_URL) {
         config = {
           url: process.env.REDIS_URL,
-          retryDelayOnFailover: 100,
-          maxRetriesPerRequest: 3,
+          socket: {
+            reconnectStrategy: (retries) => {
+              if (retries > 10) {
+                console.error("Redis PolicyCache: Max reconnection attempts reached");
+                return false;
+              }
+              const delay = Math.min(retries * 1000, 30000);
+              console.log(`Redis PolicyCache: Reconnecting in ${delay}ms (attempt ${retries})`);
+              return delay;
+            },
+            connectTimeout: 10000,
+            keepAlive: 30000, // Keep connection alive
+          },
+          pingInterval: 60000, // Ping every 60 seconds
         };
       } else {
         // Fallback to individual config options
@@ -38,8 +50,20 @@ class PolicyCache {
           host: process.env.REDIS_HOST || "localhost",
           port: process.env.REDIS_PORT || 6379,
           db: process.env.REDIS_DB || 0,
-          retryDelayOnFailover: 100,
-          maxRetriesPerRequest: 3,
+          socket: {
+            reconnectStrategy: (retries) => {
+              if (retries > 10) {
+                console.error("Redis PolicyCache: Max reconnection attempts reached");
+                return false;
+              }
+              const delay = Math.min(retries * 1000, 30000);
+              console.log(`Redis PolicyCache: Reconnecting in ${delay}ms (attempt ${retries})`);
+              return delay;
+            },
+            connectTimeout: 10000,
+            keepAlive: 30000,
+          },
+          pingInterval: 60000,
         };
 
         // Only add password if it exists
@@ -51,17 +75,36 @@ class PolicyCache {
       this.redis = Redis.createClient(config);
 
       this.redis.on("error", (err) => {
-        console.error("Redis connection error:", err);
-        this.enabled = false; // Disable Redis on error
+        // Don't disable Redis on connection reset - it will reconnect
+        if (err.code === "ECONNRESET") {
+          console.warn("Redis PolicyCache: Connection reset - will reconnect");
+        } else {
+          console.error("Redis PolicyCache connection error:", err.message);
+        }
+        // Don't disable on temporary errors
+        if (!["ECONNRESET", "ETIMEDOUT", "ENOTFOUND"].includes(err.code)) {
+          this.enabled = false; // Only disable on persistent errors
+        }
       });
 
       this.redis.on("connect", () => {
-        console.log("Redis connected for policy caching");
+        console.log("Redis PolicyCache connected");
+        this.enabled = true; // Re-enable when connected
+      });
+
+      this.redis.on("ready", () => {
+        console.log("Redis PolicyCache ready");
+        this.enabled = true;
+      });
+
+      this.redis.on("reconnecting", () => {
+        console.log("Redis PolicyCache reconnecting...");
       });
 
       await this.redis.connect();
     } catch (error) {
-      console.error("Failed to initialize Redis:", error);
+      console.error("Failed to initialize Redis PolicyCache:", error.message);
+      // Don't permanently disable - allow retry
       this.enabled = false;
     }
   }
