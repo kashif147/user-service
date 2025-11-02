@@ -158,14 +158,14 @@ module.exports.validateUser = async (req, res, next) => {
     } = req.body;
 
     // Validate required fields for User Flows
+    // NOTE: Azure B2C requires HTTP 200 status even for validation errors
     if (!email) {
       console.log(`[${requestId}] ❌ Validation failed: Email is required`);
       const duration = Date.now() - startTime;
       console.log(`[${requestId}] Response time: ${duration}ms`);
       console.log(`[${requestId}] ${"=".repeat(80)}\n`);
-      return res.status(400).json({
+      return res.status(200).json({
         version: "1.0.0",
-        status: 400,
         action: "ValidationError",
         userMessage: "Email is required.",
       });
@@ -178,9 +178,8 @@ module.exports.validateUser = async (req, res, next) => {
       const duration = Date.now() - startTime;
       console.log(`[${requestId}] Response time: ${duration}ms`);
       console.log(`[${requestId}] ${"=".repeat(80)}\n`);
-      return res.status(400).json({
+      return res.status(200).json({
         version: "1.0.0",
-        status: 400,
         action: "ValidationError",
         userMessage: "Please enter a valid email address.",
       });
@@ -192,9 +191,8 @@ module.exports.validateUser = async (req, res, next) => {
       const duration = Date.now() - startTime;
       console.log(`[${requestId}] Response time: ${duration}ms`);
       console.log(`[${requestId}] ${"=".repeat(80)}\n`);
-      return res.status(400).json({
+      return res.status(200).json({
         version: "1.0.0",
-        status: 400,
         action: "ValidationError",
         userMessage: "Please enter a valid mobile phone number.",
       });
@@ -206,9 +204,8 @@ module.exports.validateUser = async (req, res, next) => {
       const duration = Date.now() - startTime;
       console.log(`[${requestId}] Response time: ${duration}ms`);
       console.log(`[${requestId}] ${"=".repeat(80)}\n`);
-      return res.status(400).json({
+      return res.status(200).json({
         version: "1.0.0",
-        status: 400,
         action: "ValidationError",
         userMessage: "Please enter a valid member number.",
       });
@@ -274,6 +271,7 @@ module.exports.validateUser = async (req, res, next) => {
     });
 
     // Block duplicate signups - if user exists in database and trying to signup
+    // NOTE: Must return HTTP 200 even for ValidationError (Azure B2C requirement)
     if (step === "signup") {
       console.log(
         `[${requestId}] 🚫 BLOCKING: Existing user attempting duplicate signup!`
@@ -288,9 +286,8 @@ module.exports.validateUser = async (req, res, next) => {
       );
       console.log(`[${requestId}] ${"=".repeat(80)}\n`);
 
-      return res.status(400).json({
+      return res.status(200).json({
         version: "1.0.0",
-        status: 400,
         action: "ValidationError",
         userMessage:
           "An account with this email address already exists. Please sign in instead.",
@@ -385,9 +382,9 @@ module.exports.validateUser = async (req, res, next) => {
     console.log(`[${requestId}] ${"=".repeat(80)}\n`);
 
     // Return validation error for unexpected issues
-    return res.status(400).json({
+    // NOTE: Must return HTTP 200 even for errors (Azure B2C requirement)
+    return res.status(200).json({
       version: "1.0.0",
-      status: 400,
       action: "ValidationError",
       userMessage: "An error occurred during validation. Please try again.",
     });
