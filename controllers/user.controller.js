@@ -116,7 +116,10 @@ module.exports.getUserByEmail = async (req, res, next) => {
   }
 };
 
-module.exports.validateUser = async (req, res, next) => {
+const validateUserInternal = async (req, res, next) => {
+  // CRITICAL: Don't call next() with errors - Azure B2C requires HTTP 200 always
+  // Wrap entire function to catch any unhandled errors
+
   const requestId = `b2c-${Date.now()}-${Math.random()
     .toString(36)
     .substr(2, 9)}`;
@@ -130,7 +133,7 @@ module.exports.validateUser = async (req, res, next) => {
       console.error(
         `[${requestId}] ⚠️ Request timeout - responding with error`
       );
-      return res.status(200).json({
+      res.status(200).json({
         version: "1.0.0",
         action: "ValidationError",
         userMessage: "Request timed out. Please try again.",
@@ -142,8 +145,15 @@ module.exports.validateUser = async (req, res, next) => {
   const sendResponse = (status, data) => {
     if (!res.headersSent) {
       clearTimeout(timeoutId);
-      return res.status(status).json(data);
+      try {
+        return res.status(status).json(data);
+      } catch (err) {
+        console.error(`[${requestId}] Error sending response:`, err);
+        // If response already sent, ignore
+        return;
+      }
     }
+    return false; // Headers already sent
   };
 
   try {
@@ -430,5 +440,22 @@ module.exports.validateUser = async (req, res, next) => {
       action: "ValidationError",
       userMessage: "An error occurred during validation. Please try again.",
     });
+  }
+};
+
+// Export wrapped version to ensure no errors escape to global handler
+module.exports.validateUser = async (req, res, next) => {
+  try {
+    await validateUserInternal(req, res, next);
+  } catch (outerError) {
+    // Final catch-all for any errors that escaped (should never happen)
+    console.error("FATAL: validateUser threw synchronously:", outerError);
+    if (!res.headersSent) {
+      return res.status(200).json({
+        version: "1.0.0",
+        action: "ValidationError",
+        userMessage: "An error occurred during validation. Please try again.",
+      });
+    }
   }
 };
