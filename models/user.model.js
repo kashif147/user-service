@@ -59,6 +59,9 @@ UserSchema.index({ tenantId: 1, userEmail: 1 }, { unique: true }); // Unique ema
 UserSchema.index({ tenantId: 1, userMicrosoftId: 1 }, { unique: true }); // Unique Microsoft ID per tenant
 UserSchema.index({ tenantId: 1, userSubject: 1 }, { unique: true }); // Unique subject per tenant
 
+// Index for Azure B2C validation endpoint (cross-tenant duplicate check)
+UserSchema.index({ userEmail: 1, isActive: 1 }); // Fast lookup for validation endpoint
+
 // Index for refresh token lookups
 UserSchema.index({ "tokens.refresh_token": 1 }, { sparse: true }); // Sparse index for refresh token queries
 

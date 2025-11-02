@@ -126,8 +126,8 @@ const validateUserInternal = async (req, res, next) => {
   const startTime = Date.now();
 
   // Azure B2C has a 30-second timeout for API connectors
-  // Set response timeout to ensure we respond within 25 seconds
-  const RESPONSE_TIMEOUT = 25000; // 25 seconds
+  // Set response timeout to ensure we respond within 20 seconds (leaving buffer)
+  const RESPONSE_TIMEOUT = 20000; // 20 seconds
   let timeoutId = setTimeout(() => {
     if (!res.headersSent) {
       console.error(
@@ -170,12 +170,34 @@ const validateUserInternal = async (req, res, next) => {
     );
 
     // Azure B2C User Flows send data in a different format
+    // Extension attributes come with format: extension_<appId>_<attributeName>
+    // Extract extension attributes and map to simplified field names
+    let memberno = null;
+    let mobilephone = null;
+
+    // Scan for extension attributes (format: extension_<appId>_<AttributeName>)
+    for (const [key, value] of Object.entries(req.body)) {
+      if (key.startsWith("extension_")) {
+        const lowerKey = key.toLowerCase();
+        // Match MemberNo (case insensitive)
+        if (lowerKey.includes("memberno") || lowerKey.endsWith("_memberno")) {
+          memberno = value;
+        }
+        // Match mobilePhone (case insensitive)
+        if (
+          lowerKey.includes("mobilephone") ||
+          lowerKey.endsWith("_mobilephone")
+        ) {
+          mobilephone = value;
+        }
+      }
+    }
+
     const {
       email,
       givenName,
       surname,
-      memberno, // Custom optional attribute
-      mobilephone, // Custom optional attribute
+      // memberno and mobilephone extracted above from extension attributes
       displayName,
       jobTitle,
       streetAddress,
@@ -190,6 +212,18 @@ const validateUserInternal = async (req, res, next) => {
       identities,
       ...otherClaims
     } = req.body;
+
+    // Use extension attributes if found, otherwise use direct field names
+    memberno = memberno || req.body.memberno || null;
+    mobilephone = mobilephone || req.body.mobilephone || null;
+
+    // Log extracted values for debugging
+    if (memberno || mobilephone) {
+      console.log(`[${requestId}] 📋 Extracted extension attributes:`, {
+        memberno: memberno || "not provided",
+        mobilephone: mobilephone || "not provided",
+      });
+    }
 
     // Validate required fields for User Flows
     // NOTE: Azure B2C requires HTTP 200 status even for validation errors
@@ -249,22 +283,48 @@ const validateUserInternal = async (req, res, next) => {
     console.log(`[${requestId}] 📋 Step: ${step || "not provided"}`);
     console.log(`[${requestId}] 🆔 Client ID: ${client_id || "not provided"}`);
 
+    // Check MongoDB connection state before querying
+    const mongoose = require("mongoose");
+    if (mongoose.connection.readyState !== 1) {
+      // 0 = disconnected, 1 = connected, 2 = connecting, 3 = disconnecting
+      console.error(
+        `[${requestId}] ⚠️ MongoDB not connected (state: ${mongoose.connection.readyState}) - treating as user not found`
+      );
+      const duration = Date.now() - startTime;
+      console.log(`[${requestId}] ⏱️  Total response time: ${duration}ms`);
+      // Treat as new user if DB is unavailable (fail open)
+      const defaultTenantId =
+        process.env.DEFAULT_TENANT_ID || "default-tenant-id";
+      return sendResponse(200, {
+        version: "1.0.0",
+        action: "Continue",
+        email: email,
+        tenantId: defaultTenantId,
+      });
+    }
+
     // Search for user across all tenants (public endpoint)
-    // Add timeout to database query to prevent hanging
+    // Add aggressive timeout to database query to prevent hanging
     const User = require("../models/user.model");
     const dbStartTime = Date.now();
+
+    // Reduce timeout to 3 seconds for faster failure and response
+    const QUERY_TIMEOUT = 3000; // 3 seconds
 
     // Create a promise with timeout
     const queryPromise = User.findOne({
       userEmail: email,
       isActive: true,
     })
-      .maxTimeMS(5000) // 5 second timeout for MongoDB query
+      .maxTimeMS(QUERY_TIMEOUT) // 3 second timeout for MongoDB query
       .lean() // Use lean() for faster query
       .exec();
 
     const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error("Database query timeout")), 5000);
+      setTimeout(
+        () => reject(new Error("Database query timeout")),
+        QUERY_TIMEOUT
+      );
     });
 
     const user = await Promise.race([queryPromise, timeoutPromise]).catch(
