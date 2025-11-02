@@ -146,14 +146,28 @@ const validateUserInternal = async (req, res, next) => {
     if (!res.headersSent) {
       clearTimeout(timeoutId);
       try {
-        return res.status(status).json(data);
+        console.log(`[${requestId}] 🚀 Sending response: HTTP ${status}`);
+        console.log(
+          `[${requestId}] 📦 Response data:`,
+          JSON.stringify(data, null, 2)
+        );
+        const response = res.status(status).json(data);
+        console.log(
+          `[${requestId}] ✅ Response sent successfully - HTTP ${status}`
+        );
+        return response;
       } catch (err) {
-        console.error(`[${requestId}] Error sending response:`, err);
+        console.error(`[${requestId}] ❌ Error sending response:`, err);
+        console.error(`[${requestId}] Error stack:`, err.stack);
         // If response already sent, ignore
         return;
       }
+    } else {
+      console.warn(
+        `[${requestId}] ⚠️  Response headers already sent - cannot send again`
+      );
+      return false; // Headers already sent
     }
-    return false; // Headers already sent
   };
 
   try {
@@ -368,7 +382,11 @@ const validateUserInternal = async (req, res, next) => {
       const duration = Date.now() - startTime;
       console.log(`[${requestId}] ⏱️  Total response time: ${duration}ms`);
       console.log(
-        `[${requestId}] 📤 Response: action=Continue (Azure B2C will proceed with registration)`
+        `[${requestId}] 📤 Response: HTTP 200, action=Continue (Azure B2C will proceed with registration)`
+      );
+      console.log(
+        `[${requestId}] 📤 Response body:`,
+        JSON.stringify(responseData, null, 2)
       );
       console.log(`[${requestId}] ${"=".repeat(80)}\n`);
       return sendResponse(200, responseData);
@@ -383,27 +401,40 @@ const validateUserInternal = async (req, res, next) => {
     });
 
     // Block duplicate signups - if user exists in database and trying to signup
-    // NOTE: Must return HTTP 200 even for ValidationError (Azure B2C requirement)
-    if (step === "signup") {
+    // NOTE: "PostAttributeCollection" is the step name in Azure B2C User Flows during signup
+    // Must return HTTP 200 even for ValidationError (Azure B2C requirement)
+    const isSignupStep =
+      step === "signup" || step === "PostAttributeCollection" || !step;
+
+    if (isSignupStep) {
       console.log(
         `[${requestId}] 🚫 BLOCKING: Existing user attempting duplicate signup!`
       );
       console.log(
         `[${requestId}] 📋 User already exists in database - preventing duplicate registration`
       );
-      const duration = Date.now() - startTime;
-      console.log(`[${requestId}] ⏱️  Response time: ${duration}ms`);
-      console.log(
-        `[${requestId}] 📤 Response: action=ValidationError (User already exists)`
-      );
-      console.log(`[${requestId}] ${"=".repeat(80)}\n`);
+      console.log(`[${requestId}] 📋 Step: "${step}" - treating as signup`);
 
-      return sendResponse(200, {
+      const errorResponse = {
         version: "1.0.0",
         action: "ValidationError",
         userMessage:
           "An account with this email address already exists. Please sign in instead.",
-      });
+      };
+
+      console.log(
+        `[${requestId}] 📤 Response body:`,
+        JSON.stringify(errorResponse, null, 2)
+      );
+
+      const duration = Date.now() - startTime;
+      console.log(`[${requestId}] ⏱️  Response time: ${duration}ms`);
+      console.log(
+        `[${requestId}] 📤 Response: HTTP 200, action=ValidationError (User already exists)`
+      );
+      console.log(`[${requestId}] ${"=".repeat(80)}\n`);
+
+      return sendResponse(200, errorResponse);
     }
 
     // For non-signup steps (signin, profile), allow continuation
