@@ -117,10 +117,23 @@ module.exports.getUserByEmail = async (req, res, next) => {
 };
 
 module.exports.validateUser = async (req, res, next) => {
+  const requestId = `b2c-${Date.now()}-${Math.random()
+    .toString(36)
+    .substr(2, 9)}`;
+  const startTime = Date.now();
+
   try {
-    console.log("=== Azure B2C User Flow Validation ===");
-    console.log("Request body:", JSON.stringify(req.body, null, 2));
-    console.log("Request headers:", req.headers);
+    console.log(`\n${"=".repeat(80)}`);
+    console.log(`[${requestId}] === Azure B2C User Flow Validation ===`);
+    console.log(`[${requestId}] Timestamp: ${new Date().toISOString()}`);
+    console.log(
+      `[${requestId}] Request body:`,
+      JSON.stringify(req.body, null, 2)
+    );
+    console.log(
+      `[${requestId}] Request headers:`,
+      JSON.stringify(req.headers, null, 2)
+    );
 
     // Azure B2C User Flows send data in a different format
     const {
@@ -146,7 +159,10 @@ module.exports.validateUser = async (req, res, next) => {
 
     // Validate required fields for User Flows
     if (!email) {
-      console.log("Validation failed: Email is required");
+      console.log(`[${requestId}] ❌ Validation failed: Email is required`);
+      const duration = Date.now() - startTime;
+      console.log(`[${requestId}] Response time: ${duration}ms`);
+      console.log(`[${requestId}] ${"=".repeat(80)}\n`);
       return res.status(400).json({
         version: "1.0.0",
         status: 400,
@@ -158,7 +174,10 @@ module.exports.validateUser = async (req, res, next) => {
     // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
-      console.log("Validation failed: Invalid email format");
+      console.log(`[${requestId}] ❌ Validation failed: Invalid email format`);
+      const duration = Date.now() - startTime;
+      console.log(`[${requestId}] Response time: ${duration}ms`);
+      console.log(`[${requestId}] ${"=".repeat(80)}\n`);
       return res.status(400).json({
         version: "1.0.0",
         status: 400,
@@ -169,7 +188,10 @@ module.exports.validateUser = async (req, res, next) => {
 
     // Validate mobile phone if provided
     if (mobilephone && !/^\+?[\d\s\-\(\)]{10,}$/.test(mobilephone)) {
-      console.log("Validation failed: Invalid mobile phone");
+      console.log(`[${requestId}] ❌ Validation failed: Invalid mobile phone`);
+      const duration = Date.now() - startTime;
+      console.log(`[${requestId}] Response time: ${duration}ms`);
+      console.log(`[${requestId}] ${"=".repeat(80)}\n`);
       return res.status(400).json({
         version: "1.0.0",
         status: 400,
@@ -180,7 +202,10 @@ module.exports.validateUser = async (req, res, next) => {
 
     // Validate member number if provided (assuming it should be alphanumeric)
     if (memberno && !/^[A-Za-z0-9\-_]{3,20}$/.test(memberno)) {
-      console.log("Validation failed: Invalid member number");
+      console.log(`[${requestId}] ❌ Validation failed: Invalid member number`);
+      const duration = Date.now() - startTime;
+      console.log(`[${requestId}] Response time: ${duration}ms`);
+      console.log(`[${requestId}] ${"=".repeat(80)}\n`);
       return res.status(400).json({
         version: "1.0.0",
         status: 400,
@@ -189,17 +214,24 @@ module.exports.validateUser = async (req, res, next) => {
       });
     }
 
-    console.log(`Searching for user with email: ${email}`);
+    console.log(`[${requestId}] 🔍 Searching for user with email: ${email}`);
+    console.log(`[${requestId}] 📋 Step: ${step || "not provided"}`);
+    console.log(`[${requestId}] 🆔 Client ID: ${client_id || "not provided"}`);
 
     // Search for user across all tenants (public endpoint)
     const User = require("../models/user.model");
+    const dbStartTime = Date.now();
     const user = await User.findOne({
       userEmail: email,
       isActive: true,
     }).exec();
+    const dbDuration = Date.now() - dbStartTime;
+    console.log(`[${requestId}] ⏱️  Database query time: ${dbDuration}ms`);
 
     if (!user) {
-      console.log("User not found in database - new user registration");
+      console.log(
+        `[${requestId}] ✨ User NOT found in database - NEW USER REGISTRATION`
+      );
 
       // For new users, return input claims plus default tenantId
       // You can customize the default tenantId logic here
@@ -221,18 +253,54 @@ module.exports.validateUser = async (req, res, next) => {
       };
 
       console.log(
-        "New user - returning input claims with default tenantId:",
-        responseData
+        `[${requestId}] ✅ New user - returning input claims with default tenantId:`,
+        JSON.stringify(responseData, null, 2)
       );
+      const duration = Date.now() - startTime;
+      console.log(`[${requestId}] ⏱️  Total response time: ${duration}ms`);
+      console.log(
+        `[${requestId}] 📤 Response: action=Continue (Azure B2C will proceed with registration)`
+      );
+      console.log(`[${requestId}] ${"=".repeat(80)}\n`);
       return res.status(200).json(responseData);
     }
 
-    console.log("User found:", {
-      id: user._id,
+    console.log(`[${requestId}] 👤 User FOUND in database:`, {
+      id: user._id.toString(),
       email: user.userEmail,
       userType: user.userType,
-      tenantId: user.tenantId,
+      tenantId: user.tenantId?.toString(),
+      userMicrosoftId: user.userMicrosoftId || "not set",
     });
+
+    // Block duplicate signups - if user exists in database and trying to signup
+    if (step === "signup") {
+      console.log(
+        `[${requestId}] 🚫 BLOCKING: Existing user attempting duplicate signup!`
+      );
+      console.log(
+        `[${requestId}] 📋 User already exists in database - preventing duplicate registration`
+      );
+      const duration = Date.now() - startTime;
+      console.log(`[${requestId}] ⏱️  Response time: ${duration}ms`);
+      console.log(
+        `[${requestId}] 📤 Response: action=ValidationError (User already exists)`
+      );
+      console.log(`[${requestId}] ${"=".repeat(80)}\n`);
+
+      return res.status(400).json({
+        version: "1.0.0",
+        status: 400,
+        action: "ValidationError",
+        userMessage:
+          "An account with this email address already exists. Please sign in instead.",
+      });
+    }
+
+    // For non-signup steps (signin, profile), allow continuation
+    console.log(
+      `[${requestId}] ✅ User exists but step is "${step}" - allowing continuation (signin/profile update)`
+    );
 
     // User found - prepare response data for User Flows
     const responseData = {
@@ -277,19 +345,19 @@ module.exports.validateUser = async (req, res, next) => {
       switch (step) {
         case "signup":
           // Additional validation for signup
-          console.log("Processing signup step");
+          console.log(`[${requestId}] 📝 Processing signup step`);
           break;
         case "profile":
           // Additional validation for profile updates
-          console.log("Processing profile step");
+          console.log(`[${requestId}] 👤 Processing profile step`);
           break;
         case "signin":
           // Additional validation for sign in
-          console.log("Processing signin step");
+          console.log(`[${requestId}] 🔑 Processing signin step`);
           break;
         default:
           // Default behavior
-          console.log(`Processing step: ${step}`);
+          console.log(`[${requestId}] 🔄 Processing step: ${step || "none"}`);
           break;
       }
     }
@@ -299,11 +367,22 @@ module.exports.validateUser = async (req, res, next) => {
     responseData.extension_MembershipUserType = user.userType || "Standard";
     responseData.extension_MembershipTenantId = user.tenantId?.toString() || "";
 
-    console.log("Validation successful - returning claims:", responseData);
+    console.log(
+      `[${requestId}] ✅ Validation successful - returning claims:`,
+      JSON.stringify(responseData, null, 2)
+    );
+    const duration = Date.now() - startTime;
+    console.log(`[${requestId}] ⏱️  Total response time: ${duration}ms`);
+    console.log(`[${requestId}] 📤 Response: action=Continue`);
+    console.log(`[${requestId}] ${"=".repeat(80)}\n`);
 
     return res.status(200).json(responseData);
   } catch (error) {
-    console.error("User Validation Error:", error);
+    console.error(`[${requestId}] ❌ User Validation Error:`, error);
+    console.error(`[${requestId}] Stack:`, error.stack);
+    const duration = Date.now() - startTime;
+    console.log(`[${requestId}] ⏱️  Error response time: ${duration}ms`);
+    console.log(`[${requestId}] ${"=".repeat(80)}\n`);
 
     // Return validation error for unexpected issues
     return res.status(400).json({
