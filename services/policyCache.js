@@ -9,6 +9,8 @@ class PolicyCache {
   constructor(options = {}) {
     this.redis = null;
     this.enabled = options.enabled !== false;
+    this.initialized = false;
+    this.initializing = false;
     this.ttl = options.ttl || 300; // 5 minutes default
     this.prefix = options.prefix || "policy:";
     this.localCache = new Map(); // Fallback local cache
@@ -20,7 +22,20 @@ class PolicyCache {
    * Initialize Redis connection
    */
   async initialize() {
-    if (!this.enabled) return;
+    if (!this.enabled) {
+      this.initialized = true;
+      return;
+    }
+
+    if (this.initializing) {
+      // Wait for ongoing initialization
+      while (this.initializing) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      return;
+    }
+
+    this.initializing = true;
 
     try {
       let config;
@@ -32,11 +47,15 @@ class PolicyCache {
           socket: {
             reconnectStrategy: (retries) => {
               if (retries > 10) {
-                console.error("Redis PolicyCache: Max reconnection attempts reached");
+                console.error(
+                  "Redis PolicyCache: Max reconnection attempts reached"
+                );
                 return false;
               }
               const delay = Math.min(retries * 1000, 30000);
-              console.log(`Redis PolicyCache: Reconnecting in ${delay}ms (attempt ${retries})`);
+              console.log(
+                `Redis PolicyCache: Reconnecting in ${delay}ms (attempt ${retries})`
+              );
               return delay;
             },
             connectTimeout: 10000,
@@ -53,11 +72,15 @@ class PolicyCache {
           socket: {
             reconnectStrategy: (retries) => {
               if (retries > 10) {
-                console.error("Redis PolicyCache: Max reconnection attempts reached");
+                console.error(
+                  "Redis PolicyCache: Max reconnection attempts reached"
+                );
                 return false;
               }
               const delay = Math.min(retries * 1000, 30000);
-              console.log(`Redis PolicyCache: Reconnecting in ${delay}ms (attempt ${retries})`);
+              console.log(
+                `Redis PolicyCache: Reconnecting in ${delay}ms (attempt ${retries})`
+              );
               return delay;
             },
             connectTimeout: 10000,
@@ -101,11 +124,26 @@ class PolicyCache {
         console.log("Redis PolicyCache reconnecting...");
       });
 
+      this.redis.on("end", () => {
+        console.warn("Redis PolicyCache connection ended - will reconnect");
+        // Don't set redis to null, let reconnectStrategy handle it
+      });
+
+      this.redis.on("close", () => {
+        console.warn("Redis PolicyCache connection closed");
+        // Don't set redis to null, let reconnectStrategy handle it
+      });
+
       await this.redis.connect();
+      this.initialized = true;
     } catch (error) {
       console.error("Failed to initialize Redis PolicyCache:", error.message);
       // Don't permanently disable - allow retry
       this.enabled = false;
+      this.redis = null;
+      this.initialized = true;
+    } finally {
+      this.initializing = false;
     }
   }
 
@@ -115,11 +153,23 @@ class PolicyCache {
    * @returns {Promise<Object|null>} Cached result or null
    */
   async get(key) {
-    if (!this.enabled) {
+    // Wait for initialization if not complete
+    if (!this.initialized && this.initializing) {
+      while (this.initializing) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    }
+
+    if (!this.enabled || !this.redis) {
       return this.getFromLocalCache(key);
     }
 
     try {
+      // Check again inside try block to handle race conditions
+      if (!this.redis) {
+        return this.getFromLocalCache(key);
+      }
+
       // Try Redis first
       const cached = await this.redis.get(this.prefix + key);
       if (cached) {
@@ -144,12 +194,25 @@ class PolicyCache {
    * @param {number} ttl - Time to live in seconds
    */
   async set(key, value, ttl = this.ttl) {
-    if (!this.enabled) {
+    // Wait for initialization if not complete
+    if (!this.initialized && this.initializing) {
+      while (this.initializing) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    }
+
+    if (!this.enabled || !this.redis) {
       this.setLocalCache(key, value);
       return;
     }
 
     try {
+      // Check again inside try block to handle race conditions
+      if (!this.redis) {
+        this.setLocalCache(key, value);
+        return;
+      }
+
       // Store in Redis
       await this.redis.setEx(this.prefix + key, ttl, JSON.stringify(value));
 
@@ -167,12 +230,18 @@ class PolicyCache {
    * @param {string} key - Cache key
    */
   async delete(key) {
-    if (!this.enabled) {
+    if (!this.enabled || !this.redis) {
       this.localCache.delete(key);
       return;
     }
 
     try {
+      // Check again inside try block to handle race conditions
+      if (!this.redis) {
+        this.localCache.delete(key);
+        return;
+      }
+
       await this.redis.del(this.prefix + key);
       this.localCache.delete(key);
     } catch (error) {
@@ -182,15 +251,29 @@ class PolicyCache {
   }
 
   /**
+   * Alias for delete method
+   * @param {string} key - Cache key
+   */
+  async del(key) {
+    return this.delete(key);
+  }
+
+  /**
    * Clear all cached policy decisions
    */
   async clear() {
-    if (!this.enabled) {
+    if (!this.enabled || !this.redis) {
       this.localCache.clear();
       return;
     }
 
     try {
+      // Check again inside try block to handle race conditions
+      if (!this.redis) {
+        this.localCache.clear();
+        return;
+      }
+
       const keys = await this.redis.keys(this.prefix + "*");
       if (keys.length > 0) {
         await this.redis.del(keys);
