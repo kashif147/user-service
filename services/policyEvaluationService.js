@@ -68,6 +68,52 @@ const invalidateCache = async (tenantId = null) => {
  * @returns {Object} Policy decision
  */
 const evaluatePolicy = async (request) => {
+  const startTime = Date.now();
+  const maxEvaluationTime = 3000; // 3 seconds max for policy evaluation
+  
+  try {
+    const { token, resource, action, context = {} } = request;
+    
+    // Wrap evaluation in timeout
+    const evaluationPromise = evaluatePolicyInternal(request);
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error("Policy evaluation timeout")), maxEvaluationTime)
+    );
+    
+    try {
+      return await Promise.race([evaluationPromise, timeoutPromise]);
+    } catch (timeoutError) {
+      if (timeoutError.message === "Policy evaluation timeout") {
+        console.error(`Policy evaluation timeout after ${Date.now() - startTime}ms for ${resource}:${action}`);
+        return {
+          decision: "DENY",
+          reason: "EVALUATION_TIMEOUT",
+          error: "Policy evaluation took too long",
+          timestamp: new Date().toISOString(),
+          policyVersion: POLICY_VERSION,
+          correlationId: context.correlationId,
+        };
+      }
+      throw timeoutError;
+    }
+  } catch (error) {
+    console.error("Policy evaluation error:", error);
+    return {
+      decision: "DENY",
+      reason: "EVALUATION_ERROR",
+      error: error.message,
+      timestamp: new Date().toISOString(),
+      policyVersion: POLICY_VERSION,
+      correlationId: request.context?.correlationId,
+    };
+  }
+};
+
+/**
+ * Internal policy evaluation (without timeout wrapper)
+ * @private
+ */
+const evaluatePolicyInternal = async (request) => {
   try {
     const { token, resource, action, context = {} } = request;
 
@@ -136,8 +182,10 @@ const evaluatePolicy = async (request) => {
         timestamp: new Date().toISOString(),
       };
 
-      // Cache negative results for shorter time
-      await cache.set(cacheKey, result, 60); // 1 minute
+      // Cache negative results for shorter time (fire and forget)
+      cache.set(cacheKey, result, 60).catch(err => 
+        console.warn("Failed to cache negative result:", err.message)
+      );
       return result;
     }
 
@@ -158,7 +206,9 @@ const evaluatePolicy = async (request) => {
         policyVersion: POLICY_VERSION,
         correlationId: context.correlationId,
       };
-      await cache.set(cacheKey, result, 60);
+      cache.set(cacheKey, result, 60).catch(err => 
+        console.warn("Failed to cache result:", err.message)
+      );
       return result;
     }
 
@@ -186,7 +236,9 @@ const evaluatePolicy = async (request) => {
         policyVersion: POLICY_VERSION,
         correlationId: context.correlationId,
       };
-      await cache.set(cacheKey, result, 60);
+      cache.set(cacheKey, result, 60).catch(err => 
+        console.warn("Failed to cache result:", err.message)
+      );
       return result;
     }
 
@@ -213,8 +265,10 @@ const evaluatePolicy = async (request) => {
         correlationId: context.correlationId,
       };
 
-      // Cache negative results for shorter time
-      await cache.set(cacheKey, result, 60); // 1 minute
+      // Cache negative results for shorter time (fire and forget)
+      cache.set(cacheKey, result, 60).catch(err => 
+        console.warn("Failed to cache negative result:", err.message)
+      );
       return result;
     }
 
@@ -239,8 +293,10 @@ const evaluatePolicy = async (request) => {
       correlationId: context.correlationId,
     };
 
-    // Step 7: Cache the result
-    await cache.set(cacheKey, result);
+    // Step 7: Cache the result (fire and forget - don't wait)
+    cache.set(cacheKey, result).catch(err => 
+      console.warn("Failed to cache policy result:", err.message)
+    );
 
     return result;
   } catch (error) {

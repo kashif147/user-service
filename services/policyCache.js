@@ -58,7 +58,7 @@ class PolicyCache {
               );
               return delay;
             },
-            connectTimeout: 10000,
+            connectTimeout: 2000, // Reduced from 10s to 2s for faster failure
             keepAlive: 30000, // Keep connection alive
           },
           pingInterval: 60000, // Ping every 60 seconds
@@ -83,7 +83,7 @@ class PolicyCache {
               );
               return delay;
             },
-            connectTimeout: 10000,
+            connectTimeout: 2000, // Reduced from 10s to 2s for faster failure
             keepAlive: 30000,
           },
           pingInterval: 60000,
@@ -153,10 +153,17 @@ class PolicyCache {
    * @returns {Promise<Object|null>} Cached result or null
    */
   async get(key) {
-    // Wait for initialization if not complete
+    // Wait for initialization with timeout (max 500ms)
     if (!this.initialized && this.initializing) {
-      while (this.initializing) {
+      const startTime = Date.now();
+      const maxWait = 500; // Max 500ms wait for initialization
+      while (this.initializing && Date.now() - startTime < maxWait) {
         await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      // If still initializing after timeout, skip Redis
+      if (this.initializing) {
+        console.warn("PolicyCache: Initialization timeout, using local cache");
+        return this.getFromLocalCache(key);
       }
     }
 
@@ -170,8 +177,14 @@ class PolicyCache {
         return this.getFromLocalCache(key);
       }
 
-      // Try Redis first
-      const cached = await this.redis.get(this.prefix + key);
+      // Try Redis first with timeout (500ms max)
+      const cached = await Promise.race([
+        this.redis.get(this.prefix + key),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error("Redis get timeout")), 500)
+        )
+      ]);
+      
       if (cached) {
         const result = JSON.parse(cached);
         // Also store in local cache for faster access
@@ -182,7 +195,17 @@ class PolicyCache {
       // Fallback to local cache
       return this.getFromLocalCache(key);
     } catch (error) {
-      console.error("Redis get error:", error);
+      // On timeout or error, disable Redis temporarily and use local cache
+      if (error.message === "Redis get timeout" || !this.redis?.isOpen) {
+        console.warn("PolicyCache: Redis unavailable, using local cache");
+        this.enabled = false;
+        // Re-enable after 30 seconds
+        setTimeout(() => {
+          this.enabled = process.env.REDIS_ENABLED !== "false";
+        }, 30000);
+      } else {
+        console.error("Redis get error:", error);
+      }
       return this.getFromLocalCache(key);
     }
   }
@@ -194,34 +217,56 @@ class PolicyCache {
    * @param {number} ttl - Time to live in seconds
    */
   async set(key, value, ttl = this.ttl) {
-    // Wait for initialization if not complete
+    // Always store in local cache first (fast)
+    this.setLocalCache(key, value);
+
+    // Wait for initialization with timeout (max 200ms)
     if (!this.initialized && this.initializing) {
-      while (this.initializing) {
+      const startTime = Date.now();
+      const maxWait = 200; // Max 200ms wait for initialization
+      while (this.initializing && Date.now() - startTime < maxWait) {
         await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      // If still initializing after timeout, skip Redis
+      if (this.initializing) {
+        return; // Already stored in local cache
       }
     }
 
     if (!this.enabled || !this.redis) {
-      this.setLocalCache(key, value);
       return;
     }
 
     try {
       // Check again inside try block to handle race conditions
       if (!this.redis) {
-        this.setLocalCache(key, value);
         return;
       }
 
-      // Store in Redis
-      await this.redis.setEx(this.prefix + key, ttl, JSON.stringify(value));
-
-      // Also store in local cache
-      this.setLocalCache(key, value);
+      // Store in Redis with timeout (300ms max) - fire and forget
+      Promise.race([
+        this.redis.setEx(this.prefix + key, ttl, JSON.stringify(value)),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error("Redis set timeout")), 300)
+        )
+      ]).catch((error) => {
+        // Silently fail - already stored in local cache
+        if (error.message === "Redis set timeout" || !this.redis?.isOpen) {
+          this.enabled = false;
+          // Re-enable after 30 seconds
+          setTimeout(() => {
+            this.enabled = process.env.REDIS_ENABLED !== "false";
+          }, 30000);
+        }
+      });
     } catch (error) {
-      console.error("Redis set error:", error);
-      // Fallback to local cache
-      this.setLocalCache(key, value);
+      // Silently fail - already stored in local cache
+      if (error.message === "Redis set timeout" || !this.redis?.isOpen) {
+        this.enabled = false;
+        setTimeout(() => {
+          this.enabled = process.env.REDIS_ENABLED !== "false";
+        }, 30000);
+      }
     }
   }
 

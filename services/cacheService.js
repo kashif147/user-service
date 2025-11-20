@@ -47,7 +47,7 @@ class CacheService {
             console.log(`Redis: Reconnecting in ${delay}ms (attempt ${retries})`);
             return delay;
           },
-          connectTimeout: 10000,
+          connectTimeout: 2000, // Reduced from 10s to 2s for faster failure
           keepAlive: 30000, // Send keepalive every 30 seconds
         },
         pingInterval: 60000, // Ping every 60 seconds to keep connection alive
@@ -110,41 +110,45 @@ class CacheService {
    * @returns {Promise<any>} Cached value or null
    */
   async get(key) {
+    // Check memory cache first (fast path)
+    const cached = this.memoryCache.get(key);
+    if (cached) {
+      const timeout = this.memoryCacheTimeout.get(key);
+      if (timeout && Date.now() > timeout) {
+        this.memoryCache.delete(key);
+        this.memoryCacheTimeout.delete(key);
+      } else {
+        return cached;
+      }
+    }
+
     try {
       if (this.isConnected && this.redisClient) {
-        const value = await this.redisClient.get(key);
-        return value ? JSON.parse(value) : null;
-      } else {
-        // Fallback to memory cache
-        const cached = this.memoryCache.get(key);
-        if (cached) {
-          const timeout = this.memoryCacheTimeout.get(key);
-          if (timeout && Date.now() > timeout) {
-            this.memoryCache.delete(key);
-            this.memoryCacheTimeout.delete(key);
-            return null;
-          }
-          return cached;
+        // Add timeout to Redis operation (500ms max)
+        const value = await Promise.race([
+          this.redisClient.get(key),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error("Redis get timeout")), 500)
+          )
+        ]);
+        if (value) {
+          const parsed = JSON.parse(value);
+          // Store in memory cache for faster access
+          this.memoryCache.set(key, parsed);
+          this.memoryCacheTimeout.set(key, Date.now() + 300000); // 5 min
+          return parsed;
         }
+        return null;
+      } else {
         return null;
       }
     } catch (error) {
       // Handle connection errors gracefully
-      if (error.code === "ECONNRESET" || error.code === "ENOTFOUND" || !this.isConnected) {
-        // Try to reconnect
+      if (error.message === "Redis get timeout" || error.code === "ECONNRESET" || error.code === "ENOTFOUND" || !this.isConnected) {
+        // Mark as disconnected and try to reconnect
+        this.isConnected = false;
         if (!this.isReconnecting) {
           this.connect();
-        }
-        // Fallback to memory cache
-        const cached = this.memoryCache.get(key);
-        if (cached) {
-          const timeout = this.memoryCacheTimeout.get(key);
-          if (timeout && Date.now() > timeout) {
-            this.memoryCache.delete(key);
-            this.memoryCacheTimeout.delete(key);
-            return null;
-          }
-          return cached;
         }
         return null;
       }
@@ -161,37 +165,44 @@ class CacheService {
    * @returns {Promise<boolean>} Success status
    */
   async set(key, value, timeout = 300000) {
+    // Always store in memory cache first (fast)
+    this.memoryCache.set(key, value);
+    this.memoryCacheTimeout.set(key, Date.now() + timeout);
+
     try {
       if (this.isConnected && this.redisClient) {
-        await this.redisClient.setEx(
-          key,
-          Math.floor(timeout / 1000),
-          JSON.stringify(value)
-        );
+        // Fire and forget with timeout (300ms max)
+        Promise.race([
+          this.redisClient.setEx(
+            key,
+            Math.floor(timeout / 1000),
+            JSON.stringify(value)
+          ),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error("Redis set timeout")), 300)
+          )
+        ]).catch((error) => {
+          // Silently fail - already stored in memory cache
+          if (error.message === "Redis set timeout" || error.code === "ECONNRESET" || error.code === "ENOTFOUND") {
+            this.isConnected = false;
+            if (!this.isReconnecting) {
+              this.connect();
+            }
+          }
+        });
         return true;
       } else {
-        // Fallback to memory cache
-        this.memoryCache.set(key, value);
-        this.memoryCacheTimeout.set(key, Date.now() + timeout);
-        return true;
+        return true; // Already stored in memory cache
       }
     } catch (error) {
-      // Handle connection errors gracefully
+      // Silently fail - already stored in memory cache
       if (error.code === "ECONNRESET" || error.code === "ENOTFOUND" || !this.isConnected) {
-        // Try to reconnect
+        this.isConnected = false;
         if (!this.isReconnecting) {
           this.connect();
         }
-        // Fallback to memory cache
-        this.memoryCache.set(key, value);
-        this.memoryCacheTimeout.set(key, Date.now() + timeout);
-        return true;
       }
-      console.error("Cache set error:", error.message);
-      // Still save to memory cache as fallback
-      this.memoryCache.set(key, value);
-      this.memoryCacheTimeout.set(key, Date.now() + timeout);
-      return true;
+      return true; // Already stored in memory cache
     }
   }
 
