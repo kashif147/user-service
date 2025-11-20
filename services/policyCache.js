@@ -42,9 +42,16 @@ class PolicyCache {
 
       // Use REDIS_URL if provided (similar to RABBITMQ_URL)
       if (process.env.REDIS_URL) {
+        // Detect Azure Redis Cache and SSL requirements
+        const isAzureRedis = process.env.REDIS_URL.includes("cache.windows.net");
+        const isSSLPort = process.env.REDIS_URL.includes(":6380") || 
+                          process.env.REDIS_URL.startsWith("rediss://");
+        const requiresTLS = isAzureRedis || isSSLPort;
+        
         config = {
           url: process.env.REDIS_URL,
           socket: {
+            tls: requiresTLS, // Enable TLS for Azure Redis Cache (port 6380) or rediss:// URLs
             reconnectStrategy: (retries) => {
               if (retries > 10) {
                 console.error(
@@ -65,11 +72,17 @@ class PolicyCache {
         };
       } else {
         // Fallback to individual config options
+        const redisPort = parseInt(process.env.REDIS_PORT) || 6379;
+        const isSSLPort = redisPort === 6380;
+        const isAzureRedis = (process.env.REDIS_HOST || "").includes("cache.windows.net");
+        const requiresTLS = isAzureRedis || isSSLPort;
+        
         config = {
           host: process.env.REDIS_HOST || "localhost",
-          port: process.env.REDIS_PORT || 6379,
-          db: process.env.REDIS_DB || 0,
+          port: redisPort,
+          db: parseInt(process.env.REDIS_DB) || 0,
           socket: {
+            tls: requiresTLS, // Enable TLS for Azure Redis Cache (port 6380)
             reconnectStrategy: (retries) => {
               if (retries > 10) {
                 console.error(

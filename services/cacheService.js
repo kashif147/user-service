@@ -26,6 +26,11 @@ class CacheService {
     try {
       const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
       
+      // Detect Azure Redis Cache and SSL requirements
+      const isAzureRedis = redisUrl.includes("cache.windows.net");
+      const isSSLPort = redisUrl.includes(":6380") || redisUrl.startsWith("rediss://");
+      const requiresTLS = isAzureRedis || isSSLPort;
+      
       // Close existing connection if any
       if (this.redisClient) {
         try {
@@ -38,6 +43,9 @@ class CacheService {
       this.redisClient = redis.createClient({
         url: redisUrl,
         socket: {
+          tls: requiresTLS, // Enable TLS for Azure Redis Cache (port 6380) or rediss:// URLs
+          connectTimeout: 2000, // Reduced from 10s to 2s for faster failure
+          keepAlive: 30000, // Send keepalive every 30 seconds
           reconnectStrategy: (retries) => {
             if (retries > this.maxReconnectAttempts) {
               console.error("Redis: Max reconnection attempts reached");
@@ -47,8 +55,6 @@ class CacheService {
             console.log(`Redis: Reconnecting in ${delay}ms (attempt ${retries})`);
             return delay;
           },
-          connectTimeout: 2000, // Reduced from 10s to 2s for faster failure
-          keepAlive: 30000, // Send keepalive every 30 seconds
         },
         pingInterval: 60000, // Ping every 60 seconds to keep connection alive
       });
