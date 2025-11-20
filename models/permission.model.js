@@ -44,6 +44,7 @@ const PermissionSchema = new mongoose.Schema({
       "FINANCIAL",
       "INVOICE",
       "RECEIPT",
+      "COMMUNICATION",
     ],
     required: true,
   },

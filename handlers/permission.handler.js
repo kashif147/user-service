@@ -426,6 +426,44 @@ module.exports.initializeDefaultPermissions = async () => {
         category: "API",
         level: 60,
       },
+
+      // Communication permissions
+      {
+        name: "Read Communication",
+        code: "COMMUNICATION_READ",
+        description: "View templates, letters, and bookmarks",
+        resource: "communication",
+        action: "read",
+        category: "COMMUNICATION",
+        level: 1,
+      },
+      {
+        name: "Create Communication",
+        code: "COMMUNICATION_CREATE",
+        description: "Create templates, generate letters, and create bookmarks",
+        resource: "communication",
+        action: "create",
+        category: "COMMUNICATION",
+        level: 30,
+      },
+      {
+        name: "Write Communication",
+        code: "COMMUNICATION_WRITE",
+        description: "Update templates, extract placeholders, and update bookmarks",
+        resource: "communication",
+        action: "write",
+        category: "COMMUNICATION",
+        level: 30,
+      },
+      {
+        name: "Delete Communication",
+        code: "COMMUNICATION_DELETE",
+        description: "Delete templates and bookmarks",
+        resource: "communication",
+        action: "delete",
+        category: "COMMUNICATION",
+        level: 50,
+      },
     ];
 
     const permissionsWithSystemFlag = defaultPermissions.map((permission) => ({
