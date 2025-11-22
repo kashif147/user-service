@@ -91,7 +91,10 @@ const getProductsByType = async (req, res, next) => {
     });
 
     if (!productType) {
-      return next(AppError.notFound("Product type not found"));
+      return res.status(200).json({
+        data: null,
+        message: "Not found"
+      });
     }
 
     const products = await Product.find({
@@ -180,7 +183,10 @@ const getProduct = async (req, res, next) => {
       .populate("pricingHistory");
 
     if (!product) {
-      return next(AppError.notFound("Product not found"));
+      return res.status(200).json({
+        data: null,
+        message: "Not found"
+      });
     }
 
     const formattedProduct = {

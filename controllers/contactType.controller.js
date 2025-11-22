@@ -44,7 +44,10 @@ const getContactTypeById = async (req, res, next) => {
     }).select("contactType displayName code isactive createdAt updatedAt");
 
     if (!contactType) {
-      return next(AppError.notFound("Contact type not found"));
+      return res.status(200).json({
+        data: null,
+        message: "Not found"
+      });
     }
 
     res.status(200).json({

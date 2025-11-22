@@ -60,7 +60,10 @@ module.exports.handleLogin = async (req, res, next) => {
       tenantId
     );
     if (!isEmailExists) {
-      return next(AppError.notFound("User not found"));
+      return res.status(200).json({
+        data: null,
+        message: "Not found"
+      });
     }
 
     const data = await UserHandler.handleLogin(
@@ -93,7 +96,10 @@ module.exports.getUserByEmail = async (req, res, next) => {
 
     const user = await UserHandler.findUserByEmail(email, tenantId);
     if (!user) {
-      return next(AppError.notFound("User not found"));
+      return res.status(200).json({
+        data: null,
+        message: "Not found"
+      });
     }
 
     // Return user data without sensitive information

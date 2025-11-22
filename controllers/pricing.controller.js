@@ -83,7 +83,10 @@ const getPricingByProduct = async (req, res, next) => {
     });
 
     if (!product) {
-      return next(AppError.notFound("Product not found"));
+      return res.status(200).json({
+        data: null,
+        message: "Not found"
+      });
     }
 
     const pricing = await Pricing.find({
@@ -161,7 +164,10 @@ const getCurrentPricing = async (req, res, next) => {
     });
 
     if (!product) {
-      return next(AppError.notFound("Product not found"));
+      return res.status(200).json({
+        data: null,
+        message: "Not found"
+      });
     }
 
     const currentPricing = await Pricing.getCurrentPricing(productId);
@@ -227,7 +233,10 @@ const getPricing = async (req, res, next) => {
       .populate("updatedBy", "firstName lastName email");
 
     if (!pricing) {
-      return next(AppError.notFound("Pricing not found"));
+      return res.status(200).json({
+        data: null,
+        message: "Not found"
+      });
     }
 
     const formattedPricing = {

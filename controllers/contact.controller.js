@@ -46,7 +46,10 @@ const getContactById = async (req, res, next) => {
       );
 
     if (!contact) {
-      return next(AppError.notFound("Contact not found"));
+      return res.status(200).json({
+        data: null,
+        message: "Not found"
+      });
     }
 
     res.status(200).json({

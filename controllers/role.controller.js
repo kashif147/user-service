@@ -41,7 +41,10 @@ module.exports.getRoleById = async (req, res, next) => {
     const tenantId = req.ctx.tenantId;
     const role = await RoleHandler.getRoleById(req.params.id, tenantId);
     if (!role) {
-      return next(AppError.notFound("Role not found"));
+      return res.status(200).json({
+        data: null,
+        message: "Not found"
+      });
     }
     res.status(200).json({ status: "success", data: role });
   } catch (error) {

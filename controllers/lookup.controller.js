@@ -68,7 +68,10 @@ const getLookup = async (req, res, next) => {
     });
 
     if (!lookup) {
-      return next(AppError.notFound("Lookup not found"));
+      return res.status(200).json({
+        data: null,
+        message: "Not found"
+      });
     }
 
     const formattedLookup = {
@@ -376,7 +379,10 @@ const getLookupHierarchy = async (req, res, next) => {
     );
 
     if (!response) {
-      return next(AppError.notFound("Lookup not found"));
+      return res.status(200).json({
+        data: null,
+        message: "Not found"
+      });
     }
 
     res.status(200).json(response);

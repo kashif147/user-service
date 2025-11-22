@@ -53,7 +53,10 @@ const getCountryById = async (req, res, next) => {
     });
 
     if (!country) {
-      return next(AppError.notFound("Country not found"));
+      return res.status(200).json({
+        data: null,
+        message: "Not found"
+      });
     }
 
     res.status(200).json({
@@ -90,7 +93,10 @@ const getCountryByCode = async (req, res, next) => {
     );
 
     if (!country) {
-      return next(AppError.notFound("Country not found"));
+      return res.status(200).json({
+        data: null,
+        message: "Not found"
+      });
     }
 
     res.status(200).json({

@@ -82,7 +82,10 @@ const getProductType = async (req, res, next) => {
       .populate("updatedBy", "firstName lastName email");
 
     if (!productType) {
-      return next(AppError.notFound("Product type not found"));
+      return res.status(200).json({
+        data: null,
+        message: "Not found"
+      });
     }
 
     const productsCount = await Product.countDocuments({

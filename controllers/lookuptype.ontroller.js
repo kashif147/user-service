@@ -147,7 +147,10 @@ const getLookupType = async (req, res, next) => {
     );
 
     if (!lookupType) {
-      return next(AppError.notFound("LookupType not found"));
+      return res.status(200).json({
+        data: null,
+        message: "Not found"
+      });
     }
 
     res.json(lookupType);
