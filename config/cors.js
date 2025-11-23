@@ -32,6 +32,7 @@ const getCorsConfig = () => {
       "https://app.yourdomain.com",
       "https://admin.yourdomain.com",
       "https://mobile.yourdomain.com",
+      "https://project-shell-portal.vercel.app",
     ],
   };
 
@@ -58,6 +59,14 @@ const getCorsConfig = () => {
       if (uniqueOrigins.includes(origin)) {
         callback(null, true);
       } else {
+        // Check if origin matches Vercel domain pattern
+        // Vercel domains: *.vercel.app (e.g., project-shell-portal.vercel.app)
+        const vercelPattern = /^https:\/\/[a-zA-Z0-9-]+\.vercel\.app$/;
+        if (vercelPattern.test(origin)) {
+          callback(null, true);
+          return;
+        }
+
         // Log blocked origins for debugging
         console.warn(`CORS blocked origin: ${origin}`);
         console.log(`Allowed origins: ${uniqueOrigins.join(", ")}`);
