@@ -3,6 +3,10 @@ const User = require("../models/user.model");
 const Role = require("../models/role.model");
 const jwt = require("jsonwebtoken");
 const { assignDefaultRole } = require("../helpers/roleAssignment");
+const {
+  publishCrmUserCreated,
+  publishCrmUserUpdated,
+} = require("../rabbitMQ/publishers/user.crm.publisher");
 
 const TENANT_ID =
   process.env.AZURE_AD_TENANT_ID || "39866a06-30bc-4a89-80c6-9dd9357dd453";
@@ -164,6 +168,9 @@ class AzureADHandler {
 
       // Find user by email AND tenantId for strict tenant isolation
       let user = await User.findOne({ userEmail: email, tenantId: tenantId });
+      const isNewUser = !user;
+      const previousEmail = user?.userEmail;
+      const previousFullName = user?.userFullName;
 
       if (user) {
         console.log(`Updating existing CRM user: ${email}`);
@@ -178,6 +185,16 @@ class AzureADHandler {
 
       await user.save();
       console.log(`User processed successfully: ${email}`);
+
+      // Publish events
+      if (isNewUser) {
+        await publishCrmUserCreated(user);
+      } else {
+        await publishCrmUserUpdated(user, {
+          userEmail: previousEmail,
+          userFullName: previousFullName,
+        });
+      }
 
       return user;
     } catch (error) {

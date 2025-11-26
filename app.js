@@ -216,17 +216,18 @@ app.use((err, req, res, next) => {
   });
 });
 
-// const { connectRabbitMQ } = require("message-bus");
+// Initialize RabbitMQ event system (non-blocking)
+const { initEventSystem, setupConsumers } = require("./rabbitMQ");
 
-// (async () => {
-//   await connectRabbitMQ({
-//     amqpUrl: process.env.RABBITMQ_URL,
-//     retryAttempts: 10, // Optional
-//     retryDelay: 3000, // Optional
-//   });
-
-//   console.log("🎉 RabbitMQ is ready");
-// })();
+(async () => {
+  try {
+    await initEventSystem();
+    await setupConsumers();
+    console.log("✅ RabbitMQ event system initialized (user-service)");
+  } catch (err) {
+    console.error("❌ Failed to initialize RabbitMQ event system:", err.message);
+  }
+})();
 
 process.on("SIGINT", async () => {
   process.exit(0);

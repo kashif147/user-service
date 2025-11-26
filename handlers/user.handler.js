@@ -3,6 +3,9 @@ const Role = require("../models/role.model");
 const bcrypt = require("bcryptjs");
 const jwtHelper = require("../helpers/jwt");
 const { assignDefaultRole } = require("../helpers/roleAssignment");
+const {
+  publishCrmUserCreated,
+} = require("../rabbitMQ/publishers/user.crm.publisher");
 
 module.exports.findUserByEmail = async (email, tenantId) => {
   return await User.findOne({ userEmail: email, tenantId }).exec();
@@ -22,6 +25,9 @@ module.exports.handleNewUser = async (email, password, tenantId, createdBy) => {
 
     // Assign default role to CRM users
     await assignDefaultRole(result, "CRM", tenantId);
+
+    // Publish CRM user created event
+    await publishCrmUserCreated(result);
 
     // Use the new JWT helper that includes roles and permissions
     const tokenData = await jwtHelper.generateToken(result);
