@@ -105,7 +105,7 @@ const getProductsByType = async (req, res, next) => {
       .populate("createdBy", "firstName lastName email")
       .populate("updatedBy", "firstName lastName email")
       .populate("currentPricing")
-      .sort({ createdAt: -1 });
+      .sort({ name: 1 });
 
     const formattedProducts = products.map((product) => ({
       _id: product._id,

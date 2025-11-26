@@ -24,12 +24,24 @@ class CacheService {
     if (this.isReconnecting) return; // Prevent multiple reconnection attempts
     
     try {
-      const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
+      let redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
       
       // Detect Azure Redis Cache and SSL requirements
       const isAzureRedis = redisUrl.includes("cache.windows.net");
       const isSSLPort = redisUrl.includes(":6380") || redisUrl.startsWith("rediss://");
       const requiresTLS = isAzureRedis || isSSLPort;
+      
+      // For Azure Redis Cache, if username is provided separately and URL doesn't have credentials,
+      // construct the URL with username:password
+      if (isAzureRedis && process.env.REDIS_USERNAME && process.env.REDIS_PASSWORD && !redisUrl.includes("@")) {
+        const protocol = requiresTLS ? "rediss://" : "redis://";
+        const urlMatch = redisUrl.match(/^(?:rediss?:\/\/)?([^:\/]+)(?::(\d+))?/);
+        if (urlMatch) {
+          const host = urlMatch[1];
+          const port = urlMatch[2] || (requiresTLS ? "6380" : "6379");
+          redisUrl = `${protocol}${process.env.REDIS_USERNAME}:${process.env.REDIS_PASSWORD}@${host}:${port}`;
+        }
+      }
       
       // Close existing connection if any
       if (this.redisClient) {
@@ -58,6 +70,8 @@ class CacheService {
         },
         pingInterval: 60000, // Ping every 60 seconds to keep connection alive
       });
+
+      this.redisClient = redis.createClient(clientConfig);
 
       this.redisClient.on("error", (err) => {
         // Don't log ECONNRESET errors too aggressively

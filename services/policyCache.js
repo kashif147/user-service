@@ -70,6 +70,11 @@ class PolicyCache {
           },
           pingInterval: 60000, // Ping every 60 seconds
         };
+
+        // For Azure Redis Cache, add username if provided separately
+        if (isAzureRedis && process.env.REDIS_USERNAME) {
+          config.username = process.env.REDIS_USERNAME;
+        }
       } else {
         // Fallback to individual config options
         const redisPort = parseInt(process.env.REDIS_PORT) || 6379;
@@ -102,7 +107,12 @@ class PolicyCache {
           pingInterval: 60000,
         };
 
-        // Only add password if it exists
+        // Add username for Azure Redis Cache (usually the cache name or "default")
+        if (isAzureRedis && process.env.REDIS_USERNAME) {
+          config.username = process.env.REDIS_USERNAME;
+        }
+
+        // Add password if it exists
         if (process.env.REDIS_PASSWORD) {
           config.password = process.env.REDIS_PASSWORD;
         }
