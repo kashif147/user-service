@@ -1,5 +1,6 @@
 const B2CUsersHandler = require("../handlers/b2c.users.handler");
 const jwtHelper = require("../helpers/jwt");
+const { encryptToken } = require("../helpers/tokenEncryption");
 const { AppError } = require("../errors/AppError");
 // const { emitMicrosoftAuthEvent } = require("../rabbitMQ/events/userEvents");
 
@@ -120,11 +121,14 @@ module.exports.handleMicrosoftCallback = async (req, res, next) => {
       },
     };
 
+    // Encrypt the token before sending to frontend
+    const encryptedToken = encryptToken(tokenData.token);
+    
     return res.status(200).json({
       success: true,
       message: "Microsoft authentication successful",
       user: userResponse,
-      accessToken: tokenData.token, // This now includes roles and permissions
+      accessToken: encryptedToken, // Encrypted token sent to frontend
     });
   } catch (error) {
     console.error("Microsoft Auth Error:", error);

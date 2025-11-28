@@ -1,5 +1,6 @@
 const UserHandler = require("../handlers/user.handler");
 const joiSchemas = require("../validation/crm.general.schema");
+const { encryptToken } = require("../helpers/tokenEncryption");
 const { AppError } = require("../errors/AppError");
 
 module.exports.handleRegistration = async (req, res, next) => {
@@ -30,6 +31,11 @@ module.exports.handleRegistration = async (req, res, next) => {
       tenantId,
       req.ctx.userId
     );
+
+    // Encrypt the token before sending to frontend
+    if (result.token) {
+      result.token = encryptToken(result.token);
+    }
 
     return res.status(201).json({ status: "success", data: result });
   } catch (error) {
@@ -71,6 +77,11 @@ module.exports.handleLogin = async (req, res, next) => {
       results.password,
       tenantId
     );
+
+    // Encrypt the token before sending to frontend
+    if (data.token) {
+      data.token = encryptToken(data.token);
+    }
 
     return res.status(200).json({ status: "success", data });
   } catch (error) {

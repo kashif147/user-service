@@ -1,5 +1,6 @@
 const RefreshTokenHelper = require("../helpers/refreshToken");
 const UserHandler = require("../handlers/user.handler");
+const { encryptToken } = require("../helpers/tokenEncryption");
 const { AppError } = require("../errors/AppError");
 
 /**
@@ -26,12 +27,18 @@ class AuthController {
 
       console.log("✅ Token refresh successful for user:", result.user.email);
 
+      // Encrypt the tokens before sending to frontend
+      const encryptedAccessToken = encryptToken(result.accessToken);
+      const encryptedRefreshToken = result.refreshToken 
+        ? encryptToken(result.refreshToken) 
+        : undefined;
+
       return res.status(200).json({
         success: true,
         message: "Token refreshed successfully",
         data: {
-          accessToken: result.accessToken,
-          refreshToken: result.refreshToken,
+          accessToken: encryptedAccessToken,
+          refreshToken: encryptedRefreshToken,
           user: result.user,
           expiresIn: result.expiresIn,
         },

@@ -1,5 +1,6 @@
 const AzureADHandler = require("../handlers/azure.ad.handler");
 const jwtHelper = require("../helpers/jwt");
+const { encryptToken } = require("../helpers/tokenEncryption");
 const { AppError } = require("../errors/AppError");
 
 // Handle GET request from Azure redirect
@@ -79,11 +80,15 @@ module.exports.handleAzureADCallback = async (req, res, next) => {
     };
 
     console.log(`Azure AD authentication successful for: ${user.userEmail}`);
+    
+    // Encrypt the token before sending to frontend
+    const encryptedToken = encryptToken(tokenData.token);
+    
     return res.status(200).json({
       success: true,
       message: "Azure AD authentication successful",
       user: userResponse,
-      accessToken: tokenData.token, // This now includes roles and permissions
+      accessToken: encryptedToken, // Encrypted token sent to frontend
     });
   } catch (error) {
     console.error("Azure AD authentication failed:", error.message);
