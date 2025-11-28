@@ -113,7 +113,7 @@ class B2CUsersHandler {
       throw new Error("Tenant ID not found in Microsoft token");
     }
 
-    const update = {
+    const updateData = {
       ...profile,
       userAuthProvider: "microsoft",
       userType: "PORTAL", // Ensure portal users are marked as PORTAL type
@@ -125,31 +125,74 @@ class B2CUsersHandler {
         id_token_expires_in: tokens.expires_in || null,
         refresh_token_expires_in: tokens.refresh_token_expires_in || null,
       },
+      updatedAt: new Date(),
     };
 
     try {
-      // Find user by email AND tenantId for strict tenant isolation
-      let user = await B2CUser.findOne({
+      // Check if user exists before upsert to determine if it's a new user
+      const existingUser = await B2CUser.findOne({
         userEmail: email,
         tenantId: tenantId,
-      });
+      }).lean();
+      const isNewUser = !existingUser;
 
-      console.log(user ? "Updating existing user" : "Creating new user");
+      // Use atomic findOneAndUpdate with upsert to prevent race conditions
+      // This ensures only one user is created even if multiple requests come simultaneously
+      const user = await B2CUser.findOneAndUpdate(
+        { userEmail: email, tenantId: tenantId },
+        {
+          $set: updateData,
+          $setOnInsert: {
+            createdAt: new Date(),
+          },
+        },
+        {
+          upsert: true,
+          new: true,
+          runValidators: true,
+        }
+      );
 
-      if (user) {
-        user.set(update);
+      // Check if user needs role assignment (new user or existing user without roles)
+      const needsRoleAssignment = isNewUser || !user.roles || user.roles.length === 0;
+
+      if (isNewUser) {
+        console.log("Creating new user");
+        if (needsRoleAssignment) {
+          await assignDefaultRole(user, "PORTAL", tenantId);
+          // Save again to persist the role assignment
+          await user.save();
+        }
       } else {
-        user = new B2CUser(update);
-
-        // Assign default role to new portal users with tenantId
-        await assignDefaultRole(user, "PORTAL", tenantId);
+        console.log("Updating existing user");
+        // If existing user doesn't have roles, assign them
+        if (needsRoleAssignment) {
+          await assignDefaultRole(user, "PORTAL", tenantId);
+          await user.save();
+        }
       }
 
-      await user.save();
       console.log("User saved successfully");
       return user;
     } catch (error) {
       console.log("Error saving user:", error.message);
+      // Handle duplicate key errors (E11000) that might still occur in edge cases
+      if (error.code === 11000) {
+        // User was created by another request, fetch and return it
+        console.log(
+          `Duplicate key error detected, fetching existing user: ${email}`
+        );
+        const user = await B2CUser.findOne({
+          userEmail: email,
+          tenantId: tenantId,
+        });
+        if (user) {
+          // Update the user with latest data
+          Object.assign(user, updateData);
+          await user.save();
+          return user;
+        }
+      }
       throw error;
     }
   }

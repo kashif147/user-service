@@ -152,7 +152,7 @@ class AzureADHandler {
         throw new Error("Tenant ID not found in Azure AD token");
       }
 
-      const update = {
+      const updateData = {
         ...profile,
         userAuthProvider: "azure-ad",
         userType: "CRM",
@@ -164,41 +164,92 @@ class AzureADHandler {
           id_token_expires_in: tokens.expires_in || null,
           refresh_token_expires_in: tokens.refresh_token_expires_in || null,
         },
+        updatedAt: new Date(),
       };
 
-      // Find user by email AND tenantId for strict tenant isolation
-      let user = await User.findOne({ userEmail: email, tenantId: tenantId });
-      const isNewUser = !user;
-      const previousEmail = user?.userEmail;
-      const previousFullName = user?.userFullName;
+      // Store previous values for event publishing
+      const existingUser = await User.findOne({
+        userEmail: email,
+        tenantId: tenantId,
+      }).lean();
+      const previousEmail = existingUser?.userEmail;
+      const previousFullName = existingUser?.userFullName;
+      const isNewUser = !existingUser;
 
-      if (user) {
-        console.log(`Updating existing CRM user: ${email}`);
-        user.set(update);
-      } else {
-        console.log(`Creating new CRM user: ${email}`);
-        user = new User(update);
+      // Use atomic findOneAndUpdate with upsert to prevent race conditions
+      // This ensures only one user is created even if multiple requests come simultaneously
+      const user = await User.findOneAndUpdate(
+        { userEmail: email, tenantId: tenantId },
+        {
+          $set: updateData,
+          $setOnInsert: {
+            createdAt: new Date(),
+          },
+        },
+        {
+          upsert: true,
+          new: true,
+          runValidators: true,
+        }
+      );
 
-        // Assign default role to new CRM users with tenantId
-        await assignDefaultRole(user, "CRM", tenantId);
-      }
+      // Check if user needs role assignment (new user or existing user without roles)
+      const needsRoleAssignment = isNewUser || !user.roles || user.roles.length === 0;
 
-      await user.save();
-      console.log(`User processed successfully: ${email}`);
-
-      // Publish events
       if (isNewUser) {
+        console.log(`Creating new CRM user: ${email}`);
+        if (needsRoleAssignment) {
+          await assignDefaultRole(user, "CRM", tenantId);
+          // Save again to persist the role assignment
+          await user.save();
+        }
         await publishCrmUserCreated(user);
       } else {
+        console.log(`Updating existing CRM user: ${email}`);
+        // If existing user doesn't have roles, assign them
+        if (needsRoleAssignment) {
+          await assignDefaultRole(user, "CRM", tenantId);
+          await user.save();
+        }
         await publishCrmUserUpdated(user, {
           userEmail: previousEmail,
           userFullName: previousFullName,
         });
       }
 
+      console.log(`User processed successfully: ${email}`);
       return user;
     } catch (error) {
       console.error("Error in findOrCreateUser:", error.message);
+      // Handle duplicate key errors (E11000) that might still occur in edge cases
+      if (error.code === 11000) {
+        // User was created by another request, fetch and return it
+        console.log(
+          `Duplicate key error detected, fetching existing user: ${email}`
+        );
+        const user = await User.findOne({
+          userEmail: email,
+          tenantId: tenantId,
+        });
+        if (user) {
+          // Update the user with latest data
+          Object.assign(user, {
+            ...profile,
+            userAuthProvider: "azure-ad",
+            userType: "CRM",
+            userLastLogin: new Date(),
+            tenantId: tenantId,
+            tokens: {
+              id_token: tokens.id_token || null,
+              refresh_token: tokens.refresh_token || null,
+              id_token_expires_in: tokens.expires_in || null,
+              refresh_token_expires_in: tokens.refresh_token_expires_in || null,
+            },
+          });
+          await user.save();
+          return user;
+        }
+      }
       throw error;
     }
   }
