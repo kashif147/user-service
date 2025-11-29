@@ -31,17 +31,23 @@ module.exports.getAllRoles = async (tenantId, category = null) => {
     if (category) {
       query.category = category;
     }
-    const roles = await Role.find(query).sort({ category: 1, name: 1 }).limit(10000);
+    
+    // Use lean() for better performance and ensure we get all results
+    const roles = await Role.find(query)
+      .sort({ category: 1, name: 1 })
+      .lean()
+      .exec();
+    
+    console.log(`[getAllRoles] Found ${roles.length} roles for tenantId: ${tenantId}, category: ${category || 'all'}`);
 
     // Transform permissions to include full details
     const rolesWithPermissions = await Promise.all(
       roles.map(async (role) => {
-        const roleObj = role.toObject();
         const transformedPermissions = await Promise.all(
-          roleObj.permissions.map(async (perm) => {
+          role.permissions.map(async (perm) => {
             // Check if permission is an ObjectId
             if (mongoose.Types.ObjectId.isValid(perm) && perm.length === 24) {
-              const permDoc = await Permission.findById(perm);
+              const permDoc = await Permission.findById(perm).lean();
               if (permDoc) {
                 return {
                   _id: permDoc._id,
@@ -52,7 +58,7 @@ module.exports.getAllRoles = async (tenantId, category = null) => {
               }
             }
             // If it's a string code, try to find by code
-            const permByCode = await Permission.findOne({ code: perm });
+            const permByCode = await Permission.findOne({ code: perm }).lean();
             if (permByCode) {
               return {
                 _id: permByCode._id,
@@ -65,11 +71,14 @@ module.exports.getAllRoles = async (tenantId, category = null) => {
             return { code: perm, name: perm };
           })
         );
-        roleObj.permissions = transformedPermissions;
-        return roleObj;
+        return {
+          ...role,
+          permissions: transformedPermissions,
+        };
       })
     );
 
+    console.log(`[getAllRoles] Returning ${rolesWithPermissions.length} roles with transformed permissions`);
     return rolesWithPermissions;
   } catch (error) {
     throw new Error(`Error fetching roles: ${error.message}`);
