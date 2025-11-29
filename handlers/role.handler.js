@@ -31,7 +31,7 @@ module.exports.getAllRoles = async (tenantId, category = null) => {
     if (category) {
       query.category = category;
     }
-    const roles = await Role.find(query).sort({ category: 1, name: 1 });
+    const roles = await Role.find(query).sort({ category: 1, name: 1 }).limit(10000);
 
     // Transform permissions to include full details
     const rolesWithPermissions = await Promise.all(
