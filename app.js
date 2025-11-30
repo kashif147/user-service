@@ -5,40 +5,39 @@ require("dotenv").config({
 
 // Suppress Application Insights warnings if not configured
 // Azure App Service auto-injects Application Insights, but warnings appear if key is missing
+// Must be done BEFORE any other require/import statements to catch early initialization
 if (process.env.APPLICATIONINSIGHTS_CONNECTION_STRING && process.env.APPLICATIONINSIGHTS_CONNECTION_STRING.trim() === "") {
   process.env.APPLICATIONINSIGHTS_CONNECTION_STRING = undefined;
 }
 if (!process.env.APPINSIGHTS_INSTRUMENTATIONKEY || process.env.APPINSIGHTS_INSTRUMENTATIONKEY.trim() === "") {
-  // Suppress Application Insights initialization if no key is set
+  // Suppress stderr FIRST (most important for Azure platform logs)
+  const originalStderrWrite = process.stderr.write.bind(process.stderr);
+  process.stderr.write = function(chunk, encoding, callback) {
+    const message = chunk.toString();
+    if (message.includes("ApplicationInsights") && (message.includes("instrumentation key") || message.includes("iKey"))) {
+      return true;
+    }
+    return originalStderrWrite(chunk, encoding, callback);
+  };
+  
+  // Then suppress console methods
   const originalConsoleWarn = console.warn;
   const originalConsoleError = console.error;
   
   console.warn = function(...args) {
     const message = args.join(" ");
-    // Filter out Application Insights warnings about invalid instrumentation key
     if (message.includes("ApplicationInsights") && (message.includes("instrumentation key") || message.includes("iKey"))) {
-      return; // Suppress this warning
+      return;
     }
     originalConsoleWarn.apply(console, args);
   };
   
   console.error = function(...args) {
     const message = args.join(" ");
-    // Filter out Application Insights errors about invalid instrumentation key
     if (message.includes("ApplicationInsights") && (message.includes("instrumentation key") || message.includes("iKey"))) {
-      return; // Suppress this error
+      return;
     }
     originalConsoleError.apply(console, args);
-  };
-  
-  // Also suppress stderr output for Application Insights
-  const originalStderrWrite = process.stderr.write.bind(process.stderr);
-  process.stderr.write = function(chunk, encoding, callback) {
-    const message = chunk.toString();
-    if (message.includes("ApplicationInsights") && (message.includes("instrumentation key") || message.includes("iKey"))) {
-      return true; // Suppress
-    }
-    return originalStderrWrite(chunk, encoding, callback);
   };
 }
 

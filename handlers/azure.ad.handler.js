@@ -20,14 +20,28 @@ const TOKEN_ENDPOINT = `https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2
 const GRAPH_ME_ENDPOINT = "https://graph.microsoft.com/v1.0/me";
 
 class AzureADHandler {
-  static async exchangeCodeForTokens(code, codeVerifier) {
+  static async exchangeCodeForTokens(code, codeVerifier, redirectUri = null) {
+    // Clean code if it contains URL fragments or query parameters
+    const originalCodeLength = code.length;
     const cleanCode = code.replace(/[&#].*$/, "");
+    if (cleanCode.length !== originalCodeLength) {
+      console.warn(
+        `Code was cleaned: original length ${originalCodeLength}, cleaned length ${cleanCode.length}`
+      );
+    }
+
+    console.log("Code length:", cleanCode.length);
+    console.log("CodeVerifier length:", codeVerifier?.length || 0);
+
+    // Use provided redirect_uri or fall back to environment variable/default
+    const finalRedirectUri = redirectUri || REDIRECT_URI;
+    console.log("Using redirect_uri:", finalRedirectUri);
 
     const data = new URLSearchParams({
       grant_type: "authorization_code",
       client_id: CLIENT_ID,
       client_secret: CLIENT_SECRET,
-      redirect_uri: REDIRECT_URI,
+      redirect_uri: finalRedirectUri,
       code: cleanCode,
       code_verifier: codeVerifier,
       scope: "openid profile email offline_access",
@@ -48,7 +62,9 @@ class AzureADHandler {
 
       return response.data;
     } catch (error) {
-      console.error("Token exchange failed:", error.message);
+      console.error("=== Token Exchange Failed ===");
+      console.error("Error message:", error.message);
+      console.error("Error code:", error.code);
 
       if (error.response) {
         console.error("Azure AD Error Status:", error.response.status);
@@ -56,8 +72,28 @@ class AzureADHandler {
           "Azure AD Error Data:",
           JSON.stringify(error.response.data, null, 2)
         );
+
+        const azureError = error.response.data;
+        if (azureError.error) {
+          const errorMsg = azureError.error_description || azureError.error;
+          const enhancedError = new Error(
+            `Azure AD token exchange failed: ${errorMsg}`
+          );
+          enhancedError.azureError = azureError;
+          enhancedError.statusCode = error.response.status;
+          throw enhancedError;
+        }
+      } else if (error.request) {
+        console.error("No response received from Azure AD");
+        console.error("Request config:", {
+          url: error.config?.url,
+          method: error.config?.method,
+        });
+        throw new Error(
+          "Failed to connect to Azure AD. Please check network connectivity."
+        );
       } else {
-        console.error("No response from Azure:", error);
+        console.error("Error setting up request:", error.message);
       }
 
       throw error;
@@ -194,7 +230,8 @@ class AzureADHandler {
       );
 
       // Check if user needs role assignment (new user or existing user without roles)
-      const needsRoleAssignment = isNewUser || !user.roles || user.roles.length === 0;
+      const needsRoleAssignment =
+        isNewUser || !user.roles || user.roles.length === 0;
 
       if (isNewUser) {
         console.log(`Creating new CRM user: ${email}`);
@@ -254,14 +291,19 @@ class AzureADHandler {
     }
   }
 
-  static async handleAzureADAuth(code, codeVerifier) {
+  static async handleAzureADAuth(code, codeVerifier, redirectUri = null) {
     try {
       console.log("=== Azure AD Handler: Starting Authentication ===");
       console.log("Code present:", !!code);
       console.log("CodeVerifier present:", !!codeVerifier);
+      console.log("Redirect URI provided:", redirectUri || "using default");
 
       console.log("Step 1: Exchanging code for tokens...");
-      const tokens = await this.exchangeCodeForTokens(code, codeVerifier);
+      const tokens = await this.exchangeCodeForTokens(
+        code,
+        codeVerifier,
+        redirectUri
+      );
       console.log("Token exchange successful");
 
       console.log("Step 2: Decoding ID token...");
@@ -301,6 +343,15 @@ class AzureADHandler {
       console.error("=== Azure AD Handler Error ===");
       console.error("Error in handleAzureADAuth:", error.message);
       console.error("Error stack:", error.stack);
+      if (error.azureError) {
+        console.error(
+          "Azure AD specific error:",
+          JSON.stringify(error.azureError, null, 2)
+        );
+      }
+      if (error.statusCode) {
+        console.error("HTTP Status Code:", error.statusCode);
+      }
       throw error;
     }
   }

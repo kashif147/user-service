@@ -30,7 +30,7 @@ module.exports.handleAzureADRedirect = async (req, res, next) => {
 
 module.exports.handleAzureADCallback = async (req, res, next) => {
   try {
-    const { code, codeVerifier } = req.body;
+    const { code, codeVerifier, redirectUri } = req.body;
 
     if (!code || !codeVerifier) {
       return next(
@@ -39,7 +39,7 @@ module.exports.handleAzureADCallback = async (req, res, next) => {
     }
 
     console.log("Processing Azure AD authentication...");
-    const { user } = await AzureADHandler.handleAzureADAuth(code, codeVerifier);
+    const { user } = await AzureADHandler.handleAzureADAuth(code, codeVerifier, redirectUri);
 
     const issuedAtReadable = user.userIssuedAt
       ? new Date(user.userIssuedAt * 1000).toISOString()
@@ -91,7 +91,38 @@ module.exports.handleAzureADCallback = async (req, res, next) => {
       accessToken: encryptedToken, // Encrypted token sent to frontend
     });
   } catch (error) {
-    console.error("Azure AD authentication failed:", error.message);
-    return next(AppError.internalServerError("Azure AD authentication failed"));
+    console.error("=== Azure AD Authentication Error ===");
+    console.error("Error message:", error.message);
+    console.error("Error stack:", error.stack);
+    
+    // Handle Azure AD specific errors
+    if (error.response) {
+      console.error("Azure AD Response Status:", error.response.status);
+      console.error("Azure AD Response Data:", JSON.stringify(error.response.data, null, 2));
+      
+      const azureError = error.response.data;
+      if (azureError.error) {
+        const errorMessage = azureError.error_description || azureError.error;
+        if (azureError.error === "invalid_grant") {
+          return next(AppError.badRequest("Invalid authorization code or code verifier"));
+        }
+        if (azureError.error === "invalid_client") {
+          return next(AppError.internalServerError("Azure AD client configuration error"));
+        }
+        return next(AppError.internalServerError(`Azure AD error: ${errorMessage}`));
+      }
+    }
+    
+    // Handle validation errors
+    if (error.message.includes("Email not found") || error.message.includes("Tenant ID not found")) {
+      return next(AppError.badRequest(error.message));
+    }
+    
+    // Log full error for debugging
+    console.error("Full error object:", JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
+    
+    return next(AppError.internalServerError(
+      error.message || "Azure AD authentication failed"
+    ));
   }
 };
