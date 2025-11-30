@@ -71,7 +71,7 @@ const getLookup = async (req, res, next) => {
     if (!lookup) {
       return res.status(200).json({
         data: null,
-        message: "Not found"
+        message: "Not found",
       });
     }
 
@@ -314,13 +314,16 @@ const getLookupHierarchy = async (req, res, next) => {
         // Optimized: Collect all parent IDs first, then fetch in batch
         if (lookup.Parentlookupid) {
           const parentIds = [];
-          let currentParentId = lookup.Parentlookupid._id || lookup.Parentlookupid;
+          let currentParentId =
+            lookup.Parentlookupid._id || lookup.Parentlookupid;
 
           // Collect all parent IDs in the chain (minimal queries - just to get IDs)
           while (currentParentId) {
             parentIds.push(currentParentId);
             // Fetch just the Parentlookupid field to get next parent ID
-            const tempParent = await Lookup.findById(currentParentId).select("Parentlookupid").lean();
+            const tempParent = await Lookup.findById(currentParentId)
+              .select("Parentlookupid")
+              .lean();
             currentParentId = tempParent?.Parentlookupid || null;
           }
 
@@ -334,7 +337,9 @@ const getLookupHierarchy = async (req, res, next) => {
               .lean();
 
             // Create a map for quick lookup
-            const parentMap = new Map(parents.map(p => [p._id.toString(), p]));
+            const parentMap = new Map(
+              parents.map((p) => [p._id.toString(), p])
+            );
 
             // Reconstruct hierarchy in correct order (top-to-bottom: region -> branch -> workLocation)
             for (let i = parentIds.length - 1; i >= 0; i--) {
@@ -377,10 +382,10 @@ const getLookupHierarchy = async (req, res, next) => {
           },
           hierarchy: hierarchy,
           // Convenience fields for easy access
-          region: hierarchy.find((h) => h.lookuptypeId.code === "REGION"),
-          branch: hierarchy.find((h) => h.lookuptypeId.code === "BRANCH"),
+          region: hierarchy.find((h) => h?.lookuptypeId?.code === "REGION"),
+          branch: hierarchy.find((h) => h?.lookuptypeId?.code === "BRANCH"),
           workLocation: hierarchy.find(
-            (h) => h.lookuptypeId.code === "WORKLOC"
+            (h) => h?.lookuptypeId?.code === "WORKLOC"
           ),
         };
       }
@@ -389,7 +394,7 @@ const getLookupHierarchy = async (req, res, next) => {
     if (!response) {
       return res.status(200).json({
         data: null,
-        message: "Not found"
+        message: "Not found",
       });
     }
 
@@ -443,31 +448,40 @@ const getLookupsByTypeWithHierarchy = async (req, res, next) => {
         for (const lookup of lookups) {
           const parentIds = [];
           let currentParentId = lookup.Parentlookupid;
-          
+
           while (currentParentId) {
             parentIds.push(currentParentId);
             allParentIds.add(currentParentId.toString());
-            
+
             // Fetch just the parent ID field to get next parent
-            const tempParent = await Lookup.findById(currentParentId).select("Parentlookupid").lean();
+            const tempParent = await Lookup.findById(currentParentId)
+              .select("Parentlookupid")
+              .lean();
             currentParentId = tempParent?.Parentlookupid || null;
           }
-          
+
           lookupParentMap.set(lookup._id.toString(), parentIds);
         }
 
         // Batch fetch all unique parents at once
-        const allParents = allParentIds.size > 0 
-          ? await Lookup.find({ _id: { $in: Array.from(allParentIds).map(id => new mongoose.Types.ObjectId(id)) } })
-              .populate({
-                path: "lookuptypeId",
-                select: "code lookuptype displayname",
+        const allParents =
+          allParentIds.size > 0
+            ? await Lookup.find({
+                _id: {
+                  $in: Array.from(allParentIds).map(
+                    (id) => new mongoose.Types.ObjectId(id)
+                  ),
+                },
               })
-              .lean()
-          : [];
+                .populate({
+                  path: "lookuptypeId",
+                  select: "code lookuptype displayname",
+                })
+                .lean()
+            : [];
 
         // Create a map for quick parent lookup
-        const parentMap = new Map(allParents.map(p => [p._id.toString(), p]));
+        const parentMap = new Map(allParents.map((p) => [p._id.toString(), p]));
 
         // Process each lookup to build its hierarchy using the batch-fetched parents
         const results = lookups.map((lookup) => {
@@ -513,10 +527,10 @@ const getLookupsByTypeWithHierarchy = async (req, res, next) => {
             },
             hierarchy: hierarchy,
             // Convenience fields
-            region: hierarchy.find((h) => h.lookuptypeId.code === "REGION"),
-            branch: hierarchy.find((h) => h.lookuptypeId.code === "BRANCH"),
+            region: hierarchy.find((h) => h?.lookuptypeId?.code === "REGION"),
+            branch: hierarchy.find((h) => h?.lookuptypeId?.code === "BRANCH"),
             workLocation: hierarchy.find(
-              (h) => h.lookuptypeId.code === "WORKLOC"
+              (h) => h?.lookuptypeId?.code === "WORKLOC"
             ),
           };
         });
