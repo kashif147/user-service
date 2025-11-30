@@ -496,31 +496,30 @@ const getLookupsByTypeWithHierarchy = async (req, res, next) => {
             }
           }
 
-            return {
-              lookup: {
-                _id: lookup._id,
-                code: lookup.code,
-                lookupname: lookup.lookupname,
-                DisplayName: lookup.DisplayName,
-                lookuptypeId: {
-                  _id: lookup.lookuptypeId?._id,
-                  code: lookup.lookuptypeId?.code,
-                  lookuptype: lookup.lookuptypeId?.lookuptype,
-                  displayname: lookup.lookuptypeId?.displayname,
-                },
-                isactive: lookup.isactive,
-                isdeleted: lookup.isdeleted,
+          return {
+            lookup: {
+              _id: lookup._id,
+              code: lookup.code,
+              lookupname: lookup.lookupname,
+              DisplayName: lookup.DisplayName,
+              lookuptypeId: {
+                _id: lookup.lookuptypeId?._id,
+                code: lookup.lookuptypeId?.code,
+                lookuptype: lookup.lookuptypeId?.lookuptype,
+                displayname: lookup.lookuptypeId?.displayname,
               },
-              hierarchy: hierarchy,
-              // Convenience fields
-              region: hierarchy.find((h) => h.lookuptypeId.code === "REGION"),
-              branch: hierarchy.find((h) => h.lookuptypeId.code === "BRANCH"),
-              workLocation: hierarchy.find(
-                (h) => h.lookuptypeId.code === "WORKLOC"
-              ),
-            };
-          })
-        );
+              isactive: lookup.isactive,
+              isdeleted: lookup.isdeleted,
+            },
+            hierarchy: hierarchy,
+            // Convenience fields
+            region: hierarchy.find((h) => h.lookuptypeId.code === "REGION"),
+            branch: hierarchy.find((h) => h.lookuptypeId.code === "BRANCH"),
+            workLocation: hierarchy.find(
+              (h) => h.lookuptypeId.code === "WORKLOC"
+            ),
+          };
+        });
 
         return {
           lookuptype: {
