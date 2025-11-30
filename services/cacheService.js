@@ -28,9 +28,9 @@ class CacheService {
 
       // Detect Azure Redis Cache and SSL requirements
       const isAzureRedis = redisUrl.includes("cache.windows.net");
-      const isSSLPort =
-        redisUrl.includes(":6380") || redisUrl.startsWith("rediss://");
-      const requiresTLS = isAzureRedis || isSSLPort;
+      const isSSLPort = redisUrl.includes(":6380");
+      const usesRedissProtocol = redisUrl.startsWith("rediss://");
+      const requiresTLS = isAzureRedis || isSSLPort || usesRedissProtocol;
 
       // If URL has embedded credentials, ensure password is properly URL-encoded
       if (redisUrl.includes("@")) {
@@ -83,24 +83,31 @@ class CacheService {
         }
       }
 
+      // Build socket config - only set TLS if URL uses redis:// but needs TLS
+      // If URL uses rediss://, TLS is already indicated by protocol
+      const socketConfig = {
+        connectTimeout: 2000, // Reduced from 10s to 2s for faster failure
+        keepAlive: 30000, // Send keepalive every 30 seconds
+        reconnectStrategy: (retries) => {
+          if (retries > this.maxReconnectAttempts) {
+            console.error("Redis: Max reconnection attempts reached");
+            return false; // Stop retrying
+          }
+          const delay = Math.min(retries * this.reconnectDelay, 30000); // Max 30 seconds
+          console.log(`Redis: Reconnecting in ${delay}ms (attempt ${retries})`);
+          return delay;
+        },
+      };
+
+      // Only set TLS option if URL uses redis:// but requires TLS (e.g., port 6380)
+      // If URL uses rediss://, protocol already indicates TLS, don't set tls option
+      if (requiresTLS && !usesRedissProtocol) {
+        socketConfig.tls = {}; // Enable TLS encryption for redis:// URLs that need it
+      }
+
       this.redisClient = redis.createClient({
         url: redisUrl,
-        socket: {
-          tls: requiresTLS ? {} : undefined, // Enable TLS encryption for Azure Redis Cache (port 6380) or rediss:// URLs
-          connectTimeout: 2000, // Reduced from 10s to 2s for faster failure
-          keepAlive: 30000, // Send keepalive every 30 seconds
-          reconnectStrategy: (retries) => {
-            if (retries > this.maxReconnectAttempts) {
-              console.error("Redis: Max reconnection attempts reached");
-              return false; // Stop retrying
-            }
-            const delay = Math.min(retries * this.reconnectDelay, 30000); // Max 30 seconds
-            console.log(
-              `Redis: Reconnecting in ${delay}ms (attempt ${retries})`
-            );
-            return delay;
-          },
-        },
+        socket: socketConfig,
         pingInterval: 60000, // Ping every 60 seconds to keep connection alive
       });
 

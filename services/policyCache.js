@@ -45,9 +45,9 @@ class PolicyCache {
         // Detect Azure Redis Cache and SSL requirements
         let redisUrl = process.env.REDIS_URL;
         const isAzureRedis = redisUrl.includes("cache.windows.net");
-        const isSSLPort =
-          redisUrl.includes(":6380") || redisUrl.startsWith("rediss://");
-        const requiresTLS = isAzureRedis || isSSLPort;
+        const isSSLPort = redisUrl.includes(":6380");
+        const usesRedissProtocol = redisUrl.startsWith("rediss://");
+        const requiresTLS = isAzureRedis || isSSLPort || usesRedissProtocol;
 
         // If URL has embedded credentials, ensure password is properly URL-encoded
         if (redisUrl.includes("@")) {
@@ -94,26 +94,35 @@ class PolicyCache {
           }
         }
 
+        // Build socket config - only set TLS if URL uses redis:// but needs TLS
+        // If URL uses rediss://, TLS is already indicated by protocol
+        const socketConfig = {
+          reconnectStrategy: (retries) => {
+            if (retries > 10) {
+              console.error(
+                "Redis PolicyCache: Max reconnection attempts reached"
+              );
+              return false;
+            }
+            const delay = Math.min(retries * 1000, 30000);
+            console.log(
+              `Redis PolicyCache: Reconnecting in ${delay}ms (attempt ${retries})`
+            );
+            return delay;
+          },
+          connectTimeout: 2000, // Reduced from 10s to 2s for faster failure
+          keepAlive: 30000, // Keep connection alive
+        };
+
+        // Only set TLS option if URL uses redis:// but requires TLS (e.g., port 6380)
+        // If URL uses rediss://, protocol already indicates TLS, don't set tls option
+        if (requiresTLS && !usesRedissProtocol) {
+          socketConfig.tls = {}; // Enable TLS encryption for redis:// URLs that need it
+        }
+
         config = {
           url: redisUrl,
-          socket: {
-            tls: requiresTLS ? {} : undefined, // Enable TLS encryption for Azure Redis Cache (port 6380) or rediss:// URLs
-            reconnectStrategy: (retries) => {
-              if (retries > 10) {
-                console.error(
-                  "Redis PolicyCache: Max reconnection attempts reached"
-                );
-                return false;
-              }
-              const delay = Math.min(retries * 1000, 30000);
-              console.log(
-                `Redis PolicyCache: Reconnecting in ${delay}ms (attempt ${retries})`
-              );
-              return delay;
-            },
-            connectTimeout: 2000, // Reduced from 10s to 2s for faster failure
-            keepAlive: 30000, // Keep connection alive
-          },
+          socket: socketConfig,
           pingInterval: 60000, // Ping every 60 seconds
         };
       } else {
