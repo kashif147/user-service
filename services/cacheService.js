@@ -22,27 +22,39 @@ class CacheService {
 
   async connect() {
     if (this.isReconnecting) return; // Prevent multiple reconnection attempts
-    
+
     try {
       let redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
-      
+
       // Detect Azure Redis Cache and SSL requirements
       const isAzureRedis = redisUrl.includes("cache.windows.net");
-      const isSSLPort = redisUrl.includes(":6380") || redisUrl.startsWith("rediss://");
+      const isSSLPort =
+        redisUrl.includes(":6380") || redisUrl.startsWith("rediss://");
       const requiresTLS = isAzureRedis || isSSLPort;
-      
+
       // For Azure Redis Cache, if username is provided separately and URL doesn't have credentials,
-      // construct the URL with username:password
-      if (isAzureRedis && process.env.REDIS_USERNAME && process.env.REDIS_PASSWORD && !redisUrl.includes("@")) {
+      // construct the URL with username:password (URL-encode password to handle special characters)
+      if (
+        isAzureRedis &&
+        process.env.REDIS_USERNAME &&
+        process.env.REDIS_PASSWORD &&
+        !redisUrl.includes("@")
+      ) {
         const protocol = requiresTLS ? "rediss://" : "redis://";
-        const urlMatch = redisUrl.match(/^(?:rediss?:\/\/)?([^:\/]+)(?::(\d+))?/);
+        const urlMatch = redisUrl.match(
+          /^(?:rediss?:\/\/)?([^:\/]+)(?::(\d+))?/
+        );
         if (urlMatch) {
           const host = urlMatch[1];
           const port = urlMatch[2] || (requiresTLS ? "6380" : "6379");
-          redisUrl = `${protocol}${process.env.REDIS_USERNAME}:${process.env.REDIS_PASSWORD}@${host}:${port}`;
+          // URL-encode password to handle special characters like =, @, :, /, etc.
+          const encodedPassword = encodeURIComponent(
+            process.env.REDIS_PASSWORD
+          );
+          redisUrl = `${protocol}${process.env.REDIS_USERNAME}:${encodedPassword}@${host}:${port}`;
         }
       }
-      
+
       // Close existing connection if any
       if (this.redisClient) {
         try {
@@ -64,14 +76,14 @@ class CacheService {
               return false; // Stop retrying
             }
             const delay = Math.min(retries * this.reconnectDelay, 30000); // Max 30 seconds
-            console.log(`Redis: Reconnecting in ${delay}ms (attempt ${retries})`);
+            console.log(
+              `Redis: Reconnecting in ${delay}ms (attempt ${retries})`
+            );
             return delay;
           },
         },
         pingInterval: 60000, // Ping every 60 seconds to keep connection alive
       });
-
-      this.redisClient = redis.createClient(clientConfig);
 
       this.redisClient.on("error", (err) => {
         // Don't log ECONNRESET errors too aggressively
@@ -111,11 +123,14 @@ class CacheService {
       console.error("Failed to connect to Redis:", error.message);
       this.isConnected = false;
       this.isReconnecting = false;
-      
+
       // Retry connection with exponential backoff
       if (this.reconnectAttempts < this.maxReconnectAttempts) {
         this.reconnectAttempts++;
-        const delay = Math.min(this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1), 30000);
+        const delay = Math.min(
+          this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1),
+          30000
+        );
         console.log(`Redis: Retrying connection in ${delay}ms`);
         setTimeout(() => {
           this.connect();
@@ -147,9 +162,9 @@ class CacheService {
         // Add timeout to Redis operation (500ms max)
         const value = await Promise.race([
           this.redisClient.get(key),
-          new Promise((_, reject) => 
+          new Promise((_, reject) =>
             setTimeout(() => reject(new Error("Redis get timeout")), 500)
-          )
+          ),
         ]);
         if (value) {
           const parsed = JSON.parse(value);
@@ -164,7 +179,12 @@ class CacheService {
       }
     } catch (error) {
       // Handle connection errors gracefully
-      if (error.message === "Redis get timeout" || error.code === "ECONNRESET" || error.code === "ENOTFOUND" || !this.isConnected) {
+      if (
+        error.message === "Redis get timeout" ||
+        error.code === "ECONNRESET" ||
+        error.code === "ENOTFOUND" ||
+        !this.isConnected
+      ) {
         // Mark as disconnected and try to reconnect
         this.isConnected = false;
         if (!this.isReconnecting) {
@@ -198,12 +218,16 @@ class CacheService {
             Math.floor(timeout / 1000),
             JSON.stringify(value)
           ),
-          new Promise((_, reject) => 
+          new Promise((_, reject) =>
             setTimeout(() => reject(new Error("Redis set timeout")), 300)
-          )
+          ),
         ]).catch((error) => {
           // Silently fail - already stored in memory cache
-          if (error.message === "Redis set timeout" || error.code === "ECONNRESET" || error.code === "ENOTFOUND") {
+          if (
+            error.message === "Redis set timeout" ||
+            error.code === "ECONNRESET" ||
+            error.code === "ENOTFOUND"
+          ) {
             this.isConnected = false;
             if (!this.isReconnecting) {
               this.connect();
@@ -216,7 +240,11 @@ class CacheService {
       }
     } catch (error) {
       // Silently fail - already stored in memory cache
-      if (error.code === "ECONNRESET" || error.code === "ENOTFOUND" || !this.isConnected) {
+      if (
+        error.code === "ECONNRESET" ||
+        error.code === "ENOTFOUND" ||
+        !this.isConnected
+      ) {
         this.isConnected = false;
         if (!this.isReconnecting) {
           this.connect();

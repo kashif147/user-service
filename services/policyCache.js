@@ -43,13 +43,37 @@ class PolicyCache {
       // Use REDIS_URL if provided (similar to RABBITMQ_URL)
       if (process.env.REDIS_URL) {
         // Detect Azure Redis Cache and SSL requirements
-        const isAzureRedis = process.env.REDIS_URL.includes("cache.windows.net");
-        const isSSLPort = process.env.REDIS_URL.includes(":6380") || 
-                          process.env.REDIS_URL.startsWith("rediss://");
+        let redisUrl = process.env.REDIS_URL;
+        const isAzureRedis = redisUrl.includes("cache.windows.net");
+        const isSSLPort =
+          redisUrl.includes(":6380") || redisUrl.startsWith("rediss://");
         const requiresTLS = isAzureRedis || isSSLPort;
-        
+
+        // For Azure Redis Cache, if username/password are provided separately and URL doesn't have credentials,
+        // construct the URL with username:password (URL-encode password to handle special characters)
+        if (
+          isAzureRedis &&
+          process.env.REDIS_USERNAME &&
+          process.env.REDIS_PASSWORD &&
+          !redisUrl.includes("@")
+        ) {
+          const protocol = requiresTLS ? "rediss://" : "redis://";
+          const urlMatch = redisUrl.match(
+            /^(?:rediss?:\/\/)?([^:\/]+)(?::(\d+))?/
+          );
+          if (urlMatch) {
+            const host = urlMatch[1];
+            const port = urlMatch[2] || (requiresTLS ? "6380" : "6379");
+            // URL-encode password to handle special characters like =, @, :, /, etc.
+            const encodedPassword = encodeURIComponent(
+              process.env.REDIS_PASSWORD
+            );
+            redisUrl = `${protocol}${process.env.REDIS_USERNAME}:${encodedPassword}@${host}:${port}`;
+          }
+        }
+
         config = {
-          url: process.env.REDIS_URL,
+          url: redisUrl,
           socket: {
             tls: requiresTLS, // Enable TLS for Azure Redis Cache (port 6380) or rediss:// URLs
             reconnectStrategy: (retries) => {
@@ -70,18 +94,15 @@ class PolicyCache {
           },
           pingInterval: 60000, // Ping every 60 seconds
         };
-
-        // For Azure Redis Cache, add username if provided separately
-        if (isAzureRedis && process.env.REDIS_USERNAME) {
-          config.username = process.env.REDIS_USERNAME;
-        }
       } else {
         // Fallback to individual config options
         const redisPort = parseInt(process.env.REDIS_PORT) || 6379;
         const isSSLPort = redisPort === 6380;
-        const isAzureRedis = (process.env.REDIS_HOST || "").includes("cache.windows.net");
+        const isAzureRedis = (process.env.REDIS_HOST || "").includes(
+          "cache.windows.net"
+        );
         const requiresTLS = isAzureRedis || isSSLPort;
-        
+
         config = {
           host: process.env.REDIS_HOST || "localhost",
           port: redisPort,
@@ -203,11 +224,11 @@ class PolicyCache {
       // Try Redis first with timeout (500ms max)
       const cached = await Promise.race([
         this.redis.get(this.prefix + key),
-        new Promise((_, reject) => 
+        new Promise((_, reject) =>
           setTimeout(() => reject(new Error("Redis get timeout")), 500)
-        )
+        ),
       ]);
-      
+
       if (cached) {
         const result = JSON.parse(cached);
         // Also store in local cache for faster access
@@ -269,9 +290,9 @@ class PolicyCache {
       // Store in Redis with timeout (300ms max) - fire and forget
       Promise.race([
         this.redis.setEx(this.prefix + key, ttl, JSON.stringify(value)),
-        new Promise((_, reject) => 
+        new Promise((_, reject) =>
           setTimeout(() => reject(new Error("Redis set timeout")), 300)
-        )
+        ),
       ]).catch((error) => {
         // Silently fail - already stored in local cache
         if (error.message === "Redis set timeout" || !this.redis?.isOpen) {
