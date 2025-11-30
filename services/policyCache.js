@@ -49,13 +49,35 @@ class PolicyCache {
           redisUrl.includes(":6380") || redisUrl.startsWith("rediss://");
         const requiresTLS = isAzureRedis || isSSLPort;
 
-        // For Azure Redis Cache, if username/password are provided separately and URL doesn't have credentials,
-        // construct the URL with username:password (URL-encode password to handle special characters)
-        if (
+        // If URL has embedded credentials, ensure password is properly URL-encoded
+        if (redisUrl.includes("@")) {
+          try {
+            // Parse URL to extract and re-encode password if needed
+            const urlMatch = redisUrl.match(
+              /^(rediss?:\/\/)([^:]+):([^@]+)@([^:\/]+)(?::(\d+))?(\/.*)?$/
+            );
+            if (urlMatch) {
+              const [, protocol, username, password, host, port, path] =
+                urlMatch;
+              // Decode password to get original, then re-encode to ensure proper encoding
+              const decodedPassword = decodeURIComponent(password);
+              const encodedPassword = encodeURIComponent(decodedPassword);
+              const portPart = port ? `:${port}` : "";
+              const pathPart = path || "/0";
+              redisUrl = `${protocol}${username}:${encodedPassword}@${host}${portPart}${pathPart}`;
+            }
+          } catch (error) {
+            // If parsing fails, use URL as-is (may already be properly encoded)
+            console.warn(
+              "Redis PolicyCache: Could not parse REDIS_URL, using as-is"
+            );
+          }
+        } else if (
+          // For Azure Redis Cache, if username/password are provided separately and URL doesn't have credentials,
+          // construct the URL with username:password (URL-encode password to handle special characters)
           isAzureRedis &&
           process.env.REDIS_USERNAME &&
-          process.env.REDIS_PASSWORD &&
-          !redisUrl.includes("@")
+          process.env.REDIS_PASSWORD
         ) {
           const protocol = requiresTLS ? "rediss://" : "redis://";
           const urlMatch = redisUrl.match(
@@ -75,7 +97,7 @@ class PolicyCache {
         config = {
           url: redisUrl,
           socket: {
-            tls: requiresTLS, // Enable TLS for Azure Redis Cache (port 6380) or rediss:// URLs
+            tls: requiresTLS ? {} : undefined, // Enable TLS encryption for Azure Redis Cache (port 6380) or rediss:// URLs
             reconnectStrategy: (retries) => {
               if (retries > 10) {
                 console.error(
@@ -108,7 +130,7 @@ class PolicyCache {
           port: redisPort,
           db: parseInt(process.env.REDIS_DB) || 0,
           socket: {
-            tls: requiresTLS, // Enable TLS for Azure Redis Cache (port 6380)
+            tls: requiresTLS ? {} : undefined, // Enable TLS encryption for Azure Redis Cache (port 6380)
             reconnectStrategy: (retries) => {
               if (retries > 10) {
                 console.error(
