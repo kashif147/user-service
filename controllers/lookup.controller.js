@@ -1,6 +1,7 @@
 const Lookup = require("../models/lookup.model");
 const { AppError } = require("../errors/AppError");
 const lookupCacheService = require("../services/lookupCacheService");
+const mongoose = require("mongoose");
 // const { publishEvent } = require("message-bus");
 
 const getAllLookup = async (req, res, next) => {
@@ -245,7 +246,7 @@ const updateLookup = async (req, res, next) => {
 const deleteLookup = async (req, res, next) => {
   if (!req?.body?.id) return next(AppError.badRequest("Lookup ID required"));
 
-  const lookup = await Lookup.findOne({ _id: req.body.id }).exec();
+  const lookup = await Lookup.findOne({ _id: req.body.id }).lean();
   if (!lookup) {
     return next(AppError.notFound(`No lookups matches ID ${req.body.id}`));
   }
@@ -262,7 +263,7 @@ const deleteLookup = async (req, res, next) => {
     timestamp: new Date(),
   };
 
-  const result = await lookup.deleteOne({ _id: req.body.id });
+  const result = await Lookup.deleteOne({ _id: req.body.id });
 
   // Invalidate cache after successful deletion
   await lookupCacheService.invalidateLookupCache();
@@ -309,44 +310,51 @@ const getLookupHierarchy = async (req, res, next) => {
 
         // Build hierarchy array (only parents/ancestors, not the requested object itself)
         const hierarchy = [];
-        let currentLookup = lookup;
 
-        // If current lookup has a parent, fetch the complete parent chain
-        if (currentLookup.Parentlookupid) {
-          let parentId = currentLookup.Parentlookupid._id;
+        // Optimized: Collect all parent IDs first, then fetch in batch
+        if (lookup.Parentlookupid) {
+          const parentIds = [];
+          let currentParentId = lookup.Parentlookupid._id || lookup.Parentlookupid;
 
-          // Fetch all parents up the chain
-          while (parentId) {
-            const parent = await Lookup.findById(parentId)
+          // Collect all parent IDs in the chain (minimal queries - just to get IDs)
+          while (currentParentId) {
+            parentIds.push(currentParentId);
+            // Fetch just the Parentlookupid field to get next parent ID
+            const tempParent = await Lookup.findById(currentParentId).select("Parentlookupid").lean();
+            currentParentId = tempParent?.Parentlookupid || null;
+          }
+
+          // Batch fetch all parents at once (much faster than sequential queries)
+          if (parentIds.length > 0) {
+            const parents = await Lookup.find({ _id: { $in: parentIds } })
               .populate({
                 path: "lookuptypeId",
                 select: "code lookuptype displayname",
               })
-              .populate({
-                path: "Parentlookupid",
-                select: "_id",
-              });
+              .lean();
 
-            if (parent) {
-              hierarchy.unshift({
-                _id: parent._id,
-                code: parent.code,
-                lookupname: parent.lookupname,
-                DisplayName: parent.DisplayName,
-                lookuptypeId: {
-                  _id: parent.lookuptypeId?._id,
-                  code: parent.lookuptypeId?.code,
-                  lookuptype: parent.lookuptypeId?.lookuptype,
-                  displayname: parent.lookuptypeId?.displayname,
-                },
-                isactive: parent.isactive,
-                isdeleted: parent.isdeleted,
-              });
+            // Create a map for quick lookup
+            const parentMap = new Map(parents.map(p => [p._id.toString(), p]));
 
-              // Move to next parent
-              parentId = parent.Parentlookupid?._id;
-            } else {
-              break;
+            // Reconstruct hierarchy in correct order (top-to-bottom: region -> branch -> workLocation)
+            for (let i = parentIds.length - 1; i >= 0; i--) {
+              const parent = parentMap.get(parentIds[i].toString());
+              if (parent) {
+                hierarchy.unshift({
+                  _id: parent._id,
+                  code: parent.code,
+                  lookupname: parent.lookupname,
+                  DisplayName: parent.DisplayName,
+                  lookuptypeId: {
+                    _id: parent.lookuptypeId?._id,
+                    code: parent.lookuptypeId?.code,
+                    lookuptype: parent.lookuptypeId?.lookuptype,
+                    displayname: parent.lookuptypeId?.displayname,
+                  },
+                  isactive: parent.isactive,
+                  isdeleted: parent.isdeleted,
+                });
+              }
             }
           }
         }
@@ -427,41 +435,66 @@ const getLookupsByTypeWithHierarchy = async (req, res, next) => {
         // Get lookup type details for response
         const lookupType = lookups[0].lookuptypeId;
 
-        // Process each lookup to build its hierarchy
-        const results = await Promise.all(
-          lookups.map(async (lookup) => {
-            const hierarchy = [];
-            let currentLookup = lookup;
+        // Optimized: Collect all parent IDs from all lookups, then batch fetch
+        const allParentIds = new Set();
+        const lookupParentMap = new Map(); // Maps lookup ID to its parent ID chain
 
-            // Build parent chain (only parents/ancestors, not the lookup itself)
-            let parentId = currentLookup.Parentlookupid;
-            while (parentId) {
-              const parent = await Lookup.findById(parentId).populate({
+        // First pass: collect all parent IDs
+        for (const lookup of lookups) {
+          const parentIds = [];
+          let currentParentId = lookup.Parentlookupid;
+          
+          while (currentParentId) {
+            parentIds.push(currentParentId);
+            allParentIds.add(currentParentId.toString());
+            
+            // Fetch just the parent ID field to get next parent
+            const tempParent = await Lookup.findById(currentParentId).select("Parentlookupid").lean();
+            currentParentId = tempParent?.Parentlookupid || null;
+          }
+          
+          lookupParentMap.set(lookup._id.toString(), parentIds);
+        }
+
+        // Batch fetch all unique parents at once
+        const allParents = allParentIds.size > 0 
+          ? await Lookup.find({ _id: { $in: Array.from(allParentIds).map(id => new mongoose.Types.ObjectId(id)) } })
+              .populate({
                 path: "lookuptypeId",
                 select: "code lookuptype displayname",
+              })
+              .lean()
+          : [];
+
+        // Create a map for quick parent lookup
+        const parentMap = new Map(allParents.map(p => [p._id.toString(), p]));
+
+        // Process each lookup to build its hierarchy using the batch-fetched parents
+        const results = lookups.map((lookup) => {
+          const hierarchy = [];
+          const parentIds = lookupParentMap.get(lookup._id.toString()) || [];
+
+          // Reconstruct hierarchy in correct order (top-to-bottom: region -> branch -> workLocation)
+          // Reverse iterate to maintain correct order
+          for (let i = parentIds.length - 1; i >= 0; i--) {
+            const parent = parentMap.get(parentIds[i].toString());
+            if (parent) {
+              hierarchy.unshift({
+                _id: parent._id,
+                code: parent.code,
+                lookupname: parent.lookupname,
+                DisplayName: parent.DisplayName,
+                lookuptypeId: {
+                  _id: parent.lookuptypeId?._id,
+                  code: parent.lookuptypeId?.code,
+                  lookuptype: parent.lookuptypeId?.lookuptype,
+                  displayname: parent.lookuptypeId?.displayname,
+                },
+                isactive: parent.isactive,
+                isdeleted: parent.isdeleted,
               });
-
-              if (parent) {
-                hierarchy.unshift({
-                  _id: parent._id,
-                  code: parent.code,
-                  lookupname: parent.lookupname,
-                  DisplayName: parent.DisplayName,
-                  lookuptypeId: {
-                    _id: parent.lookuptypeId?._id,
-                    code: parent.lookuptypeId?.code,
-                    lookuptype: parent.lookuptypeId?.lookuptype,
-                    displayname: parent.lookuptypeId?.displayname,
-                  },
-                  isactive: parent.isactive,
-                  isdeleted: parent.isdeleted,
-                });
-
-                parentId = parent.Parentlookupid;
-              } else {
-                break;
-              }
             }
+          }
 
             return {
               lookup: {
