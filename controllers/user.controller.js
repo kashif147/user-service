@@ -11,10 +11,20 @@ module.exports.handleRegistration = async (req, res, next) => {
 
     console.log("results", results);
 
-    // Extract tenantId from request context (set by auth middleware)
-    const tenantId = req.ctx?.tenantId;
+    // Extract tenantId from request - NEVER use bypass values
+    // Priority: request body > headers > environment default
+    const tenantId = 
+      req.body.tenantId || 
+      req.headers["x-tenant-id"] || 
+      process.env.DEFAULT_TENANT_ID;
+    
     if (!tenantId) {
-      return next(AppError.badRequest("Tenant context required"));
+      return next(AppError.badRequest("Tenant ID is required. Provide tenantId in request body or X-Tenant-ID header, or set DEFAULT_TENANT_ID environment variable."));
+    }
+    
+    // SECURITY: Reject bypass tenant values
+    if (tenantId === "bypass-tenant" || tenantId === "bypass-user") {
+      return next(AppError.badRequest("Invalid tenant ID. Bypass values are not allowed for registration."));
     }
 
     const isEmailExists = await UserHandler.findUserByEmail(
@@ -25,11 +35,20 @@ module.exports.handleRegistration = async (req, res, next) => {
       return next(AppError.conflict("User already exists"));
     }
 
+    // For registration, createdBy is null since user doesn't exist yet
+    // If an admin is creating the user, they should be authenticated and their ID passed via header
+    const createdBy = req.headers["x-user-id"] || null;
+    
+    // SECURITY: Reject bypass user values
+    if (createdBy === "bypass-user") {
+      return next(AppError.badRequest("Invalid creator ID. Bypass values are not allowed."));
+    }
+
     const result = await UserHandler.handleNewUser(
       results.email,
       results.password,
       tenantId,
-      req.ctx.userId
+      createdBy
     );
 
     // Encrypt the token before sending to frontend
@@ -55,10 +74,20 @@ module.exports.handleLogin = async (req, res, next) => {
       req.body
     );
 
-    // Extract tenantId from request context
-    const tenantId = req.ctx?.tenantId;
+    // Extract tenantId from request - NEVER use bypass values
+    // Priority: request body > headers > environment default
+    const tenantId = 
+      req.body.tenantId || 
+      req.headers["x-tenant-id"] || 
+      process.env.DEFAULT_TENANT_ID;
+    
     if (!tenantId) {
-      return next(AppError.badRequest("Tenant context required"));
+      return next(AppError.badRequest("Tenant ID is required. Provide tenantId in request body or X-Tenant-ID header, or set DEFAULT_TENANT_ID environment variable."));
+    }
+    
+    // SECURITY: Reject bypass tenant values
+    if (tenantId === "bypass-tenant" || tenantId === "bypass-user") {
+      return next(AppError.badRequest("Invalid tenant ID. Bypass values are not allowed for login."));
     }
 
     const isEmailExists = await UserHandler.findUserByEmail(

@@ -5,12 +5,9 @@ const { authenticate, requireTenant } = require("../middlewares/auth");
 const { defaultPolicyMiddleware } = require("../middlewares/policy.middleware");
 const { azureB2CBasicAuth } = require("../middlewares/basicAuth.middleware");
 
-// User registration and login endpoints (no auth required)
-router.post(
-  "/users/register",
-  defaultPolicyMiddleware.requirePermission("user", "create"),
-  UserController.handleRegistration
-);
+// User registration and login endpoints (no auth required - public endpoints)
+// NOTE: These endpoints should NEVER use bypass values - they require real tenantId from request
+router.post("/users/register", UserController.handleRegistration);
 router.post("/users/login", UserController.handleLogin);
 
 // Public user validation endpoint for Azure B2C custom policies

@@ -29,7 +29,35 @@ const authenticate = async (req, res, next) => {
     const token = authHeader.substring(7); // Remove 'Bearer '
 
     // Check for authorization bypass (but still validate token)
+    // SECURITY: Never allow bypass on authentication endpoints
+    const authEndpoints = ['/login', '/signin', '/signup', '/register', '/auth'];
+    const isAuthEndpoint = authEndpoints.some(endpoint => 
+      req.path.toLowerCase().includes(endpoint.toLowerCase())
+    );
+    
     if (process.env.AUTH_BYPASS_ENABLED === "true") {
+      if (isAuthEndpoint) {
+        console.error(
+          `🚨 SECURITY ERROR: Bypass attempted on authentication endpoint: ${req.path}`
+        );
+        const authError = AppError.badRequest(
+          "Authentication bypass is not allowed for authentication endpoints",
+          {
+            tokenError: true,
+            securityError: true,
+          }
+        );
+        return res.status(authError.status).json({
+          error: {
+            message: authError.message,
+            code: authError.code,
+            status: authError.status,
+            tokenError: authError.tokenError,
+            securityError: authError.securityError,
+          },
+        });
+      }
+      
       console.log(
         `🚨 AUTH BYPASS TRIGGERED - NODE_ENV: ${process.env.NODE_ENV}`
       );
