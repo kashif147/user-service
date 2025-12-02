@@ -3,7 +3,8 @@ const mongoose = require("mongoose");
 const UserSchema = new mongoose.Schema({
   // Tenant isolation - mandatory field
   tenantId: {
-    type: String,
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Tenant",
     required: true,
     index: true,
   },
@@ -72,3 +73,4 @@ UserSchema.pre("save", function (next) {
 });
 
 module.exports = mongoose.model("User", UserSchema);
+

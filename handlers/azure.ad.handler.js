@@ -1,5 +1,6 @@
 const axios = require("axios");
 const User = require("../models/user.model");
+const Tenant = require("../models/tenant.model");
 const Role = require("../models/role.model");
 const jwt = require("jsonwebtoken");
 const { assignDefaultRole } = require("../helpers/roleAssignment");
@@ -91,9 +92,7 @@ class AzureADHandler {
       userEmail: payload.email || payload.preferred_username || null,
       userFirstName: payload.given_name || null,
       userLastName: payload.family_name || null,
-      userFullName: `${payload.given_name || ""} ${
-        payload.family_name || ""
-      }`.trim(),
+      userFullName: `${payload.given_name || ""} ${payload.family_name }`,
       userMobilePhone: payload.phone_number || null,
       userMemberNumber: null,
       userMicrosoftId: payload.oid || payload.sub || null,
@@ -138,13 +137,13 @@ class AzureADHandler {
       console.log("Profile received:", JSON.stringify(profile, null, 2));
 
       const email = profile.userEmail;
-      const tenantId = profile.tenantId;
+      const directoryId = profile.tenantId;
 
       console.log("Extracted email:", email);
-      console.log("Extracted tenantId:", tenantId);
+      console.log("Extracted directoryId:", directoryId);
 
       if (!email) throw new Error("Email not found in Azure AD token");
-      if (!tenantId) {
+      if (!directoryId) {
         console.error("ERROR: Tenant ID is missing from profile!");
         console.error("Profile keys:", Object.keys(profile));
         console.error("Profile tenantId field:", profile.tenantId);
@@ -152,12 +151,29 @@ class AzureADHandler {
         throw new Error("Tenant ID not found in Azure AD token");
       }
 
+      // Find the internal Tenant by directory ID and ensure it matches the CRM connection type
+      const tenant = await Tenant.findOne({
+        authenticationConnections: {
+          $elemMatch: {
+            connectionType: "Entra ID (Azure AD)",
+            directoryId: directoryId,
+          },
+        },
+      });
+
+      if (!tenant) {
+        throw new Error(`Tenant not found for directory ID: ${directoryId}`);
+      }
+
+      const tenantObjectId = tenant._id;
+      console.log(`Mapped directory ID ${directoryId} to Tenant ObjectId ${tenantObjectId}`);
+
       const updateData = {
         ...profile,
         userAuthProvider: "azure-ad",
         userType: "CRM",
         userLastLogin: new Date(),
-        tenantId: tenantId,
+        tenantId: tenantObjectId,
         tokens: {
           id_token: tokens.id_token || null,
           refresh_token: tokens.refresh_token || null,
@@ -170,7 +186,7 @@ class AzureADHandler {
       // Store previous values for event publishing
       const existingUser = await User.findOne({
         userEmail: email,
-        tenantId: tenantId,
+        tenantId: tenantObjectId,
       }).lean();
       const previousEmail = existingUser?.userEmail;
       const previousFullName = existingUser?.userFullName;
@@ -179,7 +195,7 @@ class AzureADHandler {
       // Use atomic findOneAndUpdate with upsert to prevent race conditions
       // This ensures only one user is created even if multiple requests come simultaneously
       const user = await User.findOneAndUpdate(
-        { userEmail: email, tenantId: tenantId },
+        { userEmail: email, tenantId: tenantObjectId },
         {
           $set: updateData,
           $setOnInsert: {
@@ -199,7 +215,8 @@ class AzureADHandler {
       if (isNewUser) {
         console.log(`Creating new CRM user: ${email}`);
         if (needsRoleAssignment) {
-          await assignDefaultRole(user, "CRM", tenantId);
+          // Pass directoryId for role assignment if Roles are still using directory ID
+          await assignDefaultRole(user, "CRM", directoryId);
           // Save again to persist the role assignment
           await user.save();
         }
@@ -208,7 +225,7 @@ class AzureADHandler {
         console.log(`Updating existing CRM user: ${email}`);
         // If existing user doesn't have roles, assign them
         if (needsRoleAssignment) {
-          await assignDefaultRole(user, "CRM", tenantId);
+          await assignDefaultRole(user, "CRM", directoryId);
           await user.save();
         }
         await publishCrmUserUpdated(user, {
@@ -229,7 +246,7 @@ class AzureADHandler {
         );
         const user = await User.findOne({
           userEmail: email,
-          tenantId: tenantId,
+          tenantId: tenantObjectId,
         });
         if (user) {
           // Update the user with latest data
@@ -238,7 +255,7 @@ class AzureADHandler {
             userAuthProvider: "azure-ad",
             userType: "CRM",
             userLastLogin: new Date(),
-            tenantId: tenantId,
+            tenantId: tenantObjectId,
             tokens: {
               id_token: tokens.id_token || null,
               refresh_token: tokens.refresh_token || null,
@@ -307,3 +324,4 @@ class AzureADHandler {
 }
 
 module.exports = AzureADHandler;
+

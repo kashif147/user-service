@@ -1,5 +1,6 @@
 const axios = require("axios");
 const B2CUser = require("../models/user.model");
+const Tenant = require("../models/tenant.model");
 const Role = require("../models/role.model");
 const jwt = require("jsonwebtoken");
 const { assignDefaultRole } = require("../helpers/roleAssignment");
@@ -74,9 +75,8 @@ class B2CUsersHandler {
       userEmail: payload.emails?.[0] || null,
       userFirstName: payload.given_name || null,
       userLastName: payload.family_name || null,
-      userFullName: `${payload.given_name || ""} ${
-        payload.family_name || ""
-      }`.trim(),
+      userFullName: `${payload.given_name || ""} ${payload.family_name || ""
+        }`.trim(),
       userMobilePhone: payload.extension_mobilePhone || null,
       userMemberNumber: payload.extension_MemberNo || null,
       userMicrosoftId: payload.oid || null,
@@ -88,11 +88,13 @@ class B2CUsersHandler {
       userTokenVersion: payload.ver || null,
       userPolicy: payload.tfp || null,
       // Extract tenant ID for proper tenant isolation
+      // B2C tokens: extension_tenantId is the B2C directory ID (check this FIRST)
+      // tenantId might be the Azure AD tenant ID, so check extension_tenantId first
       tenantId:
-        payload.tenantId ||
         payload.extension_tenantId ||
-        payload.tid ||
-        "39866a06-30bc-4a89-80c6-9dd9357dd453", // Default tenant
+        payload.tenantId ||
+        payload.tid,
+        // "39866a06-30bc-4a89-80c6-9dd9357dd453", // Default tenant
     };
   }
 
@@ -101,24 +103,41 @@ class B2CUsersHandler {
     console.log("User profile:", profile);
 
     const email = profile.userEmail;
-    const tenantId = profile.tenantId;
+    const directoryId = profile.tenantId;
 
     if (!email) {
       console.log("Email not found in profile");
       throw new Error("Email not found in Microsoft token");
     }
 
-    if (!tenantId) {
+    if (!directoryId) {
       console.log("Tenant ID not found in profile");
       throw new Error("Tenant ID not found in Microsoft token");
     }
+
+    // Find the internal Tenant by directory ID and ensure it matches the Portal connection type
+    const tenant = await Tenant.findOne({
+      authenticationConnections: {
+        $elemMatch: {
+          connectionType: "Azure B2C",
+          directoryId: directoryId,
+        },
+      },
+    });
+
+    if (!tenant) {
+      throw new Error(`Tenant not found for directory ID: ${directoryId}`);
+    }
+
+    const tenantObjectId = tenant._id;
+    console.log(`Mapped directory ID ${directoryId} to Tenant ObjectId ${tenantObjectId}`);
 
     const updateData = {
       ...profile,
       userAuthProvider: "microsoft",
       userType: "PORTAL", // Ensure portal users are marked as PORTAL type
       userLastLogin: new Date(),
-      tenantId: tenantId,
+      tenantId: tenantObjectId,
       tokens: {
         id_token: tokens.id_token || null,
         refresh_token: tokens.refresh_token || null,
@@ -132,14 +151,14 @@ class B2CUsersHandler {
       // Check if user exists before upsert to determine if it's a new user
       const existingUser = await B2CUser.findOne({
         userEmail: email,
-        tenantId: tenantId,
+        tenantId: tenantObjectId,
       }).lean();
       const isNewUser = !existingUser;
 
       // Use atomic findOneAndUpdate with upsert to prevent race conditions
       // This ensures only one user is created even if multiple requests come simultaneously
       const user = await B2CUser.findOneAndUpdate(
-        { userEmail: email, tenantId: tenantId },
+        { userEmail: email, tenantId: tenantObjectId },
         {
           $set: updateData,
           $setOnInsert: {
@@ -159,7 +178,8 @@ class B2CUsersHandler {
       if (isNewUser) {
         console.log("Creating new user");
         if (needsRoleAssignment) {
-          await assignDefaultRole(user, "PORTAL", tenantId);
+          // Pass directoryId for role assignment if Roles are still using directory ID
+          await assignDefaultRole(user, "PORTAL", directoryId);
           // Save again to persist the role assignment
           await user.save();
         }
@@ -167,7 +187,7 @@ class B2CUsersHandler {
         console.log("Updating existing user");
         // If existing user doesn't have roles, assign them
         if (needsRoleAssignment) {
-          await assignDefaultRole(user, "PORTAL", tenantId);
+          await assignDefaultRole(user, "PORTAL", directoryId);
           await user.save();
         }
       }
@@ -184,7 +204,7 @@ class B2CUsersHandler {
         );
         const user = await B2CUser.findOne({
           userEmail: email,
-          tenantId: tenantId,
+          tenantId: tenantObjectId,
         });
         if (user) {
           // Update the user with latest data
@@ -206,3 +226,4 @@ class B2CUsersHandler {
 }
 
 module.exports = B2CUsersHandler;
+
