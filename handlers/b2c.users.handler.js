@@ -1,8 +1,46 @@
 const axios = require("axios");
 const B2CUser = require("../models/user.model");
+const Tenant = require("../models/tenant.model");
 const Role = require("../models/role.model");
 const jwt = require("jsonwebtoken");
 const { assignDefaultRole } = require("../helpers/roleAssignment");
+
+/**
+ * Find Tenant document by Azure B2C directory ID
+ * @param {string} directoryId - Microsoft B2C directory ID (tid or extension_tenantId from token)
+ * @returns {Promise<Object|null>} Tenant document or null
+ */
+async function findTenantByB2CDirectoryId(directoryId) {
+  try {
+    console.log("=== Looking up Tenant by Azure B2C directory ID ===");
+    console.log("Directory ID from Microsoft:", directoryId);
+    
+    const tenant = await Tenant.findOne({
+      "authenticationConnections.connectionType": "Azure B2C",
+      "authenticationConnections.directoryId": directoryId,
+      "authenticationConnections.isActive": true,
+    });
+
+    if (tenant) {
+      console.log("✅ Found Tenant:", {
+        _id: tenant._id.toString(),
+        name: tenant.name,
+        code: tenant.code,
+      });
+      console.log("📌 This Tenant._id will be used as tenantId in user document and JWT token");
+      return tenant;
+    } else {
+      console.log("❌ No Tenant found for Azure B2C directory ID:", directoryId);
+      console.log("💡 Make sure Tenant document has:");
+      console.log("   - authenticationConnections.connectionType = 'Azure B2C'");
+      console.log("   - authenticationConnections.directoryId =", directoryId);
+      return null;
+    }
+  } catch (error) {
+    console.error("Error looking up Tenant:", error.message);
+    return null;
+  }
+}
 
 const TENANT_ID = process.env.MS_TENANT_NAME || "projectshellAB2C";
 const POLICY = process.env.MS_POLICY || "B2C_1_projectshell";
@@ -58,17 +96,67 @@ class B2CUsersHandler {
     }
   }
 
-  static decodeIdToken(idToken) {
-    console.log("Decoding ID token");
+  static async decodeIdToken(idToken) {
+    console.log("=== B2C decodeIdToken Debug ===");
     const payload = JSON.parse(
       Buffer.from(idToken.split(".")[1], "base64").toString("utf8")
     );
-    console.log("Decoded token payload:", payload);
-    console.log("Available tenant ID fields:", {
+    
+    console.log("=== FULL B2C ID TOKEN PAYLOAD FROM MICROSOFT ===");
+    console.log(JSON.stringify(payload, null, 2));
+    console.log("=== TENANT/DIRECTORY ID FIELDS FROM MICROSOFT ===");
+    console.log({
       tenantId: payload.tenantId,
       extension_tenantId: payload.extension_tenantId,
-      tenantId: payload.tenantId,
+      tid: payload.tid,
+      iss: payload.iss,
+      aud: payload.aud,
     });
+    console.log("=== ALL PAYLOAD KEYS ===");
+    console.log(Object.keys(payload));
+
+    // Extract Microsoft directory ID from B2C token
+    // B2C may have it in tid, extension_tenantId, or embedded in iss URL
+    let extractedDirectoryId =
+      payload.tid ||
+      payload.extension_tenantId ||
+      payload.tenantId ||
+      null;
+
+    // If not in token fields, extract from issuer URL
+    // Format: https://tenantname.b2clogin.com/{directoryId}/v2.0/
+    if (!extractedDirectoryId && payload.iss) {
+      const issMatch = payload.iss.match(/b2clogin\.com\/([a-f0-9-]+)\/v2\.0/);
+      if (issMatch) {
+        extractedDirectoryId = issMatch[1];
+        console.log("✅ Extracted directory ID from issuer URL:", extractedDirectoryId);
+      }
+    }
+
+    if (!extractedDirectoryId) {
+      console.error("❌ ERROR: Could not extract directory ID from B2C token");
+      throw new Error("Directory ID not found in B2C token (checked tid, extension_tenantId, tenantId, and issuer URL)");
+    }
+
+    console.log("Extracted Microsoft directory ID:", extractedDirectoryId);
+
+    // Look up Tenant document by directory ID
+    const tenant = await findTenantByB2CDirectoryId(extractedDirectoryId);
+    
+    if (!tenant) {
+      console.error("❌ ERROR: No Tenant found for directory ID:", extractedDirectoryId);
+      console.error("Please ensure Tenant document exists with matching authenticationConnections");
+      throw new Error(`Tenant not found for Azure B2C directory: ${extractedDirectoryId}`);
+    }
+
+    console.log("\n");
+    console.log("╔════════════════════════════════════════════════════════════════╗");
+    console.log("║   ✅ TENANT MAPPING RESULT (B2C)                               ║");
+    console.log("╚════════════════════════════════════════════════════════════════╝");
+    console.log("Microsoft Directory ID:", extractedDirectoryId);
+    console.log("Tenant Document _id:", tenant._id.toString());
+    console.log("📌 Using Tenant._id as tenantId in user document and JWT token");
+    console.log("");
 
     return {
       userEmail: payload.emails?.[0] || null,
@@ -87,12 +175,10 @@ class B2CUsersHandler {
       userAuthTime: payload.auth_time || null,
       userTokenVersion: payload.ver || null,
       userPolicy: payload.tfp || null,
-      // Extract tenant ID for proper tenant isolation
-      tenantId:
-        payload.tenantId ||
-        payload.extension_tenantId ||
-        payload.tid ||
-        "39866a06-30bc-4a89-80c6-9dd9357dd453", // Default tenant
+      // Use Tenant._id instead of Microsoft directory ID
+      tenantId: tenant._id.toString(),
+      // Store Microsoft directory ID separately for reference
+      microsoftDirectoryId: extractedDirectoryId,
     };
   }
 
@@ -129,19 +215,36 @@ class B2CUsersHandler {
     };
 
     try {
-      // Check if user exists before upsert to determine if it's a new user
-      const existingUser = await B2CUser.findOne({
+      // First, try to find existing user by email + new tenantId (Tenant._id)
+      let existingUser = await B2CUser.findOne({
         userEmail: email,
         tenantId: tenantId,
       }).lean();
+
+      // If not found, try to find by email only (for existing users created before tenant mapping)
+      // This handles migration of existing users to new tenant mapping
+      if (!existingUser) {
+        console.log("⚠️  User not found with new tenantId, checking for existing user by email only...");
+        existingUser = await B2CUser.findOne({
+          userEmail: email,
+        }).lean();
+        
+        if (existingUser) {
+          console.log("✅ Found existing user with old tenantId:", existingUser.tenantId);
+          console.log("📌 Will update tenantId from", existingUser.tenantId, "to", tenantId);
+        }
+      }
+
       const isNewUser = !existingUser;
 
       // Use atomic findOneAndUpdate with upsert to prevent race conditions
-      // This ensures only one user is created even if multiple requests come simultaneously
+      // If existing user found by email only, update their tenantId to new Tenant._id
       const user = await B2CUser.findOneAndUpdate(
-        { userEmail: email, tenantId: tenantId },
+        existingUser && existingUser.tenantId !== tenantId
+          ? { userEmail: email } // Update existing user by email only
+          : { userEmail: email, tenantId: tenantId }, // Normal case: email + tenantId
         {
-          $set: updateData,
+          $set: updateData, // This includes the new tenantId (Tenant._id)
           $setOnInsert: {
             createdAt: new Date(),
           },
@@ -199,7 +302,7 @@ class B2CUsersHandler {
 
   static async handleB2CAuth(code, codeVerifier) {
     const tokens = await this.exchangeCodeForTokens(code, codeVerifier);
-    const profile = this.decodeIdToken(tokens.id_token);
+    const profile = await this.decodeIdToken(tokens.id_token);
     const user = await this.findOrCreateUser(profile, tokens);
     return { user, tokens };
   }

@@ -1,6 +1,7 @@
 const axios = require("axios");
 const User = require("../models/user.model");
 const Role = require("../models/role.model");
+const Tenant = require("../models/tenant.model");
 const jwt = require("jsonwebtoken");
 const { assignDefaultRole } = require("../helpers/roleAssignment");
 const {
@@ -18,6 +19,43 @@ const REDIRECT_URI =
 
 const TOKEN_ENDPOINT = `https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/token`;
 const GRAPH_ME_ENDPOINT = "https://graph.microsoft.com/v1.0/me";
+
+/**
+ * Find Tenant document by Azure AD directory ID
+ * @param {string} directoryId - Microsoft directory ID (tid from token)
+ * @returns {Promise<Object|null>} Tenant document or null
+ */
+async function findTenantByAzureADDirectoryId(directoryId) {
+  try {
+    console.log("=== Looking up Tenant by Azure AD directory ID ===");
+    console.log("Directory ID from Microsoft:", directoryId);
+    
+    const tenant = await Tenant.findOne({
+      "authenticationConnections.connectionType": "Entra ID (Azure AD)",
+      "authenticationConnections.directoryId": directoryId,
+      "authenticationConnections.isActive": true,
+    });
+
+    if (tenant) {
+      console.log("✅ Found Tenant:", {
+        _id: tenant._id.toString(),
+        name: tenant.name,
+        code: tenant.code,
+      });
+      console.log("📌 This Tenant._id will be used as tenantId in user document and JWT token");
+      return tenant;
+    } else {
+      console.log("❌ No Tenant found for Azure AD directory ID:", directoryId);
+      console.log("💡 Make sure Tenant document has:");
+      console.log("   - authenticationConnections.connectionType = 'Entra ID (Azure AD)'");
+      console.log("   - authenticationConnections.directoryId =", directoryId);
+      return null;
+    }
+  } catch (error) {
+    console.error("Error looking up Tenant:", error.message);
+    return null;
+  }
+}
 
 class AzureADHandler {
   static async exchangeCodeForTokens(code, codeVerifier, redirectUri = null) {
@@ -100,7 +138,12 @@ class AzureADHandler {
     }
   }
 
-  static decodeIdToken(idToken) {
+  static async decodeIdToken(idToken) {
+    console.log("\n");
+    console.log("╔════════════════════════════════════════════════════════════════╗");
+    console.log("║   🔍 WHAT MICROSOFT SENDS WHEN USER LOGS IN (AZURE AD)        ║");
+    console.log("╚════════════════════════════════════════════════════════════════╝");
+    console.log("\n");
     console.log("=== Azure AD decodeIdToken Debug ===");
     console.log(
       "ID Token (first 100 chars):",
@@ -111,17 +154,49 @@ class AzureADHandler {
       Buffer.from(idToken.split(".")[1], "base64").toString("utf8")
     );
 
-    console.log("Azure AD token payload:", JSON.stringify(payload, null, 2));
-    console.log("Available tenant ID fields:", {
-      tid: payload.tid,
-      tenantId: payload.tenantId,
-      tenant_id: payload.tenant_id,
+    console.log("\n");
+    console.log("╔════════════════════════════════════════════════════════════════╗");
+    console.log("║   📋 FULL AZURE AD TOKEN PAYLOAD FROM MICROSOFT               ║");
+    console.log("╚════════════════════════════════════════════════════════════════╝");
+    console.log(JSON.stringify(payload, null, 2));
+    console.log("\n");
+    console.log("╔════════════════════════════════════════════════════════════════╗");
+    console.log("║   🔑 KEY FIELDS FROM MICROSOFT                                ║");
+    console.log("╚════════════════════════════════════════════════════════════════╝");
+    console.log({
+      "Directory ID (tid)": payload.tid,
+      "Tenant ID": payload.tenantId,
+      "User ID (oid)": payload.oid,
+      "Email": payload.email || payload.preferred_username,
+      "Name": payload.name || payload.given_name,
+      "Issuer": payload.iss,
+      "Audience": payload.aud,
     });
+    console.log("\n=== ALL PAYLOAD KEYS ===");
+    console.log(Object.keys(payload));
 
-    const extractedTenantId =
+    const extractedDirectoryId =
       payload.tid || payload.tenantId || payload.tenant_id || TENANT_ID;
-    console.log("Extracted tenant ID:", extractedTenantId);
-    console.log("Using fallback tenant ID:", TENANT_ID);
+    console.log("Extracted Microsoft directory ID:", extractedDirectoryId);
+    console.log("Using fallback directory ID:", TENANT_ID);
+
+    // Look up Tenant document by directory ID
+    const tenant = await findTenantByAzureADDirectoryId(extractedDirectoryId);
+    
+    if (!tenant) {
+      console.error("❌ ERROR: No Tenant found for directory ID:", extractedDirectoryId);
+      console.error("Please ensure Tenant document exists with matching authenticationConnections");
+      throw new Error(`Tenant not found for Azure AD directory: ${extractedDirectoryId}`);
+    }
+
+    console.log("\n");
+    console.log("╔════════════════════════════════════════════════════════════════╗");
+    console.log("║   ✅ TENANT MAPPING RESULT (CRM)                               ║");
+    console.log("╚════════════════════════════════════════════════════════════════╝");
+    console.log("Microsoft Directory ID:", extractedDirectoryId);
+    console.log("Tenant Document _id:", tenant._id.toString());
+    console.log("📌 Using Tenant._id as tenantId in user document and JWT token");
+    console.log("");
 
     const profile = {
       userEmail: payload.email || payload.preferred_username || null,
@@ -140,11 +215,13 @@ class AzureADHandler {
       userAuthTime: payload.auth_time || null,
       userTokenVersion: payload.ver || "2.0",
       userPolicy: null,
-      // Extract tenant ID for proper tenant isolation - Azure AD uses 'tid' claim
-      tenantId: extractedTenantId,
+      // Use Tenant._id instead of Microsoft directory ID
+      tenantId: tenant._id.toString(),
+      // Store Microsoft directory ID separately for reference
+      microsoftDirectoryId: extractedDirectoryId,
     };
 
-    console.log("Final profile:", JSON.stringify(profile, null, 2));
+    console.log("Final profile with Tenant._id:", JSON.stringify(profile, null, 2));
     console.log("=== End Azure AD decodeIdToken Debug ===");
 
     return profile;
@@ -203,21 +280,38 @@ class AzureADHandler {
         updatedAt: new Date(),
       };
 
-      // Store previous values for event publishing
-      const existingUser = await User.findOne({
+      // First, try to find existing user by email + new tenantId (Tenant._id)
+      let existingUser = await User.findOne({
         userEmail: email,
         tenantId: tenantId,
       }).lean();
+
+      // If not found, try to find by email only (for existing users created before tenant mapping)
+      // This handles migration of existing users to new tenant mapping
+      if (!existingUser) {
+        console.log("⚠️  User not found with new tenantId, checking for existing user by email only...");
+        existingUser = await User.findOne({
+          userEmail: email,
+        }).lean();
+        
+        if (existingUser) {
+          console.log("✅ Found existing user with old tenantId:", existingUser.tenantId);
+          console.log("📌 Will update tenantId from", existingUser.tenantId, "to", tenantId);
+        }
+      }
+
       const previousEmail = existingUser?.userEmail;
       const previousFullName = existingUser?.userFullName;
       const isNewUser = !existingUser;
 
       // Use atomic findOneAndUpdate with upsert to prevent race conditions
-      // This ensures only one user is created even if multiple requests come simultaneously
+      // If existing user found by email only, update their tenantId to new Tenant._id
       const user = await User.findOneAndUpdate(
-        { userEmail: email, tenantId: tenantId },
+        existingUser && existingUser.tenantId !== tenantId
+          ? { userEmail: email } // Update existing user by email only
+          : { userEmail: email, tenantId: tenantId }, // Normal case: email + tenantId
         {
-          $set: updateData,
+          $set: updateData, // This includes the new tenantId (Tenant._id)
           $setOnInsert: {
             createdAt: new Date(),
           },
@@ -312,7 +406,7 @@ class AzureADHandler {
         "ID token (first 100 chars):",
         tokens.id_token ? tokens.id_token.substring(0, 100) + "..." : "MISSING"
       );
-      const baseProfile = this.decodeIdToken(tokens.id_token);
+    const baseProfile = await this.decodeIdToken(tokens.id_token);
       console.log("ID token decoded, email:", baseProfile.userEmail);
       console.log("ID token decoded, tenantId:", baseProfile.tenantId);
 
