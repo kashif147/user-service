@@ -30,11 +30,17 @@ const authenticate = async (req, res, next) => {
 
     // Check for authorization bypass (but still validate token)
     // SECURITY: Never allow bypass on authentication endpoints
-    const authEndpoints = ['/login', '/signin', '/signup', '/register', '/auth'];
-    const isAuthEndpoint = authEndpoints.some(endpoint => 
+    const authEndpoints = [
+      "/login",
+      "/signin",
+      "/signup",
+      "/register",
+      "/auth",
+    ];
+    const isAuthEndpoint = authEndpoints.some((endpoint) =>
       req.path.toLowerCase().includes(endpoint.toLowerCase())
     );
-    
+
     if (process.env.AUTH_BYPASS_ENABLED === "true") {
       if (isAuthEndpoint) {
         console.error(
@@ -57,7 +63,7 @@ const authenticate = async (req, res, next) => {
           },
         });
       }
-      
+
       console.log(
         `🚨 AUTH BYPASS TRIGGERED - NODE_ENV: ${process.env.NODE_ENV}`
       );
