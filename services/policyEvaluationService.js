@@ -339,6 +339,13 @@ const validateToken = async (token) => {
       };
     }
 
+    // Normalize roles: extract role codes if roles are objects
+    const normalizedRoles = Array.isArray(decoded.roles)
+      ? decoded.roles
+          .map((role) => (typeof role === "string" ? role : role?.code))
+          .filter(Boolean)
+      : [];
+
     return {
       valid: true,
       user: {
@@ -346,7 +353,7 @@ const validateToken = async (token) => {
         tenantId: tenantId,
         email: decoded.email,
         userType: decoded.userType,
-        roles: decoded.roles || [],
+        roles: normalizedRoles,
         permissions: decoded.permissions || [],
       },
       expiresAt: new Date(decoded.exp * 1000).toISOString(),
@@ -443,8 +450,8 @@ const evaluateResourcePolicy = async (context) => {
 
     // Special handling for tenant resource - ASU can only manage their own tenant
     if (resource === "tenant") {
-      const hasASURole = roles.some((role) => role.code === "ASU");
-      const hasSURole = roles.some((role) => role.code === "SU");
+      const hasASURole = roles.includes("ASU");
+      const hasSURole = roles.includes("SU");
 
       // SU can manage any tenant globally
       if (hasSURole) {
@@ -562,9 +569,8 @@ const evaluateActionPolicy = async (context) => {
   }
 
   // Check minimum role level
-  const userMaxLevel = await roleHierarchyService.getHighestRoleLevel(
-    roles.map((r) => r.code)
-  );
+  // Roles are already normalized to strings in validateToken
+  const userMaxLevel = await roleHierarchyService.getHighestRoleLevel(roles);
   if (userMaxLevel < requirement.minRoleLevel) {
     return {
       decision: "DENY",
