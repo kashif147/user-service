@@ -1,8 +1,7 @@
 const jwt = require("jsonwebtoken");
 const { AppError } = require("../errors/AppError");
 const roleHierarchyService = require("../services/roleHierarchyService");
-const { gatewaySecurity } = require("@membership/policy-middleware/security");
-const { validateGatewayRequest } = gatewaySecurity;
+const { validateGatewayRequest } = require("@membership/policy-middleware/security");
 
 /**
  * Unified JWT Authentication Middleware
