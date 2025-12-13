@@ -1,6 +1,8 @@
 const jwt = require("jsonwebtoken");
 const { AppError } = require("../errors/AppError");
 const roleHierarchyService = require("../services/roleHierarchyService");
+const { gatewaySecurity } = require("@membership/policy-middleware/security");
+const { validateGatewayRequest } = gatewaySecurity;
 
 /**
  * Unified JWT Authentication Middleware
@@ -8,6 +10,106 @@ const roleHierarchyService = require("../services/roleHierarchyService");
  */
 const authenticate = async (req, res, next) => {
   try {
+    // 1) Check for gateway-verified JWT (trust gateway headers with validation)
+    const jwtVerified = req.headers["x-jwt-verified"];
+    const authSource = req.headers["x-auth-source"];
+
+    if (jwtVerified === "true" && authSource === "gateway") {
+      // Validate gateway request (signature, IP, format)
+      const validation = validateGatewayRequest(req);
+      if (!validation.valid) {
+        console.warn("Gateway header validation failed:", validation.reason);
+        const authError = AppError.unauthorized("Invalid gateway request", {
+          tokenError: true,
+          validationError: validation.reason,
+        });
+        return res.status(authError.status).json({
+          error: {
+            message: authError.message,
+            code: authError.code,
+            status: authError.status,
+            tokenError: authError.tokenError,
+            validationError: authError.validationError,
+          },
+        });
+      }
+
+      // Gateway has verified JWT and forwarded claims as headers
+      const userId = req.headers["x-user-id"];
+      const tenantId = req.headers["x-tenant-id"];
+      const userEmail = req.headers["x-user-email"];
+      const userType = req.headers["x-user-type"];
+      const userRolesStr = req.headers["x-user-roles"] || "[]";
+      const userPermissionsStr = req.headers["x-user-permissions"] || "[]";
+
+      if (!userId || !tenantId) {
+        const authError = AppError.badRequest(
+          "Missing required authentication headers",
+          {
+            tokenError: true,
+            missingHeaders: true,
+          }
+        );
+        return res.status(authError.status).json({
+          error: {
+            message: authError.message,
+            code: authError.code,
+            status: authError.status,
+            tokenError: authError.tokenError,
+            missingHeaders: authError.missingHeaders,
+          },
+        });
+      }
+
+      let roles = [];
+      let permissions = [];
+
+      try {
+        const rolesArray = JSON.parse(userRolesStr);
+        roles = Array.isArray(rolesArray)
+          ? rolesArray
+              .map((role) => (typeof role === "string" ? role : role?.code))
+              .filter(Boolean)
+          : [];
+      } catch (e) {
+        console.warn("Failed to parse x-user-roles header:", e.message);
+      }
+
+      try {
+        permissions = JSON.parse(userPermissionsStr);
+        if (!Array.isArray(permissions)) permissions = [];
+      } catch (e) {
+        console.warn("Failed to parse x-user-permissions header:", e.message);
+      }
+
+      // Set request context with tenant isolation
+      req.ctx = {
+        tenantId,
+        userId,
+        roles,
+        permissions,
+      };
+
+      // Attach user info to request for backward compatibility
+      req.user = {
+        sub: userId,
+        id: userId,
+        tenantId,
+        email: userEmail,
+        userType,
+        roles,
+        permissions,
+      };
+
+      req.userId = userId;
+      req.tenantId = tenantId;
+      req.roles = roles;
+      req.permissions = permissions;
+
+      return next();
+    }
+
+    // 2) Legacy Bearer JWT flow (fallback for direct service calls)
     const authHeader = req.headers.authorization || req.headers.Authorization;
 
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -70,11 +172,9 @@ const authenticate = async (req, res, next) => {
       try {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-        // Extract tenantId from token - support both tid and tenantId claims
         const tenantId =
           decoded.tenantId || decoded.tid || decoded.extension_tenantId;
 
-        // Validate tenantId is present in token
         if (!tenantId) {
           const authError = AppError.badRequest(
             "Invalid token: missing tenantId",
@@ -94,15 +194,13 @@ const authenticate = async (req, res, next) => {
           });
         }
 
-        // Set request context with tenant isolation
         req.ctx = {
           tenantId: tenantId,
-          userId: decoded.sub || decoded.id, // Support both sub and id claims
+          userId: decoded.sub || decoded.id,
           roles: decoded.roles || [],
           permissions: decoded.permissions || [],
         };
 
-        // Attach user info to request for backward compatibility
         req.user = decoded;
         req.userId = decoded.sub || decoded.id;
         req.tenantId = tenantId;
@@ -128,13 +226,12 @@ const authenticate = async (req, res, next) => {
       }
     }
 
+    // Normal JWT verification flow
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // Extract tenantId from token - support both tid and tenantId claims
     const tenantId =
       decoded.tenantId || decoded.tid || decoded.extension_tenantId;
 
-    // Validate tenantId is present in token
     if (!tenantId) {
       const authError = AppError.badRequest("Invalid token: missing tenantId", {
         tokenError: true,
@@ -151,15 +248,13 @@ const authenticate = async (req, res, next) => {
       });
     }
 
-    // Set request context with tenant isolation
     req.ctx = {
       tenantId: tenantId,
-      userId: decoded.sub || decoded.id, // Support both sub and id claims
+      userId: decoded.sub || decoded.id,
       roles: decoded.roles || [],
       permissions: decoded.permissions || [],
     };
 
-    // Attach user info to request for backward compatibility
     req.user = decoded;
     req.userId = decoded.sub || decoded.id;
     req.tenantId = tenantId;

@@ -1,9 +1,127 @@
 const jwt = require("jsonwebtoken");
 const { AppError } = require("../errors/AppError");
+const { gatewaySecurity } = require("@membership/policy-middleware/security");
+const { validateGatewayRequest } = gatewaySecurity;
 
 module.exports.requirePermission = (requiredPermission) => {
   return async (req, res, next) => {
     try {
+      // Check for gateway-verified headers first
+      const jwtVerified = req.headers["x-jwt-verified"];
+      const authSource = req.headers["x-auth-source"];
+
+      if (jwtVerified === "true" && authSource === "gateway") {
+        // Validate gateway request
+        const validation = validateGatewayRequest(req);
+        if (!validation.valid) {
+          const authError = AppError.unauthorized("Invalid gateway request", {
+            tokenError: true,
+            validationError: validation.reason,
+          });
+          return res.status(authError.status).json({
+            success: false,
+            error: {
+              message: authError.message,
+              code: authError.code,
+              status: authError.status,
+              tokenError: authError.tokenError,
+              validationError: authError.validationError,
+            },
+            correlationId:
+              req.correlationId ||
+              req.headers["x-correlation-id"] ||
+              require("crypto").randomUUID(),
+          });
+        }
+
+        // Read from gateway headers
+        const userId = req.headers["x-user-id"];
+        const tenantId = req.headers["x-tenant-id"];
+        const userEmail = req.headers["x-user-email"];
+        const userType = req.headers["x-user-type"];
+        const userRolesStr = req.headers["x-user-roles"] || "[]";
+        const userPermissionsStr = req.headers["x-user-permissions"] || "[]";
+
+        let roles = [];
+        let permissions = [];
+
+        try {
+          const rolesArray = JSON.parse(userRolesStr);
+          roles = Array.isArray(rolesArray)
+            ? rolesArray.map((role) => (typeof role === "string" ? role : role?.code)).filter(Boolean)
+            : [];
+        } catch (e) {
+          console.warn("Failed to parse x-user-roles:", e.message);
+        }
+
+        try {
+          permissions = JSON.parse(userPermissionsStr);
+          if (!Array.isArray(permissions)) permissions = [];
+        } catch (e) {
+          console.warn("Failed to parse x-user-permissions:", e.message);
+        }
+
+        // Check for authorization bypass
+        if (process.env.AUTH_BYPASS_ENABLED === "true") {
+          req.user = {
+            id: userId,
+            tenantId,
+            email: userEmail,
+            userType,
+            roles,
+            permissions,
+          };
+          return next();
+        }
+
+        // Check Super User role
+        const hasSuperUserRole = roles.some((role) => role === "SU" || role?.code === "SU");
+        if (hasSuperUserRole) {
+          req.user = {
+            id: userId,
+            tenantId,
+            email: userEmail,
+            userType,
+            roles,
+            permissions,
+          };
+          return next();
+        }
+
+        // Check specific permission
+        if (!permissions.includes(requiredPermission)) {
+          const forbiddenError = AppError.forbidden("Insufficient permissions", {
+            requiredPermission,
+            userPermissions: permissions,
+          });
+          return res.status(forbiddenError.status).json({
+            success: false,
+            error: {
+              message: forbiddenError.message,
+              code: forbiddenError.code,
+              status: forbiddenError.status,
+              requiredPermission: forbiddenError.requiredPermission,
+              userPermissions: forbiddenError.userPermissions,
+            },
+            correlationId:
+              req.correlationId ||
+              req.headers["x-correlation-id"] ||
+              require("crypto").randomUUID(),
+          });
+        }
+
+        req.user = {
+          id: userId,
+          tenantId,
+          email: userEmail,
+          userType,
+          roles,
+          permissions,
+        };
+        return next();
+      }
+
+      // Fallback: Legacy token-based flow
       const token = req.headers.authorization?.replace("Bearer ", "");
 
       if (!token) {
@@ -29,14 +147,9 @@ module.exports.requirePermission = (requiredPermission) => {
 
       // Check for authorization bypass (but still validate token)
       if (process.env.AUTH_BYPASS_ENABLED === "true") {
-        // Still validate the token to ensure it's a valid JWT
         try {
           const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-          // Extract tenantId from token
-          const tenantId =
-            decoded.tenantId || decoded.tid || decoded.extension_tenantId;
-
+          const tenantId = decoded.tenantId || decoded.tid || decoded.extension_tenantId;
           req.user = {
             id: decoded.sub || decoded.id,
             tenantId: tenantId,

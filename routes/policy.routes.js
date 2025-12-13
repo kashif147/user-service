@@ -21,23 +21,49 @@ const { AppError } = require("../errors/AppError");
  */
 router.post("/evaluate", async (req, res, next) => {
   try {
-    const { token, resource, action, context } = req.body;
+    const { resource, action, context } = req.body;
 
-    if (!token || !resource || !action) {
+    if (!resource || !action) {
       return next(
-        AppError.badRequest("Missing required fields: token, resource, action")
+        AppError.badRequest("Missing required fields: resource, action")
       );
     }
 
-    const result = await policyService.evaluatePolicy({
-      token,
-      resource,
-      action,
-      context: {
-        ...context,
-        correlationId: req.headers["x-correlation-id"] || crypto.randomUUID(),
-      },
-    });
+    // Check for gateway-verified headers first
+    const jwtVerified = req.headers["x-jwt-verified"];
+    const authSource = req.headers["x-auth-source"];
+    const hasGatewayHeaders = jwtVerified === "true" && authSource === "gateway";
+
+    let result;
+    if (hasGatewayHeaders) {
+      // Use headers from gateway
+      result = await policyService.evaluatePolicyWithHeaders({
+        headers: req.headers,
+        resource,
+        action,
+        context: {
+          ...context,
+          correlationId: req.headers["x-correlation-id"] || crypto.randomUUID(),
+        },
+      });
+    } else {
+      // Fallback to token-based evaluation (legacy support)
+      const { token } = req.body;
+      if (!token) {
+        return next(
+          AppError.badRequest("Missing required field: token (or gateway headers)")
+        );
+      }
+      result = await policyService.evaluatePolicy({
+        token,
+        resource,
+        action,
+        context: {
+          ...context,
+          correlationId: req.headers["x-correlation-id"] || crypto.randomUUID(),
+        },
+      });
+    }
 
     const statusCode = result.decision === "PERMIT" ? 200 : 403;
 
@@ -125,14 +151,25 @@ router.post("/evaluate-batch", async (req, res, next) => {
 router.get("/permissions/:resource", async (req, res, next) => {
   try {
     const { resource } = req.params;
-    const authHeader = req.headers.authorization;
+    
+    // Check for gateway-verified headers first
+    const jwtVerified = req.headers["x-jwt-verified"];
+    const authSource = req.headers["x-auth-source"];
+    const hasGatewayHeaders = jwtVerified === "true" && authSource === "gateway";
 
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return next(AppError.unauthorized("Authorization header required"));
+    let result;
+    if (hasGatewayHeaders) {
+      // Use headers from gateway
+      result = await policyService.getEffectivePermissionsWithHeaders(req.headers, resource);
+    } else {
+      // Fallback to token-based (legacy support)
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith("Bearer ")) {
+        return next(AppError.unauthorized("Authorization header required"));
+      }
+      const token = authHeader.substring(7);
+      result = await policyService.getEffectivePermissions(token, resource);
     }
-
-    const token = authHeader.substring(7);
-    const result = await policyService.getEffectivePermissions(token, resource);
 
     if (!result.success) {
       return next(AppError.unauthorized(result.error));

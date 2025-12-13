@@ -70,21 +70,28 @@ const invalidateCache = async (tenantId = null) => {
 const evaluatePolicy = async (request) => {
   const startTime = Date.now();
   const maxEvaluationTime = 3000; // 3 seconds max for policy evaluation
-  
+
   try {
     const { token, resource, action, context = {} } = request;
-    
+
     // Wrap evaluation in timeout
     const evaluationPromise = evaluatePolicyInternal(request);
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error("Policy evaluation timeout")), maxEvaluationTime)
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(
+        () => reject(new Error("Policy evaluation timeout")),
+        maxEvaluationTime
+      )
     );
-    
+
     try {
       return await Promise.race([evaluationPromise, timeoutPromise]);
     } catch (timeoutError) {
       if (timeoutError.message === "Policy evaluation timeout") {
-        console.error(`Policy evaluation timeout after ${Date.now() - startTime}ms for ${resource}:${action}`);
+        console.error(
+          `Policy evaluation timeout after ${
+            Date.now() - startTime
+          }ms for ${resource}:${action}`
+        );
         return {
           decision: "DENY",
           reason: "EVALUATION_TIMEOUT",
@@ -183,9 +190,11 @@ const evaluatePolicyInternal = async (request) => {
       };
 
       // Cache negative results for shorter time (fire and forget)
-      cache.set(cacheKey, result, 60).catch(err => 
-        console.warn("Failed to cache negative result:", err.message)
-      );
+      cache
+        .set(cacheKey, result, 60)
+        .catch((err) =>
+          console.warn("Failed to cache negative result:", err.message)
+        );
       return result;
     }
 
@@ -206,9 +215,9 @@ const evaluatePolicyInternal = async (request) => {
         policyVersion: POLICY_VERSION,
         correlationId: context.correlationId,
       };
-      cache.set(cacheKey, result, 60).catch(err => 
-        console.warn("Failed to cache result:", err.message)
-      );
+      cache
+        .set(cacheKey, result, 60)
+        .catch((err) => console.warn("Failed to cache result:", err.message));
       return result;
     }
 
@@ -236,9 +245,9 @@ const evaluatePolicyInternal = async (request) => {
         policyVersion: POLICY_VERSION,
         correlationId: context.correlationId,
       };
-      cache.set(cacheKey, result, 60).catch(err => 
-        console.warn("Failed to cache result:", err.message)
-      );
+      cache
+        .set(cacheKey, result, 60)
+        .catch((err) => console.warn("Failed to cache result:", err.message));
       return result;
     }
 
@@ -266,9 +275,11 @@ const evaluatePolicyInternal = async (request) => {
       };
 
       // Cache negative results for shorter time (fire and forget)
-      cache.set(cacheKey, result, 60).catch(err => 
-        console.warn("Failed to cache negative result:", err.message)
-      );
+      cache
+        .set(cacheKey, result, 60)
+        .catch((err) =>
+          console.warn("Failed to cache negative result:", err.message)
+        );
       return result;
     }
 
@@ -294,9 +305,11 @@ const evaluatePolicyInternal = async (request) => {
     };
 
     // Step 7: Cache the result (fire and forget - don't wait)
-    cache.set(cacheKey, result).catch(err => 
-      console.warn("Failed to cache policy result:", err.message)
-    );
+    cache
+      .set(cacheKey, result)
+      .catch((err) =>
+        console.warn("Failed to cache policy result:", err.message)
+      );
 
     return result;
   } catch (error) {
@@ -759,10 +772,173 @@ const getResourcePermissions = async (resource, roles, permissions) => {
   }
 };
 
+/**
+ * Evaluate policy using gateway headers instead of token
+ * @param {Object} request - Authorization request with headers
+ * @param {Object} request.headers - Request headers (including gateway headers)
+ * @param {string} request.resource - Resource being accessed
+ * @param {string} request.action - Action being performed
+ * @param {Object} request.context - Additional context
+ * @returns {Object} Policy decision
+ */
+const evaluatePolicyWithHeaders = async (request) => {
+  const { headers, resource, action, context = {} } = request;
+
+  // Extract user context from gateway headers
+  const userId = headers["x-user-id"];
+  const tenantId = headers["x-tenant-id"];
+  const userEmail = headers["x-user-email"];
+  const userType = headers["x-user-type"];
+  const userRolesStr = headers["x-user-roles"] || "[]";
+  const userPermissionsStr = headers["x-user-permissions"] || "[]";
+
+  if (!userId || !tenantId) {
+    return {
+      decision: "DENY",
+      reason: "INVALID_HEADERS",
+      error: "Missing required headers",
+      timestamp: new Date().toISOString(),
+      policyVersion: POLICY_VERSION,
+      correlationId: context.correlationId,
+    };
+  }
+
+  let roles = [];
+  let permissions = [];
+
+  try {
+    const rolesArray = JSON.parse(userRolesStr);
+    roles = Array.isArray(rolesArray)
+      ? rolesArray
+          .map((role) => (typeof role === "string" ? role : role?.code))
+          .filter(Boolean)
+      : [];
+  } catch (e) {
+    console.warn("Failed to parse x-user-roles:", e.message);
+  }
+
+  try {
+    permissions = JSON.parse(userPermissionsStr);
+    if (!Array.isArray(permissions)) permissions = [];
+  } catch (e) {
+    console.warn("Failed to parse x-user-permissions:", e.message);
+  }
+
+  const user = {
+    id: userId,
+    tenantId,
+    email: userEmail,
+    userType,
+    roles,
+    permissions,
+  };
+
+  // Build authorization context
+  const authContext = {
+    ...context,
+    userId: user.id,
+    tenantId: context.tenantId || user.tenantId,
+    userTenantId: user.tenantId,
+    userType: user.userType,
+    roles: user.roles,
+    permissions: user.permissions,
+    resource,
+    action,
+    correlationId: context.correlationId,
+  };
+
+  // Apply policy rules (reuse existing logic)
+  const policyDecision = await applyPolicyRules(authContext);
+
+  return {
+    ...policyDecision,
+    user,
+    timestamp: new Date().toISOString(),
+    policyVersion: POLICY_VERSION,
+    correlationId: context.correlationId,
+  };
+};
+
+/**
+ * Get effective permissions using gateway headers
+ * @param {Object} headers - Request headers (including gateway headers)
+ * @param {string} resource - Resource name
+ * @returns {Object} Effective permissions
+ */
+const getEffectivePermissionsWithHeaders = async (headers, resource) => {
+  try {
+    const userId = headers["x-user-id"];
+    const tenantId = headers["x-tenant-id"];
+    const userType = headers["x-user-type"];
+    const userRolesStr = headers["x-user-roles"] || "[]";
+    const userPermissionsStr = headers["x-user-permissions"] || "[]";
+
+    if (!userId || !tenantId) {
+      return {
+        success: false,
+        error: "Missing required headers",
+      };
+    }
+
+    let roles = [];
+    let permissions = [];
+
+    try {
+      const rolesArray = JSON.parse(userRolesStr);
+      roles = Array.isArray(rolesArray)
+        ? rolesArray
+            .map((role) => (typeof role === "string" ? role : role?.code))
+            .filter(Boolean)
+        : [];
+    } catch (e) {
+      console.warn("Failed to parse x-user-roles:", e.message);
+    }
+
+    try {
+      permissions = JSON.parse(userPermissionsStr);
+      if (!Array.isArray(permissions)) permissions = [];
+    } catch (e) {
+      console.warn("Failed to parse x-user-permissions:", e.message);
+    }
+
+    // Super User has all permissions
+    if (roleHierarchyService.isSuperUser(roles)) {
+      return {
+        success: true,
+        permissions: ["*"],
+        roles: roles,
+        reason: "SUPER_USER",
+      };
+    }
+
+    // Get resource-specific permissions
+    const resourcePermissions = await getResourcePermissions(
+      resource,
+      roles,
+      permissions
+    );
+
+    return {
+      success: true,
+      permissions: resourcePermissions,
+      roles: roles,
+      userType: userType,
+      tenantId: tenantId,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error.message,
+    };
+  }
+};
+
 module.exports = {
   evaluatePolicy,
+  evaluatePolicyWithHeaders,
   evaluateBatchPolicy,
   getEffectivePermissions,
+  getEffectivePermissionsWithHeaders,
   validateToken,
   applyPolicyRules,
   getPolicyVersion,
