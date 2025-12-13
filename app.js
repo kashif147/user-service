@@ -6,35 +6,50 @@ require("dotenv").config({
 // Suppress Application Insights warnings if not configured
 // Azure App Service auto-injects Application Insights, but warnings appear if key is missing
 // Must be done BEFORE any other require/import statements to catch early initialization
-if (process.env.APPLICATIONINSIGHTS_CONNECTION_STRING && process.env.APPLICATIONINSIGHTS_CONNECTION_STRING.trim() === "") {
+if (
+  process.env.APPLICATIONINSIGHTS_CONNECTION_STRING &&
+  process.env.APPLICATIONINSIGHTS_CONNECTION_STRING.trim() === ""
+) {
   process.env.APPLICATIONINSIGHTS_CONNECTION_STRING = undefined;
 }
-if (!process.env.APPINSIGHTS_INSTRUMENTATIONKEY || process.env.APPINSIGHTS_INSTRUMENTATIONKEY.trim() === "") {
+if (
+  !process.env.APPINSIGHTS_INSTRUMENTATIONKEY ||
+  process.env.APPINSIGHTS_INSTRUMENTATIONKEY.trim() === ""
+) {
   // Suppress stderr FIRST (most important for Azure platform logs)
   const originalStderrWrite = process.stderr.write.bind(process.stderr);
-  process.stderr.write = function(chunk, encoding, callback) {
+  process.stderr.write = function (chunk, encoding, callback) {
     const message = chunk.toString();
-    if (message.includes("ApplicationInsights") && (message.includes("instrumentation key") || message.includes("iKey"))) {
+    if (
+      message.includes("ApplicationInsights") &&
+      (message.includes("instrumentation key") || message.includes("iKey"))
+    ) {
       return true;
     }
     return originalStderrWrite(chunk, encoding, callback);
   };
-  
+
   // Then suppress console methods
   const originalConsoleWarn = console.warn;
   const originalConsoleError = console.error;
-  
-  console.warn = function(...args) {
+
+  console.warn = function (...args) {
     const message = args.join(" ");
-    if (message.includes("ApplicationInsights") && (message.includes("instrumentation key") || message.includes("iKey"))) {
+    if (
+      message.includes("ApplicationInsights") &&
+      (message.includes("instrumentation key") || message.includes("iKey"))
+    ) {
       return;
     }
     originalConsoleWarn.apply(console, args);
   };
-  
-  console.error = function(...args) {
+
+  console.error = function (...args) {
     const message = args.join(" ");
-    if (message.includes("ApplicationInsights") && (message.includes("instrumentation key") || message.includes("iKey"))) {
+    if (
+      message.includes("ApplicationInsights") &&
+      (message.includes("instrumentation key") || message.includes("iKey"))
+    ) {
       return;
     }
     originalConsoleError.apply(console, args);
@@ -74,9 +89,9 @@ app.use(loggerMiddleware);
 app.use(securityHeaders);
 
 // CORS middleware with enhanced configuration
-app.use(handlePreflight);
-app.use(corsMiddleware);
-app.use(corsErrorHandler);
+// app.use(handlePreflight);
+// app.use(corsMiddleware);
+// app.use(corsErrorHandler);
 
 app.use(
   session({
@@ -224,7 +239,10 @@ const { initEventSystem, setupConsumers } = require("./rabbitMQ");
     await setupConsumers();
     console.log("✅ RabbitMQ event system initialized (user-service)");
   } catch (err) {
-    console.error("❌ Failed to initialize RabbitMQ event system:", err.message);
+    console.error(
+      "❌ Failed to initialize RabbitMQ event system:",
+      err.message
+    );
   }
 })();
 
