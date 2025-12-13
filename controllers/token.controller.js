@@ -98,7 +98,10 @@ module.exports.validateInternalJWT = async (req, res, next) => {
     const token = authHeader.substring(7);
 
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const decoded = jwt.decode(token);
+      if (!decoded) {
+        return next(AppError.unauthorized("Invalid token format"));
+      }
 
       // Check for required claims
       const validation = {
@@ -148,7 +151,10 @@ module.exports.validateTokenForService = async (req, res, next) => {
     const token = authHeader.substring(7);
 
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const decoded = jwt.decode(token);
+      if (!decoded) {
+        return next(AppError.unauthorized("Invalid token format"));
+      }
 
       // Return minimal user context for external services
       res.json({
@@ -162,10 +168,12 @@ module.exports.validateTokenForService = async (req, res, next) => {
           roles: decoded.roles || [],
           permissions: decoded.permissions || [],
         },
-        expiresAt: new Date(decoded.exp * 1000).toISOString(),
+        expiresAt: decoded.exp
+          ? new Date(decoded.exp * 1000).toISOString()
+          : null,
       });
     } catch (jwtError) {
-      return next(AppError.unauthorized("Invalid or expired token"));
+      return next(AppError.unauthorized("Invalid token"));
     }
   } catch (error) {
     console.error("Token validation service error:", error);

@@ -332,7 +332,10 @@ const evaluatePolicyInternal = async (request) => {
  */
 const validateToken = async (token) => {
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.decode(token);
+    if (!decoded) {
+      return { valid: false, error: "Invalid token format" };
+    }
 
     // Check expiration
     const now = Math.floor(Date.now() / 1000);

@@ -57,7 +57,13 @@ class UserServiceClient {
     const jwt = require("jsonwebtoken");
 
     try {
-      const decoded = jwt.verify(token.replace("Bearer ", ""), this.jwtSecret);
+      const decoded = jwt.decode(token.replace("Bearer ", ""));
+      if (!decoded) {
+        return {
+          valid: false,
+          error: "Invalid token format",
+        };
+      }
 
       return {
         valid: true,
@@ -69,7 +75,9 @@ class UserServiceClient {
           roles: decoded.roles || [],
           permissions: decoded.permissions || [],
         },
-        expiresAt: new Date(decoded.exp * 1000).toISOString(),
+        expiresAt: decoded.exp
+          ? new Date(decoded.exp * 1000).toISOString()
+          : null,
       };
     } catch (error) {
       return { valid: false, error: error.message };

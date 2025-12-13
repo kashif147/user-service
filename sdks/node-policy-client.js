@@ -156,12 +156,18 @@ class PolicyClient {
 
         const token = authHeader.substring(7);
 
-        // Check for authorization bypass (but still validate token)
+        // Check for authorization bypass (decode token without verification)
         if (process.env.AUTH_BYPASS_ENABLED === "true") {
-          // Still validate the token to ensure it's a valid JWT
+          // Decode the token without verification
           try {
             const jwt = require("jsonwebtoken");
-            const decoded = jwt.verify(token, process.env.JWT_SECRET);
+            const decoded = jwt.decode(token);
+            if (!decoded) {
+              return res.status(401).json({
+                success: false,
+                error: "Invalid token format",
+              });
+            }
 
             // Extract tenantId from token
             const tenantId =

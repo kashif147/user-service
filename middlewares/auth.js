@@ -1,7 +1,9 @@
 const jwt = require("jsonwebtoken");
 const { AppError } = require("../errors/AppError");
 const roleHierarchyService = require("../services/roleHierarchyService");
-const { validateGatewayRequest } = require("@membership/policy-middleware/security");
+const {
+  validateGatewayRequest,
+} = require("@membership/policy-middleware/security");
 
 /**
  * Unified JWT Authentication Middleware
@@ -169,7 +171,23 @@ const authenticate = async (req, res, next) => {
         `🚨 AUTH BYPASS TRIGGERED - NODE_ENV: ${process.env.NODE_ENV}`
       );
       try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const decoded = jwt.decode(token);
+
+        if (!decoded) {
+          const authError = AppError.badRequest("Invalid token format", {
+            tokenError: true,
+            invalidToken: true,
+          });
+          return res.status(authError.status).json({
+            error: {
+              message: authError.message,
+              code: authError.code,
+              status: authError.status,
+              tokenError: authError.tokenError,
+              invalidToken: authError.invalidToken,
+            },
+          });
+        }
 
         const tenantId =
           decoded.tenantId || decoded.tid || decoded.extension_tenantId;
@@ -208,7 +226,7 @@ const authenticate = async (req, res, next) => {
 
         return next();
       } catch (error) {
-        console.error("JWT Verification Error:", error.message);
+        console.error("JWT Decode Error:", error.message);
         const authError = AppError.badRequest("Invalid token", {
           tokenError: true,
           jwtError: error.message,
@@ -225,8 +243,24 @@ const authenticate = async (req, res, next) => {
       }
     }
 
-    // Normal JWT verification flow
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    // Normal JWT decode flow (verification removed)
+    const decoded = jwt.decode(token);
+
+    if (!decoded) {
+      const authError = AppError.badRequest("Invalid token format", {
+        tokenError: true,
+        invalidToken: true,
+      });
+      return res.status(authError.status).json({
+        error: {
+          message: authError.message,
+          code: authError.code,
+          status: authError.status,
+          tokenError: authError.tokenError,
+          invalidToken: authError.invalidToken,
+        },
+      });
+    }
 
     const tenantId =
       decoded.tenantId || decoded.tid || decoded.extension_tenantId;
@@ -262,7 +296,7 @@ const authenticate = async (req, res, next) => {
 
     next();
   } catch (error) {
-    console.error("JWT Verification Error:", error.message);
+    console.error("JWT Decode Error:", error.message);
     const authError = AppError.badRequest("Invalid token", {
       tokenError: true,
       jwtError: error.message,

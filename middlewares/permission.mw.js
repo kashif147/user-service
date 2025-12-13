@@ -1,6 +1,8 @@
 const jwt = require("jsonwebtoken");
 const { AppError } = require("../errors/AppError");
-const { validateGatewayRequest } = require("@membership/policy-middleware/security");
+const {
+  validateGatewayRequest,
+} = require("@membership/policy-middleware/security");
 
 module.exports.requirePermission = (requiredPermission) => {
   return async (req, res, next) => {
@@ -47,7 +49,9 @@ module.exports.requirePermission = (requiredPermission) => {
         try {
           const rolesArray = JSON.parse(userRolesStr);
           roles = Array.isArray(rolesArray)
-            ? rolesArray.map((role) => (typeof role === "string" ? role : role?.code)).filter(Boolean)
+            ? rolesArray
+                .map((role) => (typeof role === "string" ? role : role?.code))
+                .filter(Boolean)
             : [];
         } catch (e) {
           console.warn("Failed to parse x-user-roles:", e.message);
@@ -74,7 +78,9 @@ module.exports.requirePermission = (requiredPermission) => {
         }
 
         // Check Super User role
-        const hasSuperUserRole = roles.some((role) => role === "SU" || role?.code === "SU");
+        const hasSuperUserRole = roles.some(
+          (role) => role === "SU" || role?.code === "SU"
+        );
         if (hasSuperUserRole) {
           req.user = {
             id: userId,
@@ -89,10 +95,13 @@ module.exports.requirePermission = (requiredPermission) => {
 
         // Check specific permission
         if (!permissions.includes(requiredPermission)) {
-          const forbiddenError = AppError.forbidden("Insufficient permissions", {
-            requiredPermission,
-            userPermissions: permissions,
-          });
+          const forbiddenError = AppError.forbidden(
+            "Insufficient permissions",
+            {
+              requiredPermission,
+              userPermissions: permissions,
+            }
+          );
           return res.status(forbiddenError.status).json({
             success: false,
             error: {
@@ -144,11 +153,32 @@ module.exports.requirePermission = (requiredPermission) => {
         });
       }
 
-      // Check for authorization bypass (but still validate token)
+      // Check for authorization bypass (decode token without verification)
       if (process.env.AUTH_BYPASS_ENABLED === "true") {
         try {
-          const decoded = jwt.verify(token, process.env.JWT_SECRET);
-          const tenantId = decoded.tenantId || decoded.tid || decoded.extension_tenantId;
+          const decoded = jwt.decode(token);
+          if (!decoded) {
+            const authError = AppError.unauthorized("Invalid token format", {
+              tokenError: true,
+              invalidToken: true,
+            });
+            return res.status(authError.status).json({
+              success: false,
+              error: {
+                message: authError.message,
+                code: authError.code,
+                status: authError.status,
+                tokenError: authError.tokenError,
+                invalidToken: authError.invalidToken,
+              },
+              correlationId:
+                req.correlationId ||
+                req.headers["x-correlation-id"] ||
+                require("crypto").randomUUID(),
+            });
+          }
+          const tenantId =
+            decoded.tenantId || decoded.tid || decoded.extension_tenantId;
           req.user = {
             id: decoded.sub || decoded.id,
             tenantId: tenantId,
@@ -180,7 +210,27 @@ module.exports.requirePermission = (requiredPermission) => {
         }
       }
 
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const decoded = jwt.decode(token);
+      if (!decoded) {
+        const authError = AppError.unauthorized("Invalid token format", {
+          tokenError: true,
+          invalidToken: true,
+        });
+        return res.status(authError.status).json({
+          success: false,
+          error: {
+            message: authError.message,
+            code: authError.code,
+            status: authError.status,
+            tokenError: authError.tokenError,
+            invalidToken: authError.invalidToken,
+          },
+          correlationId:
+            req.correlationId ||
+            req.headers["x-correlation-id"] ||
+            require("crypto").randomUUID(),
+        });
+      }
 
       // Check if user has Super User role (full access)
       const hasSuperUserRole = decoded.roles?.some(
@@ -267,11 +317,31 @@ module.exports.requireRole = (requiredRole) => {
         });
       }
 
-      // Check for authorization bypass (but still validate token)
+      // Check for authorization bypass (decode token without verification)
       if (process.env.AUTH_BYPASS_ENABLED === "true") {
-        // Still validate the token to ensure it's a valid JWT
+        // Decode the token without verification
         try {
-          const decoded = jwt.verify(token, process.env.JWT_SECRET);
+          const decoded = jwt.decode(token);
+          if (!decoded) {
+            const authError = AppError.unauthorized("Invalid token format", {
+              tokenError: true,
+              invalidToken: true,
+            });
+            return res.status(authError.status).json({
+              success: false,
+              error: {
+                message: authError.message,
+                code: authError.code,
+                status: authError.status,
+                tokenError: authError.tokenError,
+                invalidToken: authError.invalidToken,
+              },
+              correlationId:
+                req.correlationId ||
+                req.headers["x-correlation-id"] ||
+                require("crypto").randomUUID(),
+            });
+          }
 
           // Extract tenantId from token
           const tenantId =
@@ -308,7 +378,27 @@ module.exports.requireRole = (requiredRole) => {
         }
       }
 
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const decoded = jwt.decode(token);
+      if (!decoded) {
+        const authError = AppError.unauthorized("Invalid token format", {
+          tokenError: true,
+          invalidToken: true,
+        });
+        return res.status(authError.status).json({
+          success: false,
+          error: {
+            message: authError.message,
+            code: authError.code,
+            status: authError.status,
+            tokenError: authError.tokenError,
+            invalidToken: authError.invalidToken,
+          },
+          correlationId:
+            req.correlationId ||
+            req.headers["x-correlation-id"] ||
+            require("crypto").randomUUID(),
+        });
+      }
 
       // Check if user has Super User role (full access)
       const hasSuperUserRole = decoded.roles?.some(
@@ -398,7 +488,27 @@ module.exports.requireAnyRole = (requiredRoles) => {
         });
       }
 
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const decoded = jwt.decode(token);
+      if (!decoded) {
+        const authError = AppError.unauthorized("Invalid token format", {
+          tokenError: true,
+          invalidToken: true,
+        });
+        return res.status(authError.status).json({
+          success: false,
+          error: {
+            message: authError.message,
+            code: authError.code,
+            status: authError.status,
+            tokenError: authError.tokenError,
+            invalidToken: authError.invalidToken,
+          },
+          correlationId:
+            req.correlationId ||
+            req.headers["x-correlation-id"] ||
+            require("crypto").randomUUID(),
+        });
+      }
 
       // Check if user has Super User role (full access)
       const hasSuperUserRole = decoded.roles?.some(
@@ -489,7 +599,27 @@ module.exports.requireUserType = (requiredUserType) => {
         });
       }
 
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const decoded = jwt.decode(token);
+      if (!decoded) {
+        const authError = AppError.unauthorized("Invalid token format", {
+          tokenError: true,
+          invalidToken: true,
+        });
+        return res.status(authError.status).json({
+          success: false,
+          error: {
+            message: authError.message,
+            code: authError.code,
+            status: authError.status,
+            tokenError: authError.tokenError,
+            invalidToken: authError.invalidToken,
+          },
+          correlationId:
+            req.correlationId ||
+            req.headers["x-correlation-id"] ||
+            require("crypto").randomUUID(),
+        });
+      }
 
       if (decoded.userType !== requiredUserType) {
         const forbiddenError = AppError.forbidden(
@@ -566,7 +696,27 @@ module.exports.requireSuperUser = () => {
         });
       }
 
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const decoded = jwt.decode(token);
+      if (!decoded) {
+        const authError = AppError.unauthorized("Invalid token format", {
+          tokenError: true,
+          invalidToken: true,
+        });
+        return res.status(authError.status).json({
+          success: false,
+          error: {
+            message: authError.message,
+            code: authError.code,
+            status: authError.status,
+            tokenError: authError.tokenError,
+            invalidToken: authError.invalidToken,
+          },
+          correlationId:
+            req.correlationId ||
+            req.headers["x-correlation-id"] ||
+            require("crypto").randomUUID(),
+        });
+      }
 
       const hasSuperUserRole = decoded.roles?.some(
         (role) => role.code === "SU"

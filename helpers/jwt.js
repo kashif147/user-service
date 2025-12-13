@@ -89,15 +89,19 @@ module.exports.generateToken = async (user) => {
 };
 
 /**
- * Verify JWT token and return decoded payload
- * @param {string} token - JWT token to verify
+ * Decode JWT token (verification removed)
+ * @param {string} token - JWT token to decode
  * @returns {Object} - Decoded token payload
  */
 module.exports.verifyToken = (token) => {
   try {
-    return jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.decode(token);
+    if (!decoded) {
+      throw new Error("Invalid token format");
+    }
+    return decoded;
   } catch (error) {
-    throw new Error(`Token verification failed: ${error.message}`);
+    throw new Error(`Token decoding failed: ${error.message}`);
   }
 };
 
