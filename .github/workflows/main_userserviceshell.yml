@@ -44,10 +44,25 @@ jobs:
           npm run build --if-present
           npm run test --if-present
 
+      - name: Verify policy-middleware build
+        run: |
+          echo "Checking policy-middleware dist files:"
+          ls -la policy-middleware/dist/ || echo "ERROR: dist directory not found"
+          ls -la policy-middleware/dist/gatewaySecurity.js || echo "ERROR: gatewaySecurity.js not found"
+          ls -la policy-middleware/dist/esm/gatewaySecurity.js || echo "ERROR: esm/gatewaySecurity.js not found"
+          echo "Policy-middleware package.json:"
+          cat policy-middleware/package.json | grep -A 5 '"name"'
+
       - name: Zip artifact for deployment
         run: |
-          # Create zip excluding node_modules and other unnecessary files
-          # Note: policy-middleware/dist and package.json must be included
+          # Ensure policy-middleware package.json exists (needed for npm install on Azure)
+          if [ ! -f policy-middleware/package.json ]; then
+            echo "ERROR: policy-middleware/package.json not found"
+            exit 1
+          fi
+          
+          # Create zip with policy-middleware built files
+          # Include policy-middleware/dist, package.json, but exclude node_modules
           zip -r release.zip . \
             -x "*.git*" \
             -x "node_modules/*" \
@@ -61,6 +76,13 @@ jobs:
             -x "policy-middleware/src/*" \
             -x "policy-middleware/scripts/*" \
             -x "policy-middleware/examples/*"
+          
+          # Verify policy-middleware is in zip
+          echo "Verifying policy-middleware in zip:"
+          echo "Policy-middleware package.json:"
+          unzip -l release.zip | grep "policy-middleware/package.json" || echo "ERROR: policy-middleware/package.json not in zip"
+          echo "Policy-middleware dist files:"
+          unzip -l release.zip | grep "policy-middleware/dist" | head -5 || echo "ERROR: policy-middleware/dist not found in zip"
 
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
@@ -94,8 +116,19 @@ jobs:
           echo "Checking policy-middleware structure:"
           ls -la policy-middleware/ || echo "Error: policy-middleware directory not found"
           ls -la policy-middleware/dist/ || echo "Error: policy-middleware/dist not found"
+          ls -la policy-middleware/dist/gatewaySecurity.js || echo "Error: gatewaySecurity.js not found"
+          ls -la policy-middleware/dist/esm/gatewaySecurity.js || echo "Error: esm/gatewaySecurity.js not found"
           echo "Verifying package.json path is correct:"
           cat package.json | grep "policy-middleware" || echo "Error: policy-middleware not in package.json"
+          
+      - name: Install dependencies for Azure
+        run: |
+          # Azure will run npm install, so we need to ensure policy-middleware is set up
+          # Since we're using file:./policy-middleware, npm install should work
+          echo "Policy-middleware path in package.json:"
+          grep "policy-middleware" package.json
+          echo "Testing npm install (dry run):"
+          npm install --dry-run 2>&1 | head -20 || echo "Note: dry-run may show warnings"
 
       - name: Login to Azure
         uses: azure/login@v2
@@ -111,3 +144,4 @@ jobs:
           app-name: "userserviceShell"
           slot-name: "Production"
           package: .
+          startup-command: "npm start"
