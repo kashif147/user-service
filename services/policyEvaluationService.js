@@ -337,11 +337,8 @@ const validateToken = async (token) => {
       return { valid: false, error: "Invalid token format" };
     }
 
-    // Check expiration
-    const now = Math.floor(Date.now() / 1000);
-    if (decoded.exp && decoded.exp < now) {
-      return { valid: false, error: "Token expired" };
-    }
+    // NOTE: Token expiry is checked ONLY at the gateway.
+    // Do NOT re-check JWT exp here - trust gateway verification.
 
     // Extract tenantId with fallback options - prioritize tenantId, then tid, then extension_tenantId
     const tenantId =
