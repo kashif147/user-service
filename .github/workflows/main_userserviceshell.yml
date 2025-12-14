@@ -73,7 +73,6 @@ jobs:
             -x "tests/*" \
             -x ".github/*" \
             -x "policy-middleware/.git/*" \
-            -x "policy-middleware/src/*" \
             -x "policy-middleware/examples/*"
           
           # Verify policy-middleware is in zip
@@ -82,6 +81,8 @@ jobs:
           unzip -l release.zip | grep "policy-middleware/package.json" || echo "ERROR: policy-middleware/package.json not in zip"
           echo "Policy-middleware scripts (required for build):"
           unzip -l release.zip | grep "policy-middleware/scripts" | head -3 || echo "ERROR: policy-middleware/scripts not found in zip"
+          echo "Policy-middleware src (required for build):"
+          unzip -l release.zip | grep "policy-middleware/src" | head -3 || echo "ERROR: policy-middleware/src not found in zip"
           echo "Policy-middleware dist files:"
           unzip -l release.zip | grep "policy-middleware/dist" | head -5 || echo "ERROR: policy-middleware/dist not found in zip"
 
@@ -120,6 +121,8 @@ jobs:
           ls -la policy-middleware/scripts/ || echo "Error: policy-middleware/scripts not found"
           ls -la policy-middleware/scripts/build-cjs.js || echo "Error: build-cjs.js not found"
           ls -la policy-middleware/scripts/build-esm.js || echo "Error: build-esm.js not found"
+          echo "Checking src directory (required for build):"
+          ls -la policy-middleware/src/ || echo "Error: policy-middleware/src not found"
           echo "Checking dist directory:"
           ls -la policy-middleware/dist/ || echo "Error: policy-middleware/dist not found"
           ls -la policy-middleware/dist/gatewaySecurity.js || echo "Error: gatewaySecurity.js not found"
