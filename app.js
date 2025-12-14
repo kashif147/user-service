@@ -76,6 +76,25 @@ const crypto = require("crypto");
 
 var app = express();
 
+/**
+ * 🔎 TEMPORARY DEBUG – MUST BE FIRST
+ * Confirms gateway headers actually arrive at the service
+ * Using console.log instead of console.error to avoid Application Insights suppression
+ */
+app.use((req, res, next) => {
+  console.log("==================================");
+  console.log("SERVICE HEADERS CHECK");
+  console.log("METHOD:", req.method);
+  console.log("PATH:", req.originalUrl);
+  console.log("x-jwt-verified:", req.headers["x-jwt-verified"]);
+  console.log("x-gateway-signature:", req.headers["x-gateway-signature"]);
+  console.log("x-gateway-timestamp:", req.headers["x-gateway-timestamp"]);
+  console.log("x-user-id:", req.headers["x-user-id"]);
+  console.log("x-tenant-id:", req.headers["x-tenant-id"]);
+  console.log("==================================");
+  next();
+});
+
 app.use(responseMiddleware);
 
 mongooseConnection();
@@ -83,6 +102,7 @@ mongooseConnection();
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json({ limit: "200mb" }));
 
+// Logger middleware should be after body parsing to log request bodies
 app.use(loggerMiddleware);
 
 // Security middleware
@@ -215,8 +235,11 @@ app.use((err, req, res, next) => {
   }
 
   // Handle other errors
-  console.error(err.message || "Internal Server Error");
   const isProduction = process.env.NODE_ENV === "production";
+  console.log("ERROR:", err.message || "Internal Server Error");
+  if (!isProduction) {
+    console.log("STACK:", err.stack);
+  }
 
   res.status(500).json({
     success: false,
