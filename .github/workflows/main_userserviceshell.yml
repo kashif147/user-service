@@ -60,7 +60,13 @@ jobs:
             echo "ERROR: policy-middleware/package.json not found"
             exit 1
           fi
-          
+
+          # Ensure .deployment file exists for Azure build control
+          if [ ! -f .deployment ]; then
+            echo "ERROR: .deployment file not found"
+            exit 1
+          fi
+
           # Create zip with policy-middleware built files
           # Include policy-middleware/dist, package.json, but exclude node_modules
           zip -r release.zip . \
@@ -74,7 +80,13 @@ jobs:
             -x ".github/*" \
             -x "policy-middleware/.git/*" \
             -x "policy-middleware/examples/*"
-          
+
+          # Verify .deployment and fix-symlink.sh are in zip
+          echo "Verifying .deployment in zip:"
+          unzip -l release.zip | grep "\.deployment" || echo "ERROR: .deployment not in zip"
+          echo "Verifying fix-symlink.sh in zip:"
+          unzip -l release.zip | grep "fix-symlink.sh" || echo "ERROR: fix-symlink.sh not in zip"
+
           # Verify policy-middleware is in zip
           echo "Verifying policy-middleware in zip:"
           echo "Policy-middleware package.json:"
@@ -129,7 +141,7 @@ jobs:
           ls -la policy-middleware/dist/esm/gatewaySecurity.js || echo "Error: esm/gatewaySecurity.js not found"
           echo "Verifying package.json path is correct:"
           cat package.json | grep "policy-middleware" || echo "Error: policy-middleware not in package.json"
-          
+
       - name: Install dependencies for Azure
         run: |
           # Azure will run npm install, so we need to ensure policy-middleware is set up

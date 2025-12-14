@@ -4,6 +4,7 @@
   "description": "Apis for user-service",
   "main": "app.js",
   "scripts": {
+    "postinstall": "bash scripts/fix-symlink.sh || true",
     "start": "node ./bin/user-service.js",
     "start:dev": "NODE_ENV=development node ./bin/user-service.js",
     "start:staging": "NODE_ENV=staging node ./bin/user-service.js",
