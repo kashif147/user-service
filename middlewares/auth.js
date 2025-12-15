@@ -17,9 +17,14 @@ const authenticate = async (req, res, next) => {
 
     if (jwtVerified === "true" && authSource === "gateway") {
       // Validate gateway request (signature, IP, format)
+      console.log("[AUTH] Calling validateGatewayRequest...");
       const validation = validateGatewayRequest(req);
+      console.log("[AUTH] Validation result:", validation);
       if (!validation.valid) {
-        console.warn("Gateway header validation failed:", validation.reason);
+        console.log(
+          "[AUTH] Gateway header validation failed:",
+          validation.reason
+        );
         const authError = AppError.unauthorized("Invalid gateway request", {
           tokenError: true,
           validationError: validation.reason,

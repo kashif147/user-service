@@ -1,7 +1,11 @@
 const express = require("express");
 const router = express.Router();
 const lookupController = require("../controllers/lookup.controller.js");
+const { authenticate } = require("../middlewares/auth");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter.js");
+
+// Apply authentication to all routes (validates gateway headers)
+router.use(authenticate);
 
 router
   .route("/lookup")
