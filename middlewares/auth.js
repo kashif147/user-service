@@ -19,12 +19,21 @@ const authenticate = async (req, res, next) => {
       // Validate gateway request (signature, IP, format)
       console.log("[AUTH] Calling validateGatewayRequest...");
       const validation = validateGatewayRequest(req);
-      console.log("[AUTH] Validation result:", validation);
+      console.log(
+        "[AUTH] Validation result:",
+        JSON.stringify(validation, null, 2)
+      );
       if (!validation.valid) {
         console.log(
           "[AUTH] Gateway header validation failed:",
           validation.reason
         );
+        if (validation.debug) {
+          console.error(
+            "[AUTH] Signature debug info:",
+            JSON.stringify(validation.debug, null, 2)
+          );
+        }
         const authError = AppError.unauthorized("Invalid gateway request", {
           tokenError: true,
           validationError: validation.reason,
