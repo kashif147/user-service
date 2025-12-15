@@ -17,14 +17,14 @@ const authenticate = async (req, res, next) => {
 
     if (jwtVerified === "true" && authSource === "gateway") {
       // Validate gateway request (signature, IP, format)
-      console.log("[AUTH] Calling validateGatewayRequest...");
+      console.warn("[AUTH] Calling validateGatewayRequest...");
       const validation = validateGatewayRequest(req);
-      console.log(
+      console.warn(
         "[AUTH] Validation result:",
         JSON.stringify(validation, null, 2)
       );
       if (!validation.valid) {
-        console.log(
+        console.warn(
           "[AUTH] Gateway header validation failed:",
           validation.reason
         );
@@ -181,7 +181,7 @@ const authenticate = async (req, res, next) => {
         });
       }
 
-      console.log(
+      console.warn(
         `🚨 AUTH BYPASS TRIGGERED - NODE_ENV: ${process.env.NODE_ENV}`
       );
       try {
