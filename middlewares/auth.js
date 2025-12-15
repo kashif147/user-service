@@ -1,9 +1,9 @@
 const jwt = require("jsonwebtoken");
 const { AppError } = require("../errors/AppError");
 const roleHierarchyService = require("../services/roleHierarchyService");
-const {
-  validateGatewayRequest,
-} = require("@membership/policy-middleware/security");
+// Import from main package - gatewaySecurity is exported from index
+const { gatewaySecurity } = require("@membership/policy-middleware");
+const { validateGatewayRequest } = gatewaySecurity;
 
 /**
  * Unified JWT Authentication Middleware

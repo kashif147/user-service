@@ -1,8 +1,10 @@
 const jwt = require("jsonwebtoken");
 const { AppError } = require("../errors/AppError");
+// Import from main package - gatewaySecurity is exported from index
 const {
-  validateGatewayRequest,
-} = require("@membership/policy-middleware/security");
+  gatewaySecurity,
+} = require("@membership/policy-middleware");
+const { validateGatewayRequest } = gatewaySecurity;
 
 module.exports.requirePermission = (requiredPermission) => {
   return async (req, res, next) => {
