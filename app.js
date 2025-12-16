@@ -118,7 +118,7 @@ app.get("/", (req, res) => {
   // Regular homepage
   res.render("index", { title: "User Service" });
 });
-
+//
 app.use("/", require("./routes/index"));
 
 app.use(function (req, res, next) {
