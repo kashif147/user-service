@@ -34,14 +34,6 @@ const incrementPolicyVersion = () => {
 };
 
 /**
- * Generate ETag for user data
- */
-const generateETag = (userData) => {
-  const dataString = JSON.stringify(userData);
-  return `"${crypto.createHash("md5").update(dataString).digest("hex")}"`;
-};
-
-/**
  * Get user profile with minimal data for /me endpoint
  */
 const getMeProfile = async (req, res, next) => {
@@ -77,14 +69,6 @@ const getMeProfile = async (req, res, next) => {
       } catch (cacheError) {
         console.warn("Cache read error:", cacheError.message);
       }
-    }
-
-    // Check If-None-Match header for 304 responses
-    const ifNoneMatch = req.headers["if-none-match"];
-    if (cachedData && ifNoneMatch && cachedData.etag === ifNoneMatch) {
-      res.set("ETag", cachedData.etag);
-      res.set("X-Policy-Version", cachedData.policyVersion.toString());
-      return res.status(304).end();
     }
 
     let userData;
@@ -180,8 +164,6 @@ const getMeProfile = async (req, res, next) => {
       };
     }
 
-    // Generate ETag
-    const etag = generateETag(userData);
     const policyVersion = getPolicyVersion();
 
     // Cache the result
@@ -189,7 +171,6 @@ const getMeProfile = async (req, res, next) => {
       try {
         await meCache.set(cacheKey, {
           data: userData,
-          etag,
           policyVersion,
           timestamp: new Date().toISOString(),
         });
@@ -198,10 +179,9 @@ const getMeProfile = async (req, res, next) => {
       }
     }
 
-    // Set headers
-    res.set("ETag", etag);
+    // Set headers (no ETag to prevent 304 responses)
     res.set("X-Policy-Version", policyVersion.toString());
-    res.set("Cache-Control", "private, max-age=300"); // 5 minutes
+    res.set("Cache-Control", "no-cache, no-store, must-revalidate"); // Prevent caching
 
     // Return minimal user profile
     res.status(200).json({

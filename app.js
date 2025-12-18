@@ -61,6 +61,9 @@ const crypto = require("crypto");
 
 var app = express();
 
+// Disable ETag generation to prevent 304 responses
+app.set("etag", false);
+
 app.use(responseMiddleware);
 
 mongooseConnection();
