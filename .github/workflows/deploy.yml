@@ -19,9 +19,9 @@ jobs:
       - name: Sync code to VM
         run: |
           rsync -avz --delete \
+          --exclude '.env*' \
           -e "ssh -o StrictHostKeyChecking=no" ./ \
           ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}:/home/deploy/membership-platform/user-service/
-
       - name: Build and restart user-service
         run: |
           ssh -o StrictHostKeyChecking=no ${{ secrets.VM_USER }}@${{ secrets.VM_HOST }} << 'EOF'

@@ -1,11 +1,12 @@
-version: "3.9"
-
 services:
   user-service:
-    container_name: user-service
     build: .
+    container_name: user-service
     ports:
       - "5001:5001"
+    env_file:
+      - /home/deploy/config/.env.common
+      - .env.staging
     restart: always
     networks:
       - gateway_app-net
@@ -13,3 +14,41 @@ services:
 networks:
   gateway_app-net:
     external: true
+    # volumes:
+    #   - .:/app
+    #   - /app/node_modules
+    # depends_on:
+    #   - mongodb
+    # - redis
+    # - rabbitmq
+
+  # mongodb:
+  #   image: mongo:7
+  #   ports:
+  #     - "27017:27017"
+  #   environment:
+  #     - MONGO_INITDB_DATABASE=user-service-dev
+  #   volumes:
+  #     - mongodb_data:/data/db
+
+  # redis:
+  #   image: redis:7-alpine
+  #   ports:
+  #     - "6379:6379"
+  #   volumes:
+  #     - redis_data:/data
+
+  # rabbitmq:
+  #   image: rabbitmq:3-management
+  #   ports:
+  #     - "5672:5672"
+  #     - "15672:15672"
+  #   environment:
+  #     - RABBITMQ_DEFAULT_USER=guest
+  #     - RABBITMQ_DEFAULT_PASS=guest
+  #   volumes:
+  #     - rabbitmq_data:/var/lib/rabbitmq
+# volumes:
+#   mongodb_data:
+# redis_data:
+# rabbitmq_data:
