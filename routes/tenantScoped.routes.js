@@ -4,7 +4,6 @@ const TenantScopedController = require("../controllers/tenantScoped.controller")
 const {
   authenticate,
   requireTenant,
-  requirePermission,
 } = require("../middlewares/auth");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter.js");
 

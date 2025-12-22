@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const CacheController = require("../controllers/cache.controller");
-const { authenticate, requirePermission } = require("../middlewares/auth");
+const { authenticate } = require("../middlewares/auth");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter.js");
 
 // Apply authentication to all routes
