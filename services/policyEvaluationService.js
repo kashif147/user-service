@@ -431,7 +431,8 @@ const applyPolicyRules = async (context) => {
  * @returns {Object} Policy decision
  */
 const evaluateResourcePolicy = async (context) => {
-  const { resource, userType, roles, tenantId, userTenantId } = context;
+  const { resource, userType, roles, permissions, tenantId, userTenantId } =
+    context;
 
   try {
     // Get all permissions for this resource from database
@@ -446,18 +447,29 @@ const evaluateResourcePolicy = async (context) => {
       };
     }
 
-    // Check if user has any permission for this resource
-    const userHasResourcePermission = await permissionsService.hasAnyPermission(
-      roles,
-      resourcePermissions.map((p) => p.code)
-    );
+    // CRITICAL: Check permissions array FIRST (from token/gateway headers)
+    // This is the authoritative source - permissions come directly from user's token
+    const resourcePermissionCodes = resourcePermissions.map((p) => p.code);
+    const hasPermissionFromArray =
+      Array.isArray(permissions) &&
+      permissions.some(
+        (perm) =>
+          resourcePermissionCodes.includes(perm) || permissions.includes("*")
+      );
 
-    if (!userHasResourcePermission) {
+    // Fallback: Check via roles (for backward compatibility)
+    const userHasResourcePermissionViaRoles =
+      await permissionsService.hasAnyPermission(roles, resourcePermissionCodes);
+
+    // User must have permission either directly OR via roles
+    if (!hasPermissionFromArray && !userHasResourcePermissionViaRoles) {
       return {
         decision: "DENY",
         reason: "INSUFFICIENT_RESOURCE_PERMISSION",
         error: `User lacks any permission for resource '${resource}'`,
-        availablePermissions: resourcePermissions.map((p) => p.code),
+        availablePermissions: resourcePermissionCodes,
+        checkedPermissions: permissions,
+        checkedRoles: roles,
       };
     }
 
@@ -546,7 +558,7 @@ const getUserTypeCategory = (userType) => {
  * @returns {Object} Policy decision
  */
 const evaluateActionPolicy = async (context) => {
-  const { action, roles, resource } = context;
+  const { action, roles, permissions, resource } = context;
 
   // Action-specific role requirements
   const actionRequirements = {
@@ -581,7 +593,21 @@ const evaluateActionPolicy = async (context) => {
     };
   }
 
-  // Check minimum role level
+  // CRITICAL: Check permissions array FIRST (from token/gateway headers)
+  // Permissions are already normalized to canonical format: portal:create
+  if (Array.isArray(permissions) && permissions.length > 0) {
+    const requiredPermission = `${resource.toLowerCase()}:${action.toLowerCase()}`;
+
+    // Check for exact match or wildcard (permissions already normalized)
+    if (permissions.includes(requiredPermission) || permissions.includes("*")) {
+      return {
+        decision: "PERMIT",
+        reason: "ACTION_AUTHORIZED_BY_PERMISSION",
+      };
+    }
+  }
+
+  // Fallback: Check minimum role level (for backward compatibility)
   // Roles are already normalized to strings in validateToken
   const userMaxLevel = await roleHierarchyService.getHighestRoleLevel(roles);
   if (userMaxLevel < requirement.minRoleLevel) {
@@ -598,28 +624,10 @@ const evaluateActionPolicy = async (context) => {
 };
 
 /**
- * Normalize permission to support multiple formats
- * Converts permission codes to normalized format for comparison
- * Examples:
- *   PORTAL_CREATE → portal:create
- *   portal:create → portal:create (already normalized)
- *   PORTAL_READ → portal:read
- * @param {string} permission - Permission code or normalized format
- * @returns {string} Normalized permission (resource:action)
+ * REMOVED: Permission normalization
+ * Permissions are now normalized ONCE at JWT generation time
+ * PDP expects permissions in canonical format: portal:create, portal:read, etc.
  */
-const normalizePermission = (permission) => {
-  if (!permission || typeof permission !== "string") return permission;
-
-  // If already in normalized format (contains colon), return as is
-  if (permission.includes(":")) {
-    return permission.toLowerCase();
-  }
-
-  // Convert CODE_FORMAT to resource:action format
-  // PORTAL_CREATE → portal:create
-  // PORTAL_READ → portal:read
-  return permission.toLowerCase().replace(/_/g, ":");
-};
 
 /**
  * Evaluate permission-based policies using database-driven permissions
@@ -668,37 +676,24 @@ const evaluatePermissionPolicy = async (context) => {
       };
     }
 
-    // Normalize the required permission format
-    const requiredPermissionNormalized = normalizePermission(
-      requiredPermission.code
-    );
-    const requiredPermissionResourceAction = `${resource.toLowerCase()}:${action.toLowerCase()}`;
+    // Build expected permission in canonical format (permissions are already normalized)
+    const requiredPermissionCanonical = `${resource.toLowerCase()}:${action.toLowerCase()}`;
 
-    // Normalize user permissions for comparison (support both formats)
-    const normalizedUserPermissions = permissions.map(normalizePermission);
-
-    // Check if user has the required permission
-    // Support both formats: PORTAL_CREATE and portal:create
+    // Check if user has the required permission (direct comparison - permissions already normalized)
     const hasPermission =
-      permissions.includes(requiredPermission.code) || // Original format: PORTAL_CREATE
-      normalizedUserPermissions.includes(requiredPermissionNormalized) || // Normalized code: portal:create
-      normalizedUserPermissions.includes(requiredPermissionResourceAction) || // Direct resource:action: portal:create
+      permissions.includes(requiredPermissionCanonical) || // Canonical format: portal:create
       permissions.includes("*"); // Wildcard
 
     if (!hasPermission) {
       console.log(`Permission check failed for ${resource}:${action}`, {
-        requiredCode: requiredPermission.code,
-        requiredNormalized: requiredPermissionNormalized,
-        requiredResourceAction: requiredPermissionResourceAction,
+        requiredCanonical: requiredPermissionCanonical,
         userPermissions: permissions,
-        normalizedUserPermissions: normalizedUserPermissions,
       });
       return {
         decision: "DENY",
         reason: "MISSING_PERMISSION",
-        error: `User lacks required permission: ${requiredPermission.code} (or ${requiredPermissionNormalized})`,
-        requiredPermission: requiredPermission.code,
-        requiredPermissionNormalized: requiredPermissionNormalized,
+        error: `User lacks required permission: ${requiredPermissionCanonical}`,
+        requiredPermission: requiredPermissionCanonical,
       };
     }
 
@@ -844,7 +839,6 @@ const evaluatePolicyWithHeaders = async (request) => {
   const userType = headers["x-user-type"];
   const userRolesStr = headers["x-user-roles"] || "[]";
   const userPermissionsStr = headers["x-user-permissions"] || "[]";
-  const gatewayTimestamp = headers["x-gateway-timestamp"];
 
   // Validate required gateway headers
   if (!userId || !tenantId) {
@@ -903,7 +897,6 @@ const evaluatePolicyWithHeaders = async (request) => {
     resource,
     action,
     correlationId: context.correlationId || headers["x-correlation-id"],
-    gatewayTimestamp: gatewayTimestamp, // From x-gateway-timestamp (for replay protection)
   };
 
   // STEP 4: Apply policy rules (no caching, no DB lookups)
@@ -913,9 +906,7 @@ const evaluatePolicyWithHeaders = async (request) => {
   return {
     ...policyDecision,
     user,
-    timestamp: gatewayTimestamp
-      ? new Date(parseInt(gatewayTimestamp)).toISOString()
-      : new Date().toISOString(),
+    timestamp: new Date().toISOString(),
     policyVersion: POLICY_VERSION,
     correlationId: authContext.correlationId,
   };

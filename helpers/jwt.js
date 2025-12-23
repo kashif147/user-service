@@ -22,11 +22,25 @@ module.exports.generateToken = async (user) => {
 
     // Get user permissions based on their roles
     console.log("Fetching user permissions...");
-    const permissions = await RoleHandler.getUserPermissions(
+    const rawPermissions = await RoleHandler.getUserPermissions(
       user._id,
       user.tenantId
     );
-    console.log("Permissions fetched:", permissions);
+    console.log("Raw permissions fetched:", rawPermissions);
+
+    // CRITICAL: Normalize permissions ONCE at token generation
+    // Convert CODE_FORMAT (PORTAL_CREATE) to canonical format (portal:create)
+    // This ensures all downstream systems use the same format
+    const normalizePermission = (perm) => {
+      if (!perm || typeof perm !== "string") return perm;
+      // If already normalized (contains colon), return as-is
+      if (perm.includes(":")) return perm.toLowerCase();
+      // Convert CODE_FORMAT to resource:action
+      return perm.toLowerCase().replace(/_/g, ":");
+    };
+
+    const permissions = rawPermissions.map(normalizePermission);
+    console.log("Normalized permissions:", permissions);
 
     console.log("Fetching user roles...");
     const roles = await RoleHandler.getUserRoles(user._id, user.tenantId);
