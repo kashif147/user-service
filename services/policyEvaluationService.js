@@ -598,6 +598,32 @@ const evaluateActionPolicy = async (context) => {
 };
 
 /**
+ * Normalize permission to support multiple formats
+ * Converts permission codes to normalized format for comparison
+ * Examples:
+ *   PORTAL_CREATE → portal:create
+ *   portal:create → portal:create (already normalized)
+ *   PORTAL_READ → portal:read
+ * @param {string} permission - Permission code or normalized format
+ * @returns {string} Normalized permission (resource:action)
+ */
+const normalizePermission = (permission) => {
+  if (!permission || typeof permission !== "string") return permission;
+  
+  // If already in normalized format (contains colon), return as is
+  if (permission.includes(":")) {
+    return permission.toLowerCase();
+  }
+  
+  // Convert CODE_FORMAT to resource:action format
+  // PORTAL_CREATE → portal:create
+  // PORTAL_READ → portal:read
+  return permission
+    .toLowerCase()
+    .replace(/_/g, ":");
+};
+
+/**
  * Evaluate permission-based policies using database-driven permissions
  * @param {Object} context - Authorization context
  * @returns {Object} Policy decision
@@ -644,17 +670,38 @@ const evaluatePermissionPolicy = async (context) => {
       };
     }
 
+    // Normalize the required permission format
+    const requiredPermissionNormalized = normalizePermission(requiredPermission.code);
+    const requiredPermissionResourceAction = `${resource.toLowerCase()}:${action.toLowerCase()}`;
+
+    // Normalize user permissions for comparison (support both formats)
+    const normalizedUserPermissions = permissions.map(normalizePermission);
+
     // Check if user has the required permission
+    // Support both formats: PORTAL_CREATE and portal:create
     const hasPermission =
-      permissions.includes(requiredPermission.code) ||
-      permissions.includes("*");
+      permissions.includes(requiredPermission.code) || // Original format: PORTAL_CREATE
+      normalizedUserPermissions.includes(requiredPermissionNormalized) || // Normalized code: portal:create
+      normalizedUserPermissions.includes(requiredPermissionResourceAction) || // Direct resource:action: portal:create
+      permissions.includes("*"); // Wildcard
 
     if (!hasPermission) {
+      console.log(
+        `Permission check failed for ${resource}:${action}`,
+        {
+          requiredCode: requiredPermission.code,
+          requiredNormalized: requiredPermissionNormalized,
+          requiredResourceAction: requiredPermissionResourceAction,
+          userPermissions: permissions,
+          normalizedUserPermissions: normalizedUserPermissions,
+        }
+      );
       return {
         decision: "DENY",
         reason: "MISSING_PERMISSION",
-        error: `User lacks required permission: ${requiredPermission.code}`,
+        error: `User lacks required permission: ${requiredPermission.code} (or ${requiredPermissionNormalized})`,
         requiredPermission: requiredPermission.code,
+        requiredPermissionNormalized: requiredPermissionNormalized,
       };
     }
 
