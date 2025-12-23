@@ -609,18 +609,16 @@ const evaluateActionPolicy = async (context) => {
  */
 const normalizePermission = (permission) => {
   if (!permission || typeof permission !== "string") return permission;
-  
+
   // If already in normalized format (contains colon), return as is
   if (permission.includes(":")) {
     return permission.toLowerCase();
   }
-  
+
   // Convert CODE_FORMAT to resource:action format
   // PORTAL_CREATE → portal:create
   // PORTAL_READ → portal:read
-  return permission
-    .toLowerCase()
-    .replace(/_/g, ":");
+  return permission.toLowerCase().replace(/_/g, ":");
 };
 
 /**
@@ -671,7 +669,9 @@ const evaluatePermissionPolicy = async (context) => {
     }
 
     // Normalize the required permission format
-    const requiredPermissionNormalized = normalizePermission(requiredPermission.code);
+    const requiredPermissionNormalized = normalizePermission(
+      requiredPermission.code
+    );
     const requiredPermissionResourceAction = `${resource.toLowerCase()}:${action.toLowerCase()}`;
 
     // Normalize user permissions for comparison (support both formats)
@@ -686,16 +686,13 @@ const evaluatePermissionPolicy = async (context) => {
       permissions.includes("*"); // Wildcard
 
     if (!hasPermission) {
-      console.log(
-        `Permission check failed for ${resource}:${action}`,
-        {
-          requiredCode: requiredPermission.code,
-          requiredNormalized: requiredPermissionNormalized,
-          requiredResourceAction: requiredPermissionResourceAction,
-          userPermissions: permissions,
-          normalizedUserPermissions: normalizedUserPermissions,
-        }
-      );
+      console.log(`Permission check failed for ${resource}:${action}`, {
+        requiredCode: requiredPermission.code,
+        requiredNormalized: requiredPermissionNormalized,
+        requiredResourceAction: requiredPermissionResourceAction,
+        userPermissions: permissions,
+        normalizedUserPermissions: normalizedUserPermissions,
+      });
       return {
         decision: "DENY",
         reason: "MISSING_PERMISSION",
@@ -821,35 +818,47 @@ const getResourcePermissions = async (resource, roles, permissions) => {
 
 /**
  * Evaluate policy using gateway headers instead of token
+ *
+ * CRITICAL: Gateway headers are the SINGLE SOURCE OF TRUTH
+ * - Do NOT read userId from JWT
+ * - Do NOT read userId from DB
+ * - Do NOT read from Redis cache
+ * - Do NOT reuse previous request context
+ * - Do NOT override gateway headers with context values
+ *
  * @param {Object} request - Authorization request with headers
  * @param {Object} request.headers - Request headers (including gateway headers)
  * @param {string} request.resource - Resource being accessed
  * @param {string} request.action - Action being performed
- * @param {Object} request.context - Additional context
+ * @param {Object} request.context - Additional context (for correlationId only)
  * @returns {Object} Policy decision
  */
 const evaluatePolicyWithHeaders = async (request) => {
   const { headers, resource, action, context = {} } = request;
 
-  // Extract user context from gateway headers
+  // STEP 1: Extract user context ONLY from gateway headers (authoritative source)
+  // Never override these values from context, JWT, DB, or cache
   const userId = headers["x-user-id"];
   const tenantId = headers["x-tenant-id"];
   const userEmail = headers["x-user-email"];
   const userType = headers["x-user-type"];
   const userRolesStr = headers["x-user-roles"] || "[]";
   const userPermissionsStr = headers["x-user-permissions"] || "[]";
+  const gatewayTimestamp = headers["x-gateway-timestamp"];
 
+  // Validate required gateway headers
   if (!userId || !tenantId) {
     return {
       decision: "DENY",
       reason: "INVALID_HEADERS",
-      error: "Missing required headers",
+      error: "Missing required gateway headers: x-user-id or x-tenant-id",
       timestamp: new Date().toISOString(),
       policyVersion: POLICY_VERSION,
       correlationId: context.correlationId,
     };
   }
 
+  // Parse roles and permissions from headers
   let roles = [];
   let permissions = [];
 
@@ -871,38 +880,44 @@ const evaluatePolicyWithHeaders = async (request) => {
     console.warn("Failed to parse x-user-permissions:", e.message);
   }
 
+  // STEP 2: Build user object ONLY from gateway headers
+  // Never fetch from DB, Redis, or JWT
   const user = {
-    id: userId,
-    tenantId,
-    email: userEmail,
-    userType,
-    roles,
-    permissions,
+    id: userId, // From x-user-id header (authoritative)
+    tenantId: tenantId, // From x-tenant-id header (authoritative)
+    email: userEmail, // From x-user-email header (informational)
+    userType: userType, // From x-user-type header (authoritative)
+    roles: roles, // From x-user-roles header (authoritative)
+    permissions: permissions, // From x-user-permissions header (authoritative)
   };
 
-  // Build authorization context
+  // STEP 3: Build authorization context using ONLY gateway header values
+  // Never override with context.tenantId or any other source
   const authContext = {
-    ...context,
-    userId: user.id,
-    tenantId: context.tenantId || user.tenantId,
-    userTenantId: user.tenantId,
-    userType: user.userType,
-    roles: user.roles,
-    permissions: user.permissions,
+    userId: user.id, // From x-user-id (never override)
+    tenantId: user.tenantId, // From x-tenant-id (never override)
+    userTenantId: user.tenantId, // Same as tenantId (from headers)
+    userType: user.userType, // From x-user-type (never override)
+    roles: user.roles, // From x-user-roles (never override)
+    permissions: user.permissions, // From x-user-permissions (never override)
     resource,
     action,
-    correlationId: context.correlationId,
+    correlationId: context.correlationId || headers["x-correlation-id"],
+    gatewayTimestamp: gatewayTimestamp, // From x-gateway-timestamp (for replay protection)
   };
 
-  // Apply policy rules (reuse existing logic)
+  // STEP 4: Apply policy rules (no caching, no DB lookups)
   const policyDecision = await applyPolicyRules(authContext);
 
+  // STEP 5: Return decision with user object built ONLY from headers
   return {
     ...policyDecision,
     user,
-    timestamp: new Date().toISOString(),
+    timestamp: gatewayTimestamp
+      ? new Date(parseInt(gatewayTimestamp)).toISOString()
+      : new Date().toISOString(),
     policyVersion: POLICY_VERSION,
-    correlationId: context.correlationId,
+    correlationId: authContext.correlationId,
   };
 };
 

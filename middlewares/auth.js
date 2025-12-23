@@ -22,6 +22,10 @@ const { validateGatewayRequest } = gatewaySecurity;
  */
 const authenticate = async (req, res, next) => {
   try {
+    // Gateway headers are the SINGLE SOURCE OF TRUTH
+    // These values must never be overridden by JWT, DB, or cache
+    // Policy evaluation service reads directly from headers
+    
     // 1) Check for gateway-verified JWT (trust gateway headers with validation)
     const jwtVerified = req.headers["x-jwt-verified"];
     const authSource = req.headers["x-auth-source"];

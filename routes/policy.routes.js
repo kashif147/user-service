@@ -37,12 +37,14 @@ router.post("/evaluate", async (req, res, next) => {
     let result;
     if (hasGatewayHeaders) {
       // Use headers from gateway
+      // CRITICAL: Only pass correlationId in context - never pass userId/tenantId
+      // Gateway headers are authoritative and must not be overridden
       result = await policyService.evaluatePolicyWithHeaders({
         headers: req.headers,
         resource,
         action,
         context: {
-          ...context,
+          // Only pass correlationId - gateway headers provide all identity info
           correlationId: req.headers["x-correlation-id"] || crypto.randomUUID(),
         },
       });
