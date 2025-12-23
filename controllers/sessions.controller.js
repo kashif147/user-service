@@ -1,6 +1,8 @@
-const { jwtVerify, createRemoteJWKSet, SignJWT } = require("jose");
+const { jwtVerify, createRemoteJWKSet } = require("jose");
 const azureB2CConfig = require("../config/azure-b2c");
 const Tenant = require("../models/tenant.model");
+const User = require("../models/user.model"); // Use standard User model
+const { generateToken } = require("../helpers/jwt");
 const crypto = require("crypto");
 
 /**
@@ -60,10 +62,16 @@ class SessionsController {
       const tokenPayload = await this.validateB2CToken(id_token);
 
       // Map B2C claims to internal user (with tenant lookup)
-      const internalUser = await this.mapB2CToInternalUser(tokenPayload);
+      const internalUserData = await this.mapB2CToInternalUser(tokenPayload);
 
-      // Issue internal JWT
-      const internalJwt = await this.issueInternalJWT(internalUser);
+      // CRITICAL: Fetch or create actual User from database
+      // This ensures we have a proper User object with _id, userEmail, etc.
+      // Required for generateToken() to work correctly
+      const user = await this.findOrCreateB2CUser(internalUserData, tokenPayload);
+
+      // CRITICAL: Use canonical JWT generation (single source of truth)
+      // This ensures all tokens have the same structure: id, tenantId, roles, permissions
+      const { token: internalJwt } = await generateToken(user);
 
       // Return session data
       res.json({
@@ -71,11 +79,12 @@ class SessionsController {
         data: {
           jwt: internalJwt,
           profile: {
-            sub: internalUser.sub,
-            email: internalUser.email,
-            name: internalUser.name,
-            roles: internalUser.roles,
-            tenantId: internalUser.tenantId,
+            sub: user._id.toString(),
+            id: user._id.toString(),
+            email: user.userEmail,
+            name: user.userName || user.userEmail,
+            roles: user.roles || [],
+            tenantId: user.tenantId.toString(),
           },
         },
       });
@@ -230,23 +239,63 @@ class SessionsController {
     };
   }
 
+  /**
+   * Find or create B2C user in database
+   * CRITICAL: This ensures we have a proper User object for generateToken()
+   * @param {Object} internalUserData - Mapped user data from B2C token
+   * @param {Object} tokenPayload - Original B2C token payload
+   * @returns {Promise<Object>} User document from database
+   */
+  async findOrCreateB2CUser(internalUserData, tokenPayload) {
+    const email = internalUserData.email;
+    const tenantId = internalUserData.tenantId;
+
+    if (!email || !tenantId) {
+      throw new Error("Missing email or tenantId for user lookup");
+    }
+
+    // Find existing user by email and tenantId
+    let user = await User.findOne({
+      userEmail: email,
+      tenantId: tenantId,
+    });
+
+    if (!user) {
+      // Create new user if not found
+      console.log("Creating new B2C user:", email);
+      user = new User({
+        userEmail: email,
+        userName: internalUserData.name,
+        tenantId: tenantId,
+        userType: "PORTAL",
+        userAuthProvider: "azure-b2c",
+        userLastLogin: new Date(),
+      });
+      await user.save();
+      console.log("✅ New B2C user created:", user._id.toString());
+    } else {
+      // Update last login
+      user.userLastLogin = new Date();
+      await user.save();
+    }
+
+    return user;
+  }
+
+  /**
+   * DEPRECATED: issueInternalJWT() - DO NOT USE
+   * 
+   * This method created inconsistent JWT tokens (missing permissions, using jose library).
+   * 
+   * All JWT generation must now go through helpers/jwt.js → generateToken()
+   * to ensure canonical payload structure across the entire platform.
+   * 
+   * @deprecated Use generateToken() from helpers/jwt.js instead
+   */
   async issueInternalJWT(userData) {
-    const secret = new TextEncoder().encode(azureB2CConfig.jwtSecret);
-
-    const jwt = await new SignJWT({
-      sub: userData.sub,
-      b2c_sub: userData.b2c_sub,
-      tenantId: userData.tenantId,
-      roles: userData.roles,
-    })
-      .setProtectedHeader({ alg: "HS256" })
-      .setIssuedAt(userData.iat)
-      .setExpirationTime(userData.exp)
-      .setIssuer("user-service")
-      .setAudience("portal-service")
-      .sign(secret);
-
-    return jwt;
+    throw new Error(
+      "issueInternalJWT() is deprecated. Use generateToken() from helpers/jwt.js instead."
+    );
   }
 }
 

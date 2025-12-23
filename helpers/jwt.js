@@ -32,10 +32,27 @@ module.exports.generateToken = async (user) => {
     const roles = await RoleHandler.getUserRoles(user._id, user.tenantId);
     console.log("Roles fetched:", roles.length, "roles");
 
+    // CRITICAL: Enforce payload invariants before signing
+    // This prevents silent bad tokens from being issued
+    if (!user._id) {
+      throw new Error("JWT invariant violation: missing user._id");
+    }
+    if (!user.tenantId) {
+      throw new Error("JWT invariant violation: missing user.tenantId");
+    }
+    if (!Array.isArray(permissions)) {
+      throw new Error("JWT invariant violation: permissions must be an array");
+    }
+    if (!Array.isArray(roles)) {
+      throw new Error("JWT invariant violation: roles must be an array");
+    }
+
+    // CRITICAL: Canonical JWT payload format - SINGLE SOURCE OF TRUTH
+    // All tokens MUST have this exact structure for gateway and policy consistency
     const tokenPayload = {
       sub: user._id, // Standard JWT subject claim
       tenantId: user.tenantId, // Tenant ID claim for multi-tenancy
-      id: user._id, // Keep for backward compatibility
+      id: user._id, // REQUIRED: Gateway uses payload.id (not sub) for x-user-id header
       email: user.userEmail,
       userType: user.userType,
       roles: roles.map((role) => ({
@@ -43,7 +60,7 @@ module.exports.generateToken = async (user) => {
         code: role.code,
         name: role.name,
       })),
-      permissions: permissions,
+      permissions: permissions, // REQUIRED: Policy evaluation needs permissions
     };
 
     console.log("Generating JWT token with payload...");
@@ -67,15 +84,18 @@ module.exports.generateToken = async (user) => {
     }
 
     // Fallback to basic token if permissions can't be fetched
+    // CRITICAL: Even fallback must include id field for gateway consistency
     const token =
       // "Bearer " +
       jwt.sign(
         {
           sub: user._id,
           tenantId: user.tenantId,
-          id: user._id, // Keep for backward compatibility
+          id: user._id, // REQUIRED: Gateway uses payload.id for x-user-id header
           email: user.userEmail,
           userType: user.userType,
+          roles: [], // Empty array instead of missing field
+          permissions: [], // Empty array instead of missing field
         },
         process.env.JWT_SECRET,
         {
