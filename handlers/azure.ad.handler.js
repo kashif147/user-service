@@ -345,7 +345,7 @@ class AzureADHandler {
         await publishCrmUserUpdated(user, {
           userEmail: previousEmail,
           userFullName: previousFullName,
-        });
+        }, true); // forcePublish = true to ensure user is synced to subscription-service on every login
       }
 
       console.log(`User processed successfully: ${email}`);

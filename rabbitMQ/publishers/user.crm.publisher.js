@@ -29,11 +29,12 @@ async function publishCrmUserCreated(user) {
 }
 
 /**
- * Publish CRM user updated event (only when email or fullName changes)
+ * Publish CRM user updated event (only when email or fullName changes, or forcePublish is true)
  * @param {Object} user - User document
  * @param {Object} previousValues - Previous values of userEmail and userFullName
+ * @param {Boolean} forcePublish - Force publish even if nothing changed (e.g., on login to ensure sync)
  */
-async function publishCrmUserUpdated(user, previousValues = {}) {
+async function publishCrmUserUpdated(user, previousValues = {}, forcePublish = false) {
   if (!user || user.userType !== "CRM") {
     return;
   }
@@ -46,7 +47,8 @@ async function publishCrmUserUpdated(user, previousValues = {}) {
     previousValues.hasOwnProperty("userFullName") &&
     previousValues.userFullName !== user.userFullName;
 
-  if (!emailChanged && !fullNameChanged) {
+  // Publish if email/fullName changed OR if forcePublish is true (e.g., on login to ensure sync)
+  if (!emailChanged && !fullNameChanged && !forcePublish) {
     return;
   }
 
