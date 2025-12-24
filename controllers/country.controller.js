@@ -194,7 +194,7 @@ const updateCountry = async (req, res, next) => {
 
     const country = await Country.findOne({ _id: id, isdeleted: false });
     if (!country) {
-      return next(AppError.notFound("Country not found"));
+      return res.notFoundRecord("Country not found");
     }
 
     // Store old values for audit
@@ -275,7 +275,7 @@ const deleteCountry = async (req, res, next) => {
 
     const country = await Country.findOne({ _id: id, isdeleted: false });
     if (!country) {
-      return next(AppError.notFound("Country not found"));
+      return res.notFoundRecord("Country not found");
     }
 
     // Store country data for audit

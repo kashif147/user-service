@@ -2,7 +2,7 @@
 
 /**
  * Diagnostic script to check portal permissions for NON-MEMBER and MEMBER roles
- * 
+ *
  * Usage: NODE_ENV=staging node scripts/check-portal-permissions.js
  */
 
@@ -59,7 +59,9 @@ async function checkPortalPermissions() {
     } else {
       console.log(`Found ${portalPermissions.length} portal permission(s):\n`);
       portalPermissions.forEach((perm) => {
-        console.log(`  • ${perm.code} - ${perm.name} (${perm.resource}:${perm.action})`);
+        console.log(
+          `  • ${perm.code} - ${perm.name} (${perm.resource}:${perm.action})`
+        );
       });
       console.log();
     }
@@ -93,12 +95,15 @@ async function checkPortalPermissions() {
       } else {
         console.log(`\n✅ NON-MEMBER Role: ${nonMemberRole.name}`);
         console.log(`   Permissions: ${nonMemberRole.permissions.length}`);
-        const hasPortalCreate = nonMemberRole.permissions.includes("PORTAL_CREATE");
-        console.log(`   Has PORTAL_CREATE: ${hasPortalCreate ? "✅ YES" : "❌ NO"}`);
-        
+        const hasPortalCreate =
+          nonMemberRole.permissions.includes("PORTAL_CREATE");
+        console.log(
+          `   Has PORTAL_CREATE: ${hasPortalCreate ? "✅ YES" : "❌ NO"}`
+        );
+
         // Show portal-related permissions
-        const portalPerms = nonMemberRole.permissions.filter(p => 
-          p.includes("PORTAL") || p.includes("portal")
+        const portalPerms = nonMemberRole.permissions.filter(
+          (p) => p.includes("PORTAL") || p.includes("portal")
         );
         if (portalPerms.length > 0) {
           console.log(`   Portal permissions: ${portalPerms.join(", ")}`);
@@ -119,12 +124,15 @@ async function checkPortalPermissions() {
       } else {
         console.log(`\n✅ MEMBER Role: ${memberRole.name}`);
         console.log(`   Permissions: ${memberRole.permissions.length}`);
-        const hasPortalCreate = memberRole.permissions.includes("PORTAL_CREATE");
-        console.log(`   Has PORTAL_CREATE: ${hasPortalCreate ? "✅ YES" : "❌ NO"}`);
-        
+        const hasPortalCreate =
+          memberRole.permissions.includes("PORTAL_CREATE");
+        console.log(
+          `   Has PORTAL_CREATE: ${hasPortalCreate ? "✅ YES" : "❌ NO"}`
+        );
+
         // Show portal-related permissions
-        const portalPerms = memberRole.permissions.filter(p => 
-          p.includes("PORTAL") || p.includes("portal")
+        const portalPerms = memberRole.permissions.filter(
+          (p) => p.includes("PORTAL") || p.includes("portal")
         );
         if (portalPerms.length > 0) {
           console.log(`   Portal permissions: ${portalPerms.join(", ")}`);
@@ -140,7 +148,6 @@ async function checkPortalPermissions() {
     console.log(`Portal permissions in database: ${portalPermissions.length}`);
     console.log(`Tenants checked: ${tenants.length}`);
     console.log("=".repeat(60));
-
   } catch (error) {
     console.error("❌ Script error:", error.message);
     console.error(error.stack);
@@ -161,4 +168,3 @@ checkPortalPermissions()
     console.error("\n❌ Diagnostic failed:", error.message);
     process.exit(1);
   });
-

@@ -447,7 +447,7 @@ const updatePricing = async (req, res, next) => {
     });
 
     if (!pricing) {
-      return next(AppError.notFound("Pricing not found"));
+      return res.notFoundRecord("Pricing not found");
     }
 
     // Check for overlapping pricing periods (excluding current record)
@@ -561,7 +561,7 @@ const deletePricing = async (req, res, next) => {
     });
 
     if (!pricing) {
-      return next(AppError.notFound("Pricing not found"));
+      return res.notFoundRecord("Pricing not found");
     }
 
     // Soft delete

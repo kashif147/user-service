@@ -43,7 +43,7 @@ module.exports.getRoleById = async (req, res, next) => {
     if (!role) {
       return res.status(200).json({
         data: null,
-        message: "Not found"
+        message: "Not found",
       });
     }
     res.status(200).json({ status: "success", data: role });
@@ -63,7 +63,7 @@ module.exports.updateRole = async (req, res, next) => {
       updatedBy
     );
     if (!role) {
-      return next(AppError.notFound("Role not found"));
+      return res.notFoundRecord("Role not found");
     }
     res.status(200).json({ status: "success", data: role });
   } catch (error) {
@@ -76,7 +76,7 @@ module.exports.deleteRole = async (req, res, next) => {
     const tenantId = req.ctx.tenantId;
     const result = await RoleHandler.deleteRole(req.params.id, tenantId);
     if (!result) {
-      return next(AppError.notFound("Role not found"));
+      return res.notFoundRecord("Role not found");
     }
     res.status(200).json({ status: "success", data: result.message });
   } catch (error) {
@@ -96,7 +96,7 @@ module.exports.updateRolePermissions = async (req, res, next) => {
       updatedBy
     );
     if (!role) {
-      return next(AppError.notFound("Role not found"));
+      return res.notFoundRecord("Role not found");
     }
     res.status(200).json({ status: "success", data: role });
   } catch (error) {
@@ -182,7 +182,7 @@ module.exports.removeRoleFromUser = async (req, res, next) => {
     const tenantId = req.ctx.tenantId;
     const user = await RoleHandler.removeRoleFromUser(userId, roleId, tenantId);
     if (!user) {
-      return next(AppError.notFound("User or role not found"));
+      return res.notFoundRecord("User or role not found");
     }
     res.status(200).json({ status: "success", data: user });
   } catch (error) {

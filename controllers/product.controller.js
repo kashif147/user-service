@@ -353,7 +353,7 @@ const updateProduct = async (req, res, next) => {
     });
 
     if (!product) {
-      return next(AppError.notFound("Product not found"));
+      return res.notFoundRecord("Product not found");
     }
 
     // Check if new code already exists for this tenant (excluding current record)
@@ -484,7 +484,7 @@ const deleteProduct = async (req, res, next) => {
     });
 
     if (!product) {
-      return next(AppError.notFound("Product not found"));
+      return res.notFoundRecord("Product not found");
     }
 
     // Check if there are any active pricing records

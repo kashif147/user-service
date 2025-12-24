@@ -3,7 +3,7 @@
 /**
  * Script to add PORTAL_CREATE permission to NON-MEMBER role
  * This allows non-member portal users to create applications
- * 
+ *
  * Usage: NODE_ENV=staging node scripts/add-portal-create-to-non-member.js
  */
 
@@ -37,16 +37,20 @@ async function addPortalCreateToNonMember() {
 
     if (!portalCreatePermission) {
       console.error("❌ PORTAL_CREATE permission not found in database!");
-      console.log("💡 Please run insert-portal-permissions.js first to create portal permissions");
+      console.log(
+        "💡 Please run insert-portal-permissions.js first to create portal permissions"
+      );
       process.exit(1);
     }
 
-    console.log(`✅ Found PORTAL_CREATE permission: ${portalCreatePermission.name}`);
+    console.log(
+      `✅ Found PORTAL_CREATE permission: ${portalCreatePermission.name}`
+    );
 
     // Get all tenants (or use a specific tenant)
     const Tenant = require("../models/tenant.model");
     const tenants = await Tenant.find({ isActive: true });
-    
+
     if (tenants.length === 0) {
       console.error("❌ No active tenants found!");
       process.exit(1);
@@ -69,7 +73,9 @@ async function addPortalCreateToNonMember() {
       });
 
       if (!nonMemberRole) {
-        console.log(`⚠️  NON-MEMBER role not found for tenant ${tenant.name}, skipping...`);
+        console.log(
+          `⚠️  NON-MEMBER role not found for tenant ${tenant.name}, skipping...`
+        );
         totalSkipped++;
         continue;
       }
@@ -78,7 +84,9 @@ async function addPortalCreateToNonMember() {
 
       // Check if permission already exists
       if (nonMemberRole.permissions.includes("PORTAL_CREATE")) {
-        console.log(`⏭️  NON-MEMBER role already has PORTAL_CREATE permission, skipping...`);
+        console.log(
+          `⏭️  NON-MEMBER role already has PORTAL_CREATE permission, skipping...`
+        );
         totalSkipped++;
         continue;
       }
@@ -102,16 +110,21 @@ async function addPortalCreateToNonMember() {
     console.log("=".repeat(60));
     console.log(`Tenants processed: ${tenants.length}`);
     console.log(`NON-MEMBER roles updated: ${totalUpdated}`);
-    console.log(`Skipped (already has permission or role not found): ${totalSkipped}`);
+    console.log(
+      `Skipped (already has permission or role not found): ${totalSkipped}`
+    );
     console.log("=".repeat(60));
 
     if (totalUpdated > 0) {
-      console.log("\n✅ Successfully added PORTAL_CREATE permission to NON-MEMBER roles!");
+      console.log(
+        "\n✅ Successfully added PORTAL_CREATE permission to NON-MEMBER roles!"
+      );
       console.log("🎯 Non-member portal users can now create applications");
     } else {
-      console.log("\n⚠️  No roles were updated. All NON-MEMBER roles may already have PORTAL_CREATE permission.");
+      console.log(
+        "\n⚠️  No roles were updated. All NON-MEMBER roles may already have PORTAL_CREATE permission."
+      );
     }
-
   } catch (error) {
     console.error("❌ Script error:", error.message);
     console.error(error.stack);
@@ -132,4 +145,3 @@ addPortalCreateToNonMember()
     console.error("\n❌ Script failed:", error.message);
     process.exit(1);
   });
-

@@ -162,7 +162,7 @@ const updateContact = async (req, res, next) => {
 
     const contact = await Contact.findOne({ _id: id, isdeleted: false });
     if (!contact) {
-      return next(AppError.notFound("Contact not found"));
+      return res.notFoundRecord("Contact not found");
     }
 
     if (surname) contact.surname = surname;
@@ -225,7 +225,7 @@ const deleteContact = async (req, res, next) => {
 
     const contact = await Contact.findOne({ _id: id, isdeleted: false });
     if (!contact) {
-      return next(AppError.notFound("Contact not found"));
+      return res.notFoundRecord("Contact not found");
     }
 
     contact.isdeleted = true;

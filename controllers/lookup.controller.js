@@ -182,7 +182,7 @@ const updateLookup = async (req, res, next) => {
 
     const lookup = await Lookup.findById(id);
     if (!lookup) {
-      return next(AppError.notFound("Lookup not found"));
+      return res.notFoundRecord("Lookup not found");
     }
 
     // Store old values for event
@@ -248,7 +248,7 @@ const deleteLookup = async (req, res, next) => {
 
   const lookup = await Lookup.findOne({ _id: req.body.id }).lean();
   if (!lookup) {
-    return next(AppError.notFound(`No lookups matches ID ${req.body.id}`));
+    return res.notFoundRecord(`No lookup matches ID ${req.body.id}`);
   }
 
   // Store lookup data for event

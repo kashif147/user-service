@@ -2,12 +2,12 @@
 
 /**
  * Script to assign MEMBER or NON-MEMBER roles to portal users based on their subscription status
- * 
+ *
  * Logic:
  * - If user has no profile → NON-MEMBER
  * - If user has profile with active subscription → MEMBER
  * - If user has profile but no active subscription → NON-MEMBER
- * 
+ *
  * Usage: NODE_ENV=staging node scripts/assign-roles-by-subscription.js
  */
 
@@ -26,38 +26,45 @@ function normalizeEmail(email) {
 function getMongoUri(serviceName = "user-service", baseUri = null) {
   // If baseUri provided, replace database name
   if (baseUri) {
-    const dbName = process.env[`${serviceName.toUpperCase().replace("-", "_")}_MONGO_DB`] || 
-                   `${serviceName}-staging`;
+    const dbName =
+      process.env[`${serviceName.toUpperCase().replace("-", "_")}_MONGO_DB`] ||
+      `${serviceName}-staging`;
     // Replace database name in URI
     return baseUri.replace(/\/[^\/\?]+(\?|$)/, `/${dbName}$1`);
   }
 
   // Try service-specific URI
-  const serviceUri = process.env[`${serviceName.toUpperCase().replace("-", "_")}_MONGO_URI`];
+  const serviceUri =
+    process.env[`${serviceName.toUpperCase().replace("-", "_")}_MONGO_URI`];
   if (serviceUri) {
     return serviceUri;
   }
 
   // Try direct MONGO_URI and modify database name
   if (process.env.MONGO_URI) {
-    const dbName = process.env[`${serviceName.toUpperCase().replace("-", "_")}_MONGO_DB`] || 
-                   `${serviceName}-staging`;
+    const dbName =
+      process.env[`${serviceName.toUpperCase().replace("-", "_")}_MONGO_DB`] ||
+      `${serviceName}-staging`;
     return process.env.MONGO_URI.replace(/\/[^\/\?]+(\?|$)/, `/${dbName}$1`);
   }
 
   // Construct from components
   const user = process.env.MONGO_USER;
   const pass = process.env.MONGO_PASS;
-  const cluster = process.env.MONGO_CLUSTER || "clusterprojectshell.tptnh8w.mongodb.net";
-  const dbName = process.env[`${serviceName.toUpperCase().replace("-", "_")}_MONGO_DB`] || 
-                 process.env.MONGO_DB || 
-                 `${serviceName}-staging`;
+  const cluster =
+    process.env.MONGO_CLUSTER || "clusterprojectshell.tptnh8w.mongodb.net";
+  const dbName =
+    process.env[`${serviceName.toUpperCase().replace("-", "_")}_MONGO_DB`] ||
+    process.env.MONGO_DB ||
+    `${serviceName}-staging`;
 
   if (user && pass) {
     return `mongodb+srv://${user}:${pass}@${cluster}/${dbName}?retryWrites=true&w=majority&appName=ClusterProjectShell`;
   }
 
-  throw new Error(`Cannot construct MongoDB URI for ${serviceName}. Please set MONGO_URI or MONGO_USER/MONGO_PASS`);
+  throw new Error(
+    `Cannot construct MongoDB URI for ${serviceName}. Please set MONGO_URI or MONGO_USER/MONGO_PASS`
+  );
 }
 
 // Connect to multiple databases
@@ -73,46 +80,80 @@ async function connectToDatabases() {
       connectTimeoutMS: 30000,
       socketTimeoutMS: 30000,
     });
-    console.log(`✅ Connected to User Service: ${connections.userService.name}`);
+    console.log(
+      `✅ Connected to User Service: ${connections.userService.name}`
+    );
 
     // Profile Service Database
     // Try to get from profile-service .env.staging if exists
-    const profileServiceEnvPath = path.join(__dirname, "..", "..", "profile-service", ".env.staging");
+    const profileServiceEnvPath = path.join(
+      __dirname,
+      "..",
+      "..",
+      "profile-service",
+      ".env.staging"
+    );
     let profileServiceUri = process.env.PROFILE_SERVICE_MONGO_URI;
-    
+
     if (!profileServiceUri && fs.existsSync(profileServiceEnvPath)) {
-      const profileEnv = require("dotenv").config({ path: profileServiceEnvPath }).parsed;
-      profileServiceUri = profileEnv?.MONGO_URI || getMongoUri("profile-service", userServiceUri);
+      const profileEnv = require("dotenv").config({
+        path: profileServiceEnvPath,
+      }).parsed;
+      profileServiceUri =
+        profileEnv?.MONGO_URI || getMongoUri("profile-service", userServiceUri);
     } else {
       profileServiceUri = getMongoUri("profile-service", userServiceUri);
     }
 
     console.log("🔗 Connecting to Profile Service database...");
-    connections.profileService = await mongoose.createConnection(profileServiceUri, {
-      serverSelectionTimeoutMS: 30000,
-      connectTimeoutMS: 30000,
-      socketTimeoutMS: 30000,
-    });
-    console.log(`✅ Connected to Profile Service: ${connections.profileService.name}`);
+    connections.profileService = await mongoose.createConnection(
+      profileServiceUri,
+      {
+        serverSelectionTimeoutMS: 30000,
+        connectTimeoutMS: 30000,
+        socketTimeoutMS: 30000,
+      }
+    );
+    console.log(
+      `✅ Connected to Profile Service: ${connections.profileService.name}`
+    );
 
     // Subscription Service Database
-    const subscriptionServiceEnvPath = path.join(__dirname, "..", "..", "subscription-service", ".env.staging");
+    const subscriptionServiceEnvPath = path.join(
+      __dirname,
+      "..",
+      "..",
+      "subscription-service",
+      ".env.staging"
+    );
     let subscriptionServiceUri = process.env.SUBSCRIPTION_SERVICE_MONGO_URI;
-    
+
     if (!subscriptionServiceUri && fs.existsSync(subscriptionServiceEnvPath)) {
-      const subscriptionEnv = require("dotenv").config({ path: subscriptionServiceEnvPath }).parsed;
-      subscriptionServiceUri = subscriptionEnv?.MONGO_URI || getMongoUri("subscription-service", userServiceUri);
+      const subscriptionEnv = require("dotenv").config({
+        path: subscriptionServiceEnvPath,
+      }).parsed;
+      subscriptionServiceUri =
+        subscriptionEnv?.MONGO_URI ||
+        getMongoUri("subscription-service", userServiceUri);
     } else {
-      subscriptionServiceUri = getMongoUri("subscription-service", userServiceUri);
+      subscriptionServiceUri = getMongoUri(
+        "subscription-service",
+        userServiceUri
+      );
     }
 
     console.log("🔗 Connecting to Subscription Service database...");
-    connections.subscriptionService = await mongoose.createConnection(subscriptionServiceUri, {
-      serverSelectionTimeoutMS: 30000,
-      connectTimeoutMS: 30000,
-      socketTimeoutMS: 30000,
-    });
-    console.log(`✅ Connected to Subscription Service: ${connections.subscriptionService.name}`);
+    connections.subscriptionService = await mongoose.createConnection(
+      subscriptionServiceUri,
+      {
+        serverSelectionTimeoutMS: 30000,
+        connectTimeoutMS: 30000,
+        socketTimeoutMS: 30000,
+      }
+    );
+    console.log(
+      `✅ Connected to Subscription Service: ${connections.subscriptionService.name}`
+    );
 
     return connections;
   } catch (error) {
@@ -130,49 +171,71 @@ async function connectToDatabases() {
 // Load models for each database connection
 function loadModels(connections) {
   // User Service Models
-  const UserSchema = new mongoose.Schema({
-    tenantId: { type: String, required: true, index: true },
-    userEmail: { type: String, default: null },
-    userType: { type: String, enum: ["PORTAL", "CRM"], default: "PORTAL" },
-    roles: [{ type: mongoose.Schema.Types.ObjectId, ref: "Role" }],
-    isActive: { type: Boolean, default: true },
-  }, { collection: "users", strict: false });
+  const UserSchema = new mongoose.Schema(
+    {
+      tenantId: { type: String, required: true, index: true },
+      userEmail: { type: String, default: null },
+      userType: { type: String, enum: ["PORTAL", "CRM"], default: "PORTAL" },
+      roles: [{ type: mongoose.Schema.Types.ObjectId, ref: "Role" }],
+      isActive: { type: Boolean, default: true },
+    },
+    { collection: "users", strict: false }
+  );
 
-  const RoleSchema = new mongoose.Schema({
-    tenantId: { type: String, required: true, index: true },
-    code: { type: String, required: true },
-    name: { type: String, required: true },
-    isActive: { type: Boolean, default: true },
-  }, { collection: "roles", strict: false });
+  const RoleSchema = new mongoose.Schema(
+    {
+      tenantId: { type: String, required: true, index: true },
+      code: { type: String, required: true },
+      name: { type: String, required: true },
+      isActive: { type: Boolean, default: true },
+    },
+    { collection: "roles", strict: false }
+  );
 
-  const User = connections.userService.models.User || 
+  const User =
+    connections.userService.models.User ||
     connections.userService.model("User", UserSchema);
-  const Role = connections.userService.models.Role || 
+  const Role =
+    connections.userService.models.Role ||
     connections.userService.model("Role", RoleSchema);
 
   // Profile Service Model
-  const ProfileSchema = new mongoose.Schema({
-    tenantId: { type: String, index: true },
-    userId: { type: mongoose.Schema.Types.ObjectId, ref: "users" },
-    normalizedEmail: { type: String, required: true },
-    isActive: { type: Boolean, default: true },
-    currentSubscriptionId: { type: mongoose.Schema.Types.ObjectId, ref: "subscriptionDetails" },
-  }, { collection: "profiles", strict: false });
+  const ProfileSchema = new mongoose.Schema(
+    {
+      tenantId: { type: String, index: true },
+      userId: { type: mongoose.Schema.Types.ObjectId, ref: "users" },
+      normalizedEmail: { type: String, required: true },
+      isActive: { type: Boolean, default: true },
+      currentSubscriptionId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "subscriptionDetails",
+      },
+    },
+    { collection: "profiles", strict: false }
+  );
 
-  const Profile = connections.profileService.models.Profile || 
+  const Profile =
+    connections.profileService.models.Profile ||
     connections.profileService.model("Profile", ProfileSchema);
 
   // Subscription Service Model
-  const SubscriptionSchema = new mongoose.Schema({
-    tenantId: { type: String, index: true },
-    profileId: { type: mongoose.Schema.Types.ObjectId, ref: "profiles" },
-    subscriptionStatus: { type: String },
-    isCurrent: { type: Boolean, default: true },
-    deleted: { type: Boolean, default: false },
-  }, { collection: "subscriptions", strict: false });
+  const SubscriptionSchema = new mongoose.Schema(
+    {
+      tenantId: { type: String, index: true },
+      profileId: { type: mongoose.Schema.Types.ObjectId, ref: "profiles" },
+      subscriptionStatus: { type: String },
+      isCurrent: { type: Boolean, default: true },
+      deleted: { type: Boolean, default: false },
+    },
+    { collection: "subscriptions", strict: false }
+  );
 
-  const Subscription = connections.subscriptionService.models.subscriptionDetails || 
-    connections.subscriptionService.model("subscriptionDetails", SubscriptionSchema);
+  const Subscription =
+    connections.subscriptionService.models.subscriptionDetails ||
+    connections.subscriptionService.model(
+      "subscriptionDetails",
+      SubscriptionSchema
+    );
 
   return { User, Role, Profile, Subscription };
 }
@@ -221,7 +284,10 @@ async function hasActiveSubscription(user, Profile, Subscription, tenantId) {
 
     return !!subscription;
   } catch (error) {
-    console.error(`Error checking subscription for user ${user.userEmail}:`, error.message);
+    console.error(
+      `Error checking subscription for user ${user.userEmail}:`,
+      error.message
+    );
     return false;
   }
 }
@@ -285,31 +351,43 @@ async function assignRolesBySubscription() {
             console.warn(`⚠️  MEMBER role not found for tenant ${tenantId}`);
           }
           if (!nonMemberRole) {
-            console.warn(`⚠️  NON-MEMBER role not found for tenant ${tenantId}`);
+            console.warn(
+              `⚠️  NON-MEMBER role not found for tenant ${tenantId}`
+            );
           }
         }
 
         const { memberRole, nonMemberRole } = tenantRoles.get(tenantId);
 
         if (!memberRole || !nonMemberRole) {
-          console.log(`⚠️  Skipping ${user.userEmail || user._id}: Missing roles for tenant ${tenantId}`);
+          console.log(
+            `⚠️  Skipping ${
+              user.userEmail || user._id
+            }: Missing roles for tenant ${tenantId}`
+          );
           errors++;
           continue;
         }
 
         // Check if user has active subscription
-        const hasActive = await hasActiveSubscription(user, Profile, Subscription, tenantId);
+        const hasActive = await hasActiveSubscription(
+          user,
+          Profile,
+          Subscription,
+          tenantId
+        );
 
         // Determine target role
         const targetRole = hasActive ? memberRole : nonMemberRole;
         const targetRoleCode = hasActive ? "MEMBER" : "NON-MEMBER";
 
         // Check current role
-        const currentRoleIds = user.roles.map(r => r._id || r);
-        const currentRoleCode = currentRoleIds.length > 0 && 
-          currentRoleIds[0].toString() === targetRole._id.toString() 
-          ? targetRoleCode 
-          : null;
+        const currentRoleIds = user.roles.map((r) => r._id || r);
+        const currentRoleCode =
+          currentRoleIds.length > 0 &&
+          currentRoleIds[0].toString() === targetRole._id.toString()
+            ? targetRoleCode
+            : null;
 
         // Update if needed
         if (currentRoleCode !== targetRoleCode) {
@@ -318,19 +396,34 @@ async function assignRolesBySubscription() {
 
           if (hasActive) {
             memberAssigned++;
-            console.log(`✅ ${user.userEmail || user._id}: Assigned MEMBER (has active subscription)`);
+            console.log(
+              `✅ ${
+                user.userEmail || user._id
+              }: Assigned MEMBER (has active subscription)`
+            );
           } else {
             nonMemberAssigned++;
-            console.log(`✅ ${user.userEmail || user._id}: Assigned NON-MEMBER (no profile or inactive subscription)`);
+            console.log(
+              `✅ ${
+                user.userEmail || user._id
+              }: Assigned NON-MEMBER (no profile or inactive subscription)`
+            );
           }
         } else {
           unchanged++;
-          console.log(`⏭️  ${user.userEmail || user._id}: Already has ${targetRoleCode} role`);
+          console.log(
+            `⏭️  ${
+              user.userEmail || user._id
+            }: Already has ${targetRoleCode} role`
+          );
         }
 
         processed++;
       } catch (error) {
-        console.error(`❌ Error processing user ${user.userEmail || user._id}:`, error.message);
+        console.error(
+          `❌ Error processing user ${user.userEmail || user._id}:`,
+          error.message
+        );
         errors++;
       }
     }
@@ -346,7 +439,6 @@ async function assignRolesBySubscription() {
     console.log(`Unchanged: ${unchanged}`);
     console.log(`Errors: ${errors}`);
     console.log("=".repeat(60));
-
   } catch (error) {
     console.error("❌ Script error:", error.message);
     console.error(error.stack);
@@ -375,4 +467,3 @@ assignRolesBySubscription()
     console.error("\n❌ Script failed:", error.message);
     process.exit(1);
   });
-

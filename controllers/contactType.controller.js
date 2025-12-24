@@ -128,7 +128,7 @@ const updateContactType = async (req, res, next) => {
       isdeleted: false,
     });
     if (!existingContactType) {
-      return next(AppError.notFound("Contact type not found"));
+      return res.notFoundRecord("Contact type not found");
     }
 
     if (contactType) existingContactType.contactType = contactType;
@@ -178,7 +178,7 @@ const deleteContactType = async (req, res, next) => {
       isdeleted: false,
     });
     if (!contactType) {
-      return next(AppError.notFound("Contact type not found"));
+      return res.notFoundRecord("Contact type not found");
     }
 
     contactType.isdeleted = true;

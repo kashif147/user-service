@@ -206,7 +206,7 @@ const updateLookupType = async (req, res) => {
     // Find the LookupType document by ID
     const lookupTypes = await LookupType.findById(id);
     if (!lookupTypes) {
-      return next(AppError.notFound("LookupType not found"));
+      return res.notFoundRecord("LookupType not found");
     }
 
     // Store old values for audit

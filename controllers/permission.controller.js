@@ -35,7 +35,7 @@ module.exports.getPermissionById = async (req, res, next) => {
   try {
     const permission = await PermissionHandler.getPermissionById(req.params.id);
     if (!permission) {
-      return next(AppError.notFound("Permission not found"));
+      return res.notFoundRecord("Permission not found");
     }
     res.status(200).json({ status: "success", data: permission });
   } catch (error) {
@@ -50,7 +50,7 @@ module.exports.getPermissionByCode = async (req, res, next) => {
       req.params.code
     );
     if (!permission) {
-      return next(AppError.notFound("Permission not found"));
+      return res.notFoundRecord("Permission not found");
     }
     res.status(200).json({ status: "success", data: permission });
   } catch (error) {
@@ -96,7 +96,7 @@ module.exports.updatePermission = async (req, res, next) => {
       updatedBy
     );
     if (!permission) {
-      return next(AppError.notFound("Permission not found"));
+      return res.notFoundRecord("Permission not found");
     }
     res.status(200).json({ status: "success", data: permission });
   } catch (error) {
@@ -109,7 +109,7 @@ module.exports.deletePermission = async (req, res, next) => {
   try {
     const result = await PermissionHandler.deletePermission(req.params.id);
     if (!result) {
-      return next(AppError.notFound("Permission not found"));
+      return res.notFoundRecord("Permission not found");
     }
     res.status(200).json({ status: "success", data: result.message });
   } catch (error) {

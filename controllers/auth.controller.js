@@ -119,7 +119,7 @@ class AuthController {
 
       if (!revoked) {
         console.log("⚠️ User not found for token revocation");
-        return next(AppError.notFound("User not found"));
+        return res.notFoundRecord("User not found");
       }
 
       console.log("✅ All refresh tokens revoked for user:", userId);

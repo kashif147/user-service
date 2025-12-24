@@ -236,7 +236,7 @@ const updateProductType = async (req, res, next) => {
     });
 
     if (!productType) {
-      return next(AppError.notFound("Product type not found"));
+      return res.notFoundRecord("Product type not found");
     }
 
     // Check if new code already exists for this tenant (excluding current record)
@@ -337,7 +337,7 @@ const deleteProductType = async (req, res, next) => {
     });
 
     if (!productType) {
-      return next(AppError.notFound("Product type not found"));
+      return res.notFoundRecord("Product type not found");
     }
 
     // Check if there are any products associated with this product type
