@@ -76,6 +76,10 @@ const crypto = require("crypto");
 
 var app = express();
 
+// Disable Express automatic ETag generation (304 responses)
+// Note: /me endpoint has explicit ETag handling, this only affects other routes
+app.set("etag", false);
+
 /**
  * 🔎 TEMPORARY DEBUG – MUST BE FIRST
  * Confirms gateway headers actually arrive at the service
