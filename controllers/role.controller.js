@@ -243,13 +243,33 @@ module.exports.getAllUsers = async (req, res, next) => {
     }
 
     const Tenant = require("../models/tenant.model");
+    const mongoose = require("mongoose");
 
-    // Get tenant information
+    // Get tenant information - try multiple lookup strategies
     console.log("getAllUsers - fetching tenant with ID:", tenantId);
-    const tenant = await Tenant.findOne({
-      "authenticationConnections.directoryId": tenantId,
-    }).select("name");
-    console.log("getAllUsers - tenant found:", tenant);
+    let tenant = null;
+    
+    // Strategy 1: Try to find tenant by _id (if tenantId is an ObjectId)
+    if (mongoose.Types.ObjectId.isValid(tenantId)) {
+      tenant = await Tenant.findById(tenantId).select("name");
+      if (tenant) {
+        console.log("getAllUsers - tenant found by _id:", tenant.name);
+      }
+    }
+    
+    // Strategy 2: If not found, try by directoryId in authenticationConnections
+    if (!tenant) {
+      tenant = await Tenant.findOne({
+        "authenticationConnections.directoryId": tenantId,
+      }).select("name");
+      if (tenant) {
+        console.log("getAllUsers - tenant found by directoryId:", tenant.name);
+      }
+    }
+    
+    if (!tenant) {
+      console.warn("getAllUsers - tenant not found for tenantId:", tenantId);
+    }
 
     console.log("getAllUsers - fetching users for tenantId:", tenantId);
     let users;
