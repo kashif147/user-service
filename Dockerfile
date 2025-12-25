@@ -1,7 +1,7 @@
 FROM node:22-alpine
 
-# Install netcat-openbsd for TCP connection checks
-RUN apk add --no-cache netcat-openbsd
+# Install netcat-openbsd for TCP connection checks and curl for health checks
+RUN apk add --no-cache netcat-openbsd curl
 
 WORKDIR /app
 
