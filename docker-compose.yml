@@ -2,9 +2,6 @@ services:
   user-service:
     build: .
     container_name: user-service
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
     ports:
       - "5001:5001"
     env_file:
