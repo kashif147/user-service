@@ -2,14 +2,12 @@ services:
   user-service:
     build: .
     container_name: user-service
-    # RabbitMQ dependency: Use docker-compose with multiple files to enable depends_on:
+    # RabbitMQ dependency: Since rabbitmq is in a separate compose file,
+    # we use a wait script in the Dockerfile to wait for RabbitMQ to be ready.
+    # The wait script checks if RabbitMQ is accessible before starting the service.
+    # 
+    # To use depends_on, combine both compose files:
     # docker-compose -f ../rabbitmq-middleware/docker-compose.yml -f docker-compose.yml up
-    #
-    # When using multiple files, depends_on will work. Otherwise, the wait script
-    # in Dockerfile will wait for RabbitMQ to be ready.
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
     ports:
       - "5001:5001"
     env_file:
