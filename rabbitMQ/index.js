@@ -10,8 +10,15 @@ const {
 // Initialize event system
 async function initEventSystem() {
   try {
+    const rabbitUrl = process.env.RABBITMQ_URL || process.env.RABBIT_URL;
+    
+    if (!rabbitUrl) {
+      console.warn("⚠️  RABBITMQ_URL not set, skipping RabbitMQ initialization");
+      return;
+    }
+    
     await init({
-      url: process.env.RABBITMQ_URL || process.env.RABBIT_URL,
+      url: rabbitUrl,
       logger: console,
       prefetch: 10,
       connectionName: "user-service",
@@ -27,33 +34,42 @@ async function initEventSystem() {
     console.log("✅ Event system initialized with middleware");
   } catch (error) {
     console.error("❌ Failed to initialize event system:", error.message);
-    throw error;
+    console.error("❌ Stack trace:", error.stack);
+    // Don't throw - allow service to continue without RabbitMQ
+    // This prevents service crash if RabbitMQ is unavailable
+    throw error; // Still throw but let caller handle it gracefully
   }
 }
 
 // Publish domain events using middleware
 async function publishDomainEvent(eventType, data, metadata = {}) {
-  const result = await publisher.publish(eventType, data, {
-    tenantId: metadata.tenantId,
-    correlationId: metadata.correlationId || generateEventId(),
-    metadata: {
-      service: "user-service",
-      version: "1.0",
-      ...metadata,
-    },
-  });
+  try {
+    const result = await publisher.publish(eventType, data, {
+      tenantId: metadata.tenantId,
+      correlationId: metadata.correlationId || generateEventId(),
+      metadata: {
+        service: "user-service",
+        version: "1.0",
+        ...metadata,
+      },
+    });
 
-  if (result.success) {
-    console.log("✅ Domain event published:", eventType, result.eventId);
-  } else {
-    console.error(
-      "❌ Failed to publish domain event:",
-      eventType,
-      result.error
-    );
+    if (result.success) {
+      console.log("✅ Domain event published:", eventType, result.eventId);
+    } else {
+      console.error(
+        "❌ Failed to publish domain event:",
+        eventType,
+        result.error
+      );
+    }
+
+    return result.success;
+  } catch (error) {
+    console.error("❌ Error publishing domain event:", eventType, error.message);
+    // Return false instead of throwing to prevent service crash
+    return false;
   }
-
-  return result.success;
 }
 
 // Set up consumers using middleware
