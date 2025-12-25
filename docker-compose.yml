@@ -5,7 +5,7 @@ services:
     # RabbitMQ dependency: Since rabbitmq is in a separate compose file,
     # we use a wait script in the Dockerfile to wait for RabbitMQ to be ready.
     # The wait script checks if RabbitMQ is accessible before starting the service.
-    # 
+    #
     # To use depends_on, combine both compose files:
     # docker-compose -f ../rabbitmq-middleware/docker-compose.yml -f docker-compose.yml up
     ports:
