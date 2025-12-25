@@ -37,7 +37,7 @@ async function initEventSystem() {
     console.error("❌ Stack trace:", error.stack);
     // Don't throw - allow service to continue without RabbitMQ
     // This prevents service crash if RabbitMQ is unavailable
-    throw error; // Still throw but let caller handle it gracefully
+    // Service can function without RabbitMQ, just without event publishing/consuming
   }
 }
 
