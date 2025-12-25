@@ -3,7 +3,7 @@ services:
     build: .
     container_name: user-service
     depends_on:
-      - rabbitmq:
+      rabbitmq:
         condition: service_healthy
     ports:
       - "5001:5001"
