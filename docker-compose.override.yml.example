@@ -1,0 +1,12 @@
+# Example: Use this file to override docker-compose.yml when RabbitMQ is in a separate compose file
+# 
+# To use with RabbitMQ from rabbitmq-middleware:
+# docker-compose -f ../rabbitmq-middleware/docker-compose.yml -f docker-compose.yml up
+#
+# Or create docker-compose.override.yml with:
+# services:
+#   user-service:
+#     depends_on:
+#       rabbitmq:
+#         condition: service_healthy
+
