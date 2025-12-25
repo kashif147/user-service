@@ -14,6 +14,8 @@ async function initEventSystem() {
       url: process.env.RABBITMQ_URL || process.env.RABBIT_URL,
       logger: console,
       prefetch: 10,
+      connectionName: "user-service",
+      serviceName: "user-service",
     });
     
     // Add exchange mapping for CRM user events
