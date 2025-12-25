@@ -4,7 +4,7 @@ services:
     container_name: user-service
     # RabbitMQ dependency: Use docker-compose with multiple files to enable depends_on:
     # docker-compose -f ../rabbitmq-middleware/docker-compose.yml -f docker-compose.yml up
-    # 
+    #
     # When using multiple files, depends_on will work. Otherwise, the wait script
     # in Dockerfile will wait for RabbitMQ to be ready.
     depends_on:
