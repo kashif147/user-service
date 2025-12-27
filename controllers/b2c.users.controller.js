@@ -2,133 +2,113 @@ const B2CUsersHandler = require("../handlers/b2c.users.handler");
 const jwtHelper = require("../helpers/jwt");
 const { encryptToken } = require("../helpers/tokenEncryption");
 const { AppError } = require("../errors/AppError");
-// const { emitMicrosoftAuthEvent } = require("../rabbitMQ/events/userEvents");
 
-// Handle GET request from Azure B2C redirect
+function getFrontendBaseUrl() {
+  if (!process.env.MS_REDIRECT_URI) {
+    throw new Error("MS_REDIRECT_URI is not configured");
+  }
+  return new URL(process.env.MS_REDIRECT_URI).origin;
+}
+
+/**
+ * Azure B2C GET redirect handler
+ * Browser → redirect
+ * Mobile/API → JSON only
+ */
 module.exports.handleMicrosoftRedirect = async (req, res, next) => {
   try {
-    console.log("=== B2C GET Request Debug ===");
-    console.log("Request URL:", req.url);
-    console.log("Request Method:", req.method);
-    console.log("Query Parameters:", req.query);
-    console.log("Headers:", req.headers);
-
     const { code, state, error } = req.query;
 
+    const isApiClient =
+      req.headers.accept?.includes("application/json") ||
+      req.headers["x-client-type"] === "mobile" ||
+      req.headers["user-agent"]?.includes("ReactNative") ||
+      req.headers["user-agent"]?.includes("okhttp");
+
+    const frontendBaseUrl = getFrontendBaseUrl();
+
+    // Azure error
     if (error) {
-      console.log("❌ Azure B2C Error:", error);
-      // Redirect back to the test page with the error
-      const redirectUrl = `http://localhost:3000/b2c-test.html?error=${encodeURIComponent(
-        error
-      )}&state=${encodeURIComponent(state || "")}`;
-      return res.redirect(redirectUrl);
+      if (isApiClient) {
+        return res.status(400).json({ success: false, error });
+      }
+      return res.redirect(
+        `${frontendBaseUrl}/b2c-test.html?error=${encodeURIComponent(error)}`
+      );
     }
 
+    // Missing code
     if (!code) {
-      console.log("❌ No authorization code received");
-      // Redirect back to the test page with error
-      const redirectUrl = `http://localhost:3000/b2c-test.html?error=${encodeURIComponent(
-        "No authorization code received"
-      )}&state=${encodeURIComponent(state || "")}`;
-      return res.redirect(redirectUrl);
+      if (isApiClient) {
+        return res.status(400).json({
+          success: false,
+          error: "No authorization code received",
+        });
+      }
+      return res.redirect(
+        `${frontendBaseUrl}/b2c-test.html?error=No%20authorization%20code`
+      );
     }
 
-    console.log(
-      "✅ Authorization code received:",
-      code.substring(0, 50) + "..."
-    );
-    console.log("State:", state);
+    // Browser flow
+    if (!isApiClient) {
+      return res.redirect(
+        `${frontendBaseUrl}/b2c-test.html?code=${code}&state=${state || ""}`
+      );
+    }
 
-    // For GET requests, redirect back to test page with the code so user can copy it
-    console.log("✅ GET request received - redirecting to test page with code");
-    return res.redirect(`/b2c-test.html?code=${code}&state=${state}`);
+    // Mobile / API flow (NO redirect)
+    return res.status(200).json({
+      success: true,
+      code,
+      state,
+    });
   } catch (error) {
     console.error("Azure B2C Redirect Error:", error);
     return next(AppError.internalServerError("Azure B2C redirect failed"));
   }
 };
 
+/**
+ * Azure B2C POST callback
+ * Used by mobile + SPA
+ */
 module.exports.handleMicrosoftCallback = async (req, res, next) => {
   try {
-    console.log("=== B2C POST Request Debug ===");
-    console.log("Request URL:", req.url);
-    console.log("Request Method:", req.method);
-    console.log("Request Body:", req.body);
-    console.log("Headers:", req.headers);
-
     const { code, codeVerifier } = req.body;
 
     if (!code || !codeVerifier) {
-      console.log("❌ Missing required parameters:");
-      console.log("- Code:", code ? "Present" : "Missing");
-      console.log("- CodeVerifier:", codeVerifier ? "Present" : "Missing");
       return next(
         AppError.badRequest("Authorization code and codeVerifier are required")
       );
     }
 
-    console.log("✅ Both code and codeVerifier received");
-    console.log("Code (first 50 chars):", code.substring(0, 50) + "...");
-    console.log(
-      "CodeVerifier (first 20 chars):",
-      codeVerifier.substring(0, 20) + "..."
+    const { user, tokens } = await B2CUsersHandler.handleB2CAuth(
+      code,
+      codeVerifier
     );
 
-    console.log("🔄 Starting B2C authentication process...");
-    const { user } = await B2CUsersHandler.handleB2CAuth(code, codeVerifier);
-    console.log("✅ B2C authentication successful for user:", user.userEmail);
-
-    const issuedAtReadable = user.userIssuedAt
-      ? new Date(user.userIssuedAt * 1000).toISOString()
-      : null;
-    const authTimeReadable = user.userAuthTime
-      ? new Date(user.userAuthTime * 1000).toISOString()
-      : null;
-    const tokenVersionReadable =
-      user.userTokenVersion === "1.0"
-        ? "Azure AD B2C v1"
-        : user.userTokenVersion === "2.0"
-        ? "Azure AD B2C v2"
-        : user.userTokenVersion;
-
-    // Use the new JWT helper that includes roles and permissions
     const tokenData = await jwtHelper.generateToken(user);
-
-    const userResponse = {
-      id: user._id,
-      userEmail: user.userEmail,
-      userFirstName: user.userFirstName,
-      userLastName: user.userLastName,
-      userFullName: user.userFullName,
-      userMobilePhone: user.userMobilePhone,
-      userMemberNumber: user.userMemberNumber,
-      userMicrosoftId: user.userMicrosoftId,
-      userAuthProvider: user.userAuthProvider,
-      userSubject: user.userSubject,
-      userAudience: user.userAudience,
-      userIssuer: user.userIssuer,
-      userIssuedAt: issuedAtReadable,
-      userAuthTime: authTimeReadable,
-      userTokenVersion: tokenVersionReadable,
-      userPolicy: user.userPolicy,
-      userLastLogin: user.userLastLogin,
-      userType: user.userType,
-      tokens: {
-        id_token: user.tokens.id_token,
-        refresh_token: user.tokens.refresh_token,
-        id_token_expires_in: user.tokens.id_token_expires_in,
-        refresh_token_expires_in: user.tokens.refresh_token_expires_in,
-      },
-    };
-
-    // Encrypt the token before sending to frontend
     const encryptedToken = encryptToken(tokenData.token);
-    
+
     return res.status(200).json({
       success: true,
       message: "Microsoft authentication successful",
-      user: userResponse,
-      accessToken: encryptedToken, // Encrypted token sent to frontend
+      user: {
+        id: user._id,
+        userEmail: user.userEmail,
+        userFirstName: user.userFirstName,
+        userLastName: user.userLastName,
+        userFullName: user.userFullName,
+        userMobilePhone: user.userMobilePhone,
+        userMemberNumber: user.userMemberNumber,
+        userMicrosoftId: user.userMicrosoftId,
+        userAuthProvider: user.userAuthProvider,
+        userType: user.userType,
+        userLastLogin: user.userLastLogin,
+      },
+      accessToken: encryptedToken,
+      refreshToken: tokens.refresh_token,
     });
   } catch (error) {
     console.error("Microsoft Auth Error:", error);
