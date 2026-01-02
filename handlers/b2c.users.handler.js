@@ -4,6 +4,10 @@ const Tenant = require("../models/tenant.model");
 const Role = require("../models/role.model");
 const jwt = require("jsonwebtoken");
 const { assignDefaultRole } = require("../helpers/roleAssignment");
+const {
+  publishPortalUserCreated,
+  publishPortalUserUpdated,
+} = require("../rabbitMQ/publishers/user.portal.publisher");
 
 /**
  * Find Tenant document by Azure B2C directory ID
@@ -237,6 +241,16 @@ class B2CUsersHandler {
 
       const isNewUser = !existingUser;
 
+      // Capture previous values for update event (before update)
+      const previousValues = existingUser ? {
+        userEmail: existingUser.userEmail,
+        userFullName: existingUser.userFullName,
+        userFirstName: existingUser.userFirstName,
+        userLastName: existingUser.userLastName,
+        userMobilePhone: existingUser.userMobilePhone,
+        userMemberNumber: existingUser.userMemberNumber,
+      } : {};
+
       // Use atomic findOneAndUpdate with upsert to prevent race conditions
       // If existing user found by email only, update their tenantId to new Tenant._id
       const user = await B2CUser.findOneAndUpdate(
@@ -266,6 +280,8 @@ class B2CUsersHandler {
           // Save again to persist the role assignment
           await user.save();
         }
+        // Publish Portal user created event
+        await publishPortalUserCreated(user);
       } else {
         console.log("Updating existing user");
         // If existing user doesn't have roles, assign them
@@ -273,6 +289,8 @@ class B2CUsersHandler {
           await assignDefaultRole(user, "PORTAL", tenantId);
           await user.save();
         }
+        // Publish Portal user updated event
+        await publishPortalUserUpdated(user, previousValues);
       }
 
       console.log("User saved successfully");

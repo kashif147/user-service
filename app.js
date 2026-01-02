@@ -275,6 +275,7 @@ const { initEventSystem, setupConsumers } = require("./rabbitMQ");
       err.message,
       err.stack
     );
+    console.warn("⚠️ Service will continue without RabbitMQ - events will not be published");
     // Don't throw - allow service to continue without RabbitMQ
     // Service can still function, just without event publishing/consuming
   }

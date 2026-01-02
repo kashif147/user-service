@@ -7,6 +7,9 @@ const {
   shutdown,
 } = require("@projectShell/rabbitmq-middleware");
 
+// Track initialization state
+let isInitialized = false;
+
 // Initialize event system
 async function initEventSystem() {
   try {
@@ -25,16 +28,20 @@ async function initEventSystem() {
       serviceName: "user-service",
     });
     
-    // Add exchange mapping for CRM user events
+    // Add exchange mapping for CRM and Portal user events
     publisher.setExchangeMapping({
       "user.crm.created.v1": "user.events",
       "user.crm.updated.v1": "user.events",
+      "user.portal.created.v1": "user.events",
+      "user.portal.updated.v1": "user.events",
     });
     
+    isInitialized = true;
     console.log("✅ Event system initialized with middleware");
   } catch (error) {
     console.error("❌ Failed to initialize event system:", error.message);
     console.error("❌ Stack trace:", error.stack);
+    isInitialized = false;
     // Don't throw - allow service to continue without RabbitMQ
     // This prevents service crash if RabbitMQ is unavailable
     // Service can function without RabbitMQ, just without event publishing/consuming
@@ -44,6 +51,18 @@ async function initEventSystem() {
 // Publish domain events using middleware
 async function publishDomainEvent(eventType, data, metadata = {}) {
   try {
+    // Check if RabbitMQ is initialized
+    const rabbitUrl = process.env.RABBITMQ_URL || process.env.RABBIT_URL;
+    if (!rabbitUrl) {
+      console.warn("⚠️ RABBITMQ_URL not set, cannot publish event:", eventType);
+      return false;
+    }
+
+    if (!isInitialized) {
+      console.warn("⚠️ RabbitMQ not initialized yet, cannot publish event:", eventType);
+      return false;
+    }
+
     const result = await publisher.publish(eventType, data, {
       tenantId: metadata.tenantId,
       correlationId: metadata.correlationId || generateEventId(),
@@ -55,18 +74,31 @@ async function publishDomainEvent(eventType, data, metadata = {}) {
     });
 
     if (result.success) {
-      console.log("✅ Domain event published:", eventType, result.eventId);
+      console.log("✅ Domain event published:", {
+        eventType,
+        eventId: result.eventId,
+        tenantId: metadata.tenantId,
+      });
     } else {
       console.error(
         "❌ Failed to publish domain event:",
-        eventType,
-        result.error
+        {
+          eventType,
+          error: result.error,
+          eventId: result.eventId,
+          tenantId: metadata.tenantId,
+        }
       );
     }
 
     return result.success;
   } catch (error) {
-    console.error("❌ Error publishing domain event:", eventType, error.message);
+    console.error("❌ Error publishing domain event:", {
+      eventType,
+      error: error.message,
+      stack: error.stack,
+      tenantId: metadata.tenantId,
+    });
     // Return false instead of throwing to prevent service crash
     return false;
   }
@@ -105,6 +137,8 @@ const EVENT_TYPES = {
   ...MIDDLEWARE_EVENT_TYPES,
   USER_CRM_CREATED: "user.crm.created.v1",
   USER_CRM_UPDATED: "user.crm.updated.v1",
+  USER_PORTAL_CREATED: "user.portal.created.v1",
+  USER_PORTAL_UPDATED: "user.portal.updated.v1",
 };
 
 module.exports = {

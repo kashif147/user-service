@@ -6,11 +6,15 @@ const { publishDomainEvent, EVENT_TYPES } = require("../index");
  */
 async function publishCrmUserCreated(user) {
   if (!user || user.userType !== "CRM") {
+    console.log("⚠️ Skipping event publish - user is null or not CRM type:", {
+      userExists: !!user,
+      userType: user?.userType,
+    });
     return;
   }
 
   try {
-    await publishDomainEvent(
+    const result = await publishDomainEvent(
       EVENT_TYPES.USER_CRM_CREATED,
       {
         userId: user._id.toString(),
@@ -22,9 +26,30 @@ async function publishCrmUserCreated(user) {
         tenantId: user.tenantId,
       }
     );
-    console.log("✅ CRM user created event published:", user._id);
+    
+    if (result) {
+      console.log("✅ CRM user created event published:", {
+        userId: user._id.toString(),
+        userEmail: user.userEmail,
+        tenantId: user.tenantId,
+      });
+    } else {
+      console.error("❌ Failed to publish CRM user created event - publishDomainEvent returned false:", {
+        userId: user._id.toString(),
+        userEmail: user.userEmail,
+        tenantId: user.tenantId,
+      });
+    }
   } catch (error) {
-    console.error("❌ Error publishing CRM user created event:", error.message);
+    console.error("❌ Error publishing CRM user created event:", {
+      error: error.message,
+      stack: error.stack,
+      userId: user._id?.toString(),
+      userEmail: user.userEmail,
+      tenantId: user.tenantId,
+    });
+    // Re-throw to allow caller to handle if needed
+    throw error;
   }
 }
 
