@@ -27,7 +27,7 @@ const { getMeProfile } = require("../controllers/me.controller");
  * - No sensitive data in logs
  */
 router.get(
-  "/me",
+  "/auth/me",
   meRateLimit, // Rate limiting for /me endpoint
   authenticate, // JWT authentication
   requireTenant, // Tenant context validation
