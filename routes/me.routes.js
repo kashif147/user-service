@@ -5,7 +5,7 @@ const { meRateLimit } = require("../middlewares/security.mw");
 const { getMeProfile } = require("../controllers/me.controller");
 
 /**
- * GET /me - Get current user profile
+ * GET /api/me - Get current user profile
  *
  * Returns minimal, authoritative snapshot of the signed-in user
  * with tenant isolation and caching support.
@@ -27,7 +27,7 @@ const { getMeProfile } = require("../controllers/me.controller");
  * - No sensitive data in logs
  */
 router.get(
-  "/auth/me",
+  "/api/me",
   meRateLimit, // Rate limiting for /me endpoint
   authenticate, // JWT authentication
   requireTenant, // Tenant context validation
