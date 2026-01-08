@@ -245,10 +245,9 @@ module.exports.getAllUsers = async (req, res, next) => {
     const Tenant = require("../models/tenant.model");
 
     // Get tenant information
+    // Note: tenantId is the Tenant document's _id (set during authentication)
     console.log("getAllUsers - fetching tenant with ID:", tenantId);
-    const tenant = await Tenant.findOne({
-      "authenticationConnections.directoryId": tenantId,
-    }).select("name");
+    const tenant = await Tenant.findById(tenantId).select("name");
     console.log("getAllUsers - tenant found:", tenant);
 
     console.log("getAllUsers - fetching users for tenantId:", tenantId);
