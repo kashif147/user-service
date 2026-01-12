@@ -449,12 +449,19 @@ const evaluateResourcePolicy = async (context) => {
 
     // CRITICAL: Check permissions array FIRST (from token/gateway headers)
     // This is the authoritative source - permissions come directly from user's token
+    // Permissions in JWT are in canonical format (notification:read), not code format (NOTIFICATION_READ)
     const resourcePermissionCodes = resourcePermissions.map((p) => p.code);
+    const resourcePermissionCanonical = resourcePermissions.map(
+      (p) => `${p.resource.toLowerCase()}:${p.action.toLowerCase()}`
+    );
+    
     const hasPermissionFromArray =
       Array.isArray(permissions) &&
       permissions.some(
         (perm) =>
-          resourcePermissionCodes.includes(perm) || permissions.includes("*")
+          resourcePermissionCodes.includes(perm) || // Check code format (backward compatibility)
+          resourcePermissionCanonical.includes(perm) || // Check canonical format (current format)
+          permissions.includes("*") // Wildcard
       );
 
     // Fallback: Check via roles (for backward compatibility)
@@ -513,12 +520,23 @@ const evaluateResourcePolicy = async (context) => {
     const allowedCategories = resourcePermissions.map((p) => p.category);
     const userTypeCategory = getUserTypeCategory(userType);
 
-    if (!allowedCategories.includes(userTypeCategory)) {
+    // Shared categories that are accessible by both PORTAL and CRM users
+    const sharedCategories = ["COMMUNICATION", "NOTIFICATION", "API", "GENERAL"];
+
+    // Allow access if:
+    // 1. User type category matches permission category (e.g., PORTAL user with PORTAL permission)
+    // 2. Permission category is a shared category (accessible by both PORTAL and CRM)
+    const hasAccess =
+      allowedCategories.includes(userTypeCategory) ||
+      allowedCategories.some((cat) => sharedCategories.includes(cat));
+
+    if (!hasAccess) {
       return {
         decision: "DENY",
         reason: "INVALID_USER_TYPE",
         error: `User type '${userType}' not allowed for resource '${resource}'`,
         allowedCategories: allowedCategories,
+        userTypeCategory: userTypeCategory,
       };
     }
 
