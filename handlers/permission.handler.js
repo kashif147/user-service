@@ -464,6 +464,26 @@ module.exports.initializeDefaultPermissions = async () => {
         category: "COMMUNICATION",
         level: 50,
       },
+
+      // Notification permissions
+      {
+        name: "Read Notifications",
+        code: "NOTIFICATION_READ",
+        description: "View notification history and read notifications",
+        resource: "notification",
+        action: "read",
+        category: "NOTIFICATION",
+        level: 1,
+      },
+      {
+        name: "Write Notifications",
+        code: "NOTIFICATION_WRITE",
+        description: "Mark notifications as read and update notification status",
+        resource: "notification",
+        action: "write",
+        category: "NOTIFICATION",
+        level: 10,
+      },
     ];
 
     const permissionsWithSystemFlag = defaultPermissions.map((permission) => ({
