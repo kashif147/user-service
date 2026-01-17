@@ -34,6 +34,15 @@ async function initEventSystem() {
       "user.crm.updated.v1": "user.events",
       "user.portal.created.v1": "user.events",
       "user.portal.updated.v1": "user.events",
+      "product.type.created.v1": "product.events",
+      "product.type.updated.v1": "product.events",
+      "product.type.deleted.v1": "product.events",
+      "product.created.v1": "product.events",
+      "product.updated.v1": "product.events",
+      "product.deleted.v1": "product.events",
+      "pricing.created.v1": "product.events",
+      "pricing.updated.v1": "product.events",
+      "pricing.deleted.v1": "product.events",
     });
     
     isInitialized = true;
@@ -139,6 +148,15 @@ const EVENT_TYPES = {
   USER_CRM_UPDATED: "user.crm.updated.v1",
   USER_PORTAL_CREATED: "user.portal.created.v1",
   USER_PORTAL_UPDATED: "user.portal.updated.v1",
+  PRODUCT_TYPE_CREATED: "product.type.created.v1",
+  PRODUCT_TYPE_UPDATED: "product.type.updated.v1",
+  PRODUCT_TYPE_DELETED: "product.type.deleted.v1",
+  PRODUCT_CREATED: "product.created.v1",
+  PRODUCT_UPDATED: "product.updated.v1",
+  PRODUCT_DELETED: "product.deleted.v1",
+  PRICING_CREATED: "pricing.created.v1",
+  PRICING_UPDATED: "pricing.updated.v1",
+  PRICING_DELETED: "pricing.deleted.v1",
 };
 
 module.exports = {

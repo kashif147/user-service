@@ -55,7 +55,10 @@ class PermissionsService {
    */
   async getPermissionsByResource(resource) {
     const permissions = await this.getAllPermissions();
-    return permissions.filter((p) => p.resource === resource);
+    // Case-insensitive match to handle variations like "notification" vs "Notification"
+    return permissions.filter(
+      (p) => p.resource.toLowerCase() === resource.toLowerCase()
+    );
   }
 
   /**

@@ -1,6 +1,11 @@
 const Pricing = require("../models/pricing.model");
 const Product = require("../models/product.model");
 const { AppError } = require("../errors/AppError");
+const {
+  publishPricingCreated,
+  publishPricingUpdated,
+  publishPricingDeleted,
+} = require("../rabbitMQ/publishers/product.publisher");
 
 const getAllPricing = async (req, res, next) => {
   try {
@@ -389,6 +394,8 @@ const createPricing = async (req, res, next) => {
       .populate("productId", "name code description")
       .populate("createdBy", "firstName lastName email");
 
+    await publishPricingCreated(populatedPricing);
+
     res.status(201).json({
       success: true,
       data: {
@@ -503,6 +510,8 @@ const updatePricing = async (req, res, next) => {
       .populate("createdBy", "firstName lastName email")
       .populate("updatedBy", "firstName lastName email");
 
+    await publishPricingUpdated(updatedPricing);
+
     res.status(200).json({
       success: true,
       data: {
@@ -570,6 +579,8 @@ const deletePricing = async (req, res, next) => {
     pricing.status = "Inactive";
     pricing.updatedBy = userId;
     await pricing.save();
+
+    await publishPricingDeleted(pricing);
 
     res.status(200).json({
       success: true,

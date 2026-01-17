@@ -2,6 +2,11 @@ const Product = require("../models/product.model");
 const ProductType = require("../models/productType.model");
 const Pricing = require("../models/pricing.model");
 const { AppError } = require("../errors/AppError");
+const {
+  publishProductCreated,
+  publishProductUpdated,
+  publishProductDeleted,
+} = require("../rabbitMQ/publishers/product.publisher");
 
 const getAllProducts = async (req, res, next) => {
   try {
@@ -301,6 +306,8 @@ const createProduct = async (req, res, next) => {
       .populate("productTypeId", "name code description")
       .populate("createdBy", "firstName lastName email");
 
+    await publishProductCreated(populatedProduct);
+
     res.status(201).json({
       success: true,
       data: {
@@ -402,6 +409,8 @@ const updateProduct = async (req, res, next) => {
       .populate("updatedBy", "firstName lastName email")
       .populate("currentPricing")
       .populate("pricingHistory");
+
+    await publishProductUpdated(updatedProduct);
 
     res.status(200).json({
       success: true,
@@ -507,6 +516,8 @@ const deleteProduct = async (req, res, next) => {
     product.status = "Inactive";
     product.updatedBy = userId;
     await product.save();
+
+    await publishProductDeleted(product);
 
     res.status(200).json({
       success: true,

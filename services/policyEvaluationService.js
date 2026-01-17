@@ -440,12 +440,24 @@ const evaluateResourcePolicy = async (context) => {
       await permissionsService.getPermissionsByResource(resource);
 
     if (!resourcePermissions || resourcePermissions.length === 0) {
+      console.log(`[EVALUATE_RESOURCE_POLICY] No permissions found for resource: ${resource}`);
+      console.log(`[EVALUATE_RESOURCE_POLICY] Checking all permissions...`);
+      const allPerms = await permissionsService.getAllPermissions();
+      const matchingPerms = allPerms.filter(
+        (p) => p.resource && p.resource.toLowerCase() === resource.toLowerCase()
+      );
+      console.log(`[EVALUATE_RESOURCE_POLICY] Permissions with resource '${resource}':`, matchingPerms);
+      
       return {
         decision: "DENY",
         reason: "UNKNOWN_RESOURCE",
         error: `No permissions defined for resource '${resource}'`,
       };
     }
+    
+    console.log(`[EVALUATE_RESOURCE_POLICY] Found ${resourcePermissions.length} permission(s) for resource '${resource}':`, 
+      resourcePermissions.map(p => ({ code: p.code, resource: p.resource, action: p.action }))
+    );
 
     // CRITICAL: Check permissions array FIRST (from token/gateway headers)
     // This is the authoritative source - permissions come directly from user's token
@@ -470,11 +482,20 @@ const evaluateResourcePolicy = async (context) => {
 
     // User must have permission either directly OR via roles
     if (!hasPermissionFromArray && !userHasResourcePermissionViaRoles) {
+      console.log(`Resource permission check failed for ${resource}:${action}`, {
+        resourcePermissionCodes,
+        resourcePermissionCanonical,
+        userPermissions: permissions,
+        userRoles: roles,
+        hasPermissionFromArray,
+        userHasResourcePermissionViaRoles,
+      });
       return {
         decision: "DENY",
         reason: "INSUFFICIENT_RESOURCE_PERMISSION",
         error: `User lacks any permission for resource '${resource}'`,
         availablePermissions: resourcePermissionCodes,
+        availableCanonical: resourcePermissionCanonical,
         checkedPermissions: permissions,
         checkedRoles: roles,
       };
@@ -526,11 +547,23 @@ const evaluateResourcePolicy = async (context) => {
     // Allow access if:
     // 1. User type category matches permission category (e.g., PORTAL user with PORTAL permission)
     // 2. Permission category is a shared category (accessible by both PORTAL and CRM)
+    // 3. No category restrictions (if no categories defined, allow access)
     const hasAccess =
-      allowedCategories.includes(userTypeCategory) ||
-      allowedCategories.some((cat) => sharedCategories.includes(cat));
+      allowedCategories.length === 0 || // No category restrictions
+      allowedCategories.includes(userTypeCategory) || // User type matches
+      allowedCategories.some((cat) => sharedCategories.includes(cat)); // Shared category
 
     if (!hasAccess) {
+      console.log(`Category check failed for ${resource}:${action}`, {
+        userType,
+        userTypeCategory,
+        allowedCategories,
+        sharedCategories,
+        resourcePermissions: resourcePermissions.map((p) => ({
+          code: p.code,
+          category: p.category,
+        })),
+      });
       return {
         decision: "DENY",
         reason: "INVALID_USER_TYPE",
