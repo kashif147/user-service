@@ -419,15 +419,20 @@ const getLookupsByTypeWithHierarchy = async (req, res, next) => {
     const response = await lookupCacheService.getLookupsByTypeWithHierarchy(
       lookuptypeId,
       async () => {
-        // Database query function
+        // Database query function (lean + projection for speed)
         const lookups = await Lookup.find({
           lookuptypeId: lookuptypeId,
           isdeleted: false,
           isactive: true,
-        }).populate({
-          path: "lookuptypeId",
-          select: "code lookuptype displayname",
-        });
+        })
+          .select(
+            "code lookupname DisplayName lookuptypeId Parentlookupid isactive isdeleted"
+          )
+          .populate({
+            path: "lookuptypeId",
+            select: "code lookuptype displayname",
+          })
+          .lean();
 
         if (!lookups || lookups.length === 0) {
           return {
@@ -440,74 +445,78 @@ const getLookupsByTypeWithHierarchy = async (req, res, next) => {
         // Get lookup type details for response
         const lookupType = lookups[0].lookuptypeId;
 
-        // Optimized: Collect all parent IDs from all lookups, then batch fetch
-        const allParentIds = new Set();
-        const lookupParentMap = new Map(); // Maps lookup ID to its parent ID chain
+        // Optimized: Fetch all parents in batches by depth to avoid N+1 queries
+        const parentMap = new Map();
+        let pendingIds = new Set(
+          lookups
+            .map((lookup) => lookup.Parentlookupid)
+            .filter((id) => id)
+            .map((id) => id.toString())
+        );
 
-        // First pass: collect all parent IDs
-        for (const lookup of lookups) {
-          const parentIds = [];
-          let currentParentId = lookup.Parentlookupid;
+        while (pendingIds.size > 0) {
+          const batchIds = Array.from(pendingIds);
+          pendingIds.clear();
 
-          while (currentParentId) {
-            parentIds.push(currentParentId);
-            allParentIds.add(currentParentId.toString());
+          const parents = await Lookup.find({
+            _id: {
+              $in: batchIds.map((id) => new mongoose.Types.ObjectId(id)),
+            },
+          })
+            .select(
+              "code lookupname DisplayName lookuptypeId Parentlookupid isactive isdeleted"
+            )
+            .populate({
+              path: "lookuptypeId",
+              select: "code lookuptype displayname",
+            })
+            .lean();
 
-            // Fetch just the parent ID field to get next parent
-            const tempParent = await Lookup.findById(currentParentId)
-              .select("Parentlookupid")
-              .lean();
-            currentParentId = tempParent?.Parentlookupid || null;
+          for (const parent of parents) {
+            const parentId = parent._id.toString();
+            if (!parentMap.has(parentId)) {
+              parentMap.set(parentId, parent);
+              if (parent.Parentlookupid) {
+                const nextId = parent.Parentlookupid.toString();
+                if (!parentMap.has(nextId)) {
+                  pendingIds.add(nextId);
+                }
+              }
+            }
           }
-
-          lookupParentMap.set(lookup._id.toString(), parentIds);
         }
-
-        // Batch fetch all unique parents at once
-        const allParents =
-          allParentIds.size > 0
-            ? await Lookup.find({
-                _id: {
-                  $in: Array.from(allParentIds).map(
-                    (id) => new mongoose.Types.ObjectId(id)
-                  ),
-                },
-              })
-                .populate({
-                  path: "lookuptypeId",
-                  select: "code lookuptype displayname",
-                })
-                .lean()
-            : [];
-
-        // Create a map for quick parent lookup
-        const parentMap = new Map(allParents.map((p) => [p._id.toString(), p]));
 
         // Process each lookup to build its hierarchy using the batch-fetched parents
         const results = lookups.map((lookup) => {
           const hierarchy = [];
-          const parentIds = lookupParentMap.get(lookup._id.toString()) || [];
+          const seen = new Set();
+          let currentParentId = lookup.Parentlookupid
+            ? lookup.Parentlookupid.toString()
+            : null;
 
-          // Reconstruct hierarchy in correct order (top-to-bottom: region -> branch -> workLocation)
-          // Reverse iterate to maintain correct order
-          for (let i = parentIds.length - 1; i >= 0; i--) {
-            const parent = parentMap.get(parentIds[i].toString());
-            if (parent) {
-              hierarchy.unshift({
-                _id: parent._id,
-                code: parent.code,
-                lookupname: parent.lookupname,
-                DisplayName: parent.DisplayName,
-                lookuptypeId: {
-                  _id: parent.lookuptypeId?._id,
-                  code: parent.lookuptypeId?.code,
-                  lookuptype: parent.lookuptypeId?.lookuptype,
-                  displayname: parent.lookuptypeId?.displayname,
-                },
-                isactive: parent.isactive,
-                isdeleted: parent.isdeleted,
-              });
-            }
+          while (currentParentId && !seen.has(currentParentId)) {
+            seen.add(currentParentId);
+            const parent = parentMap.get(currentParentId);
+            if (!parent) break;
+
+            hierarchy.unshift({
+              _id: parent._id,
+              code: parent.code,
+              lookupname: parent.lookupname,
+              DisplayName: parent.DisplayName,
+              lookuptypeId: {
+                _id: parent.lookuptypeId?._id,
+                code: parent.lookuptypeId?.code,
+                lookuptype: parent.lookuptypeId?.lookuptype,
+                displayname: parent.lookuptypeId?.displayname,
+              },
+              isactive: parent.isactive,
+              isdeleted: parent.isdeleted,
+            });
+
+            currentParentId = parent.Parentlookupid
+              ? parent.Parentlookupid.toString()
+              : null;
           }
 
           return {
