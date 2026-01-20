@@ -2,6 +2,11 @@ services:
   user-service:
     build: .
     container_name: user-service
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     # RabbitMQ dependency: Since rabbitmq is in a separate compose file,
     # we use a wait script in the Dockerfile to wait for RabbitMQ to be ready.
     # The wait script checks if RabbitMQ is accessible before starting the service.
