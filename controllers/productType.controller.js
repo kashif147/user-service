@@ -422,6 +422,16 @@ const getAllProductTypesWithProducts = async (req, res, next) => {
               )
               .sort({ effectiveFrom: -1 });
 
+            const pricingHistory = await Pricing.find({
+              productId: product._id,
+              tenantId,
+              isDeleted: false,
+            })
+              .select(
+                "price memberPrice nonMemberPrice currency effectiveFrom effectiveTo productType status isActive createdAt updatedAt"
+              )
+              .sort({ effectiveFrom: -1 });
+
             return {
               _id: product._id,
               name: product.name,
@@ -432,6 +442,7 @@ const getAllProductTypesWithProducts = async (req, res, next) => {
               createdAt: product.createdAt,
               updatedAt: product.updatedAt,
               currentPricing: currentPricing,
+              pricingHistory: pricingHistory,
             };
           })
         );
