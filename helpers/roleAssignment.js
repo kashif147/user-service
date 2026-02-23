@@ -1,6 +1,36 @@
 const Role = require("../models/role.model");
 
 /**
+ * Assigns MEMBER role to a user (e.g. when they have approved membership on first login)
+ * @param {Object} user - The user object
+ * @param {string} tenantId - The tenant ID for tenant isolation
+ * @returns {Promise<boolean>} - true if role was assigned
+ */
+module.exports.assignMemberRole = async (user, tenantId) => {
+  try {
+    const memberRole = await Role.findOne({
+      code: "MEMBER",
+      tenantId,
+      isActive: true,
+    });
+    if (!memberRole) {
+      console.log(
+        `Warning: MEMBER role not found for tenant ${tenantId}, falling back to default`
+      );
+      return false;
+    }
+    user.roles = [memberRole._id];
+    console.log(
+      `Assigned MEMBER role to portal user in tenant ${tenantId} (approved membership)`
+    );
+    return true;
+  } catch (error) {
+    console.log("Error assigning MEMBER role:", error.message);
+    return false;
+  }
+};
+
+/**
  * Assigns default role to a user based on their user type
  * @param {Object} user - The user object
  * @param {string} userType - The user type (PORTAL or CRM)

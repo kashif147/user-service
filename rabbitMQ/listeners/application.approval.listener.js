@@ -9,8 +9,13 @@
  * - User logs in with portal → gets NON-MEMBER role (limited access)
  * - When application is approved → profile is created/updated in profile service
  * - This listener receives the approval event and upgrades the user's role to MEMBER
+ *
+ * Lookup: userId from payload (preferred) → fallback to email
+ * Role handling: Add Member for approved membership regardless of current role;
+ * remove NON-MEMBER when present.
  */
 
+const mongoose = require("mongoose");
 const User = require("../../models/user.model");
 const Role = require("../../models/role.model");
 
@@ -45,14 +50,42 @@ function getEmailFromEffective(effective) {
 }
 
 /**
- * Handle application approved event - upgrade user role from Non-Member to Member
+ * Find portal user: try userId first (from payload), then email lookup
+ */
+async function findPortalUser({ userId, email, tenantId }) {
+  if (userId && mongoose.Types.ObjectId.isValid(userId)) {
+    const byId = await User.findOne({
+      _id: new mongoose.Types.ObjectId(userId),
+      tenantId,
+      userType: "PORTAL",
+      isActive: true,
+    });
+    if (byId) return byId;
+  }
+
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail) return null;
+
+  return User.findOne({
+    userEmail: { $regex: new RegExp(`^${escapeRegex(normalizedEmail)}$`, "i") },
+    tenantId,
+    userType: "PORTAL",
+    isActive: true,
+  });
+}
+
+/**
+ * Handle application approved event - upgrade user role to Member
+ *
+ * Lookup: userId (preferred) or email from effective.contactInfo
+ * Role: Add Member, remove NON-MEMBER when present (relaxed - no requirement to have NON-MEMBER)
  *
  * @param {Object} payload - Event payload (may be wrapped in payload.data by middleware)
  */
 async function handleApplicationApproved(payload) {
   try {
     const data = payload.data || payload;
-    const { effective, tenantId, applicationId } = data;
+    const { effective, tenantId, applicationId, userId: payloadUserId } = data;
 
     if (!tenantId) {
       console.warn(
@@ -62,38 +95,29 @@ async function handleApplicationApproved(payload) {
     }
 
     const email = getEmailFromEffective(effective);
-    if (!email) {
+    if (!email && !payloadUserId) {
       console.warn(
-        "[APPLICATION_APPROVAL_LISTENER] No email in effective.contactInfo, skipping role update:",
+        "[APPLICATION_APPROVAL_LISTENER] No userId or email in payload, skipping role update:",
         { applicationId, tenantId }
       );
       return;
     }
 
-    const normalizedEmail = normalizeEmail(email);
-
-    // Find the portal user by email (case-insensitive) and tenant
-    const user = await User.findOne({
-      userEmail: { $regex: new RegExp(`^${escapeRegex(normalizedEmail)}$`, "i") },
+    const user = await findPortalUser({
+      userId: payloadUserId,
+      email,
       tenantId,
-      userType: "PORTAL",
-      isActive: true,
     });
 
     if (!user) {
       console.log(
         "[APPLICATION_APPROVAL_LISTENER] No portal user found for approved application:",
-        { email: normalizedEmail, tenantId, applicationId }
+        { userId: payloadUserId, email: email || "(none)", tenantId, applicationId }
       );
       return;
     }
 
-    // Look up NON-MEMBER and MEMBER roles for this tenant
-    const [nonMemberRole, memberRole] = await Promise.all([
-      Role.findOne({ tenantId, code: "NON-MEMBER", isActive: true }),
-      Role.findOne({ tenantId, code: "MEMBER", isActive: true }),
-    ]);
-
+    const memberRole = await Role.findOne({ tenantId, code: "MEMBER", isActive: true });
     if (!memberRole) {
       console.warn(
         "[APPLICATION_APPROVAL_LISTENER] MEMBER role not found for tenant:",
@@ -102,52 +126,41 @@ async function handleApplicationApproved(payload) {
       return;
     }
 
-    if (!nonMemberRole) {
-      console.warn(
-        "[APPLICATION_APPROVAL_LISTENER] NON-MEMBER role not found for tenant:",
-        tenantId
-      );
-      return;
+    const nonMemberRole = await Role.findOne({ tenantId, code: "NON-MEMBER", isActive: true });
+    const hasNonMember = nonMemberRole && user.roles?.some((r) => r.equals(nonMemberRole._id));
+
+    const update = {
+      $addToSet: { roles: memberRole._id },
+      $set: { updatedAt: new Date() },
+    };
+    if (hasNonMember) {
+      update.$pull = { roles: nonMemberRole._id };
     }
 
-    // Check if user has NON-MEMBER role (ObjectId comparison)
-    const hasNonMember = user.roles?.some((roleId) =>
-      roleId.equals(nonMemberRole._id)
-    );
-
-    if (!hasNonMember) {
-      console.log(
-        "[APPLICATION_APPROVAL_LISTENER] User does not have NON-MEMBER role, skipping:",
-        { userId: user._id.toString(), email: normalizedEmail }
-      );
-      return;
-    }
-
-    // Replace NON-MEMBER with MEMBER: $pull removes Non-Member, $addToSet adds Member
     const result = await User.updateOne(
-      { _id: user._id, roles: nonMemberRole._id },
-      {
-        $pull: { roles: nonMemberRole._id },
-        $addToSet: { roles: memberRole._id },
-        $set: { updatedAt: new Date() },
-      }
+      { _id: user._id },
+      update
     );
 
-    if (result.modifiedCount === 0) {
-      console.warn(
-        "[APPLICATION_APPROVAL_LISTENER] No user document modified (roles may have changed):",
-        { userId: user._id.toString() }
-      );
+    if (result.modifiedCount === 0 && result.matchedCount > 0) {
+      const alreadyHasMember = user.roles?.some((r) => r.equals(memberRole._id));
+      if (alreadyHasMember) {
+        console.log(
+          "[APPLICATION_APPROVAL_LISTENER] User already has MEMBER role:",
+          { userId: user._id.toString(), tenantId, applicationId }
+        );
+      }
       return;
     }
 
     console.log(
-      "✅ [APPLICATION_APPROVAL_LISTENER] Upgraded user role from Non-Member to Member:",
+      "✅ [APPLICATION_APPROVAL_LISTENER] Assigned Member role:",
       {
         userId: user._id.toString(),
-        email: normalizedEmail,
+        email: user.userEmail,
         tenantId,
         applicationId,
+        removedNonMember: hasNonMember,
       }
     );
   } catch (error) {

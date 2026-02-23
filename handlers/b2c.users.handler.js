@@ -3,7 +3,8 @@ const B2CUser = require("../models/user.model");
 const Tenant = require("../models/tenant.model");
 const Role = require("../models/role.model");
 const jwt = require("jsonwebtoken");
-const { assignDefaultRole } = require("../helpers/roleAssignment");
+const { assignDefaultRole, assignMemberRole } = require("../helpers/roleAssignment");
+const { hasActiveMembership } = require("../services/membershipCheck.service");
 const {
   publishPortalUserCreated,
   publishPortalUserUpdated,
@@ -270,26 +271,37 @@ class B2CUsersHandler {
         }
       );
 
-      // Check if user needs role assignment (new user or existing user without roles)
       const needsRoleAssignment = isNewUser || !user.roles || user.roles.length === 0;
+      const nonMemberRole = await Role.findOne({ tenantId, code: "NON-MEMBER", isActive: true });
+      const hasOnlyNonMember =
+        nonMemberRole &&
+        user.roles?.length === 1 &&
+        user.roles[0].equals(nonMemberRole._id);
+
+      const shouldCheckMembership = needsRoleAssignment || hasOnlyNonMember;
+      let assignedMemberFromCheck = false;
+
+      if (shouldCheckMembership) {
+        const hasMembership = await hasActiveMembership(email, tenantId);
+        if (hasMembership) {
+          assignedMemberFromCheck = await assignMemberRole(user, tenantId);
+          if (assignedMemberFromCheck) await user.save();
+        }
+      }
 
       if (isNewUser) {
         console.log("Creating new user");
-        if (needsRoleAssignment) {
+        if (needsRoleAssignment && !assignedMemberFromCheck) {
           await assignDefaultRole(user, "PORTAL", tenantId);
-          // Save again to persist the role assignment
           await user.save();
         }
-        // Publish Portal user created event
         await publishPortalUserCreated(user);
       } else {
         console.log("Updating existing user");
-        // If existing user doesn't have roles, assign them
-        if (needsRoleAssignment) {
+        if (needsRoleAssignment && !assignedMemberFromCheck) {
           await assignDefaultRole(user, "PORTAL", tenantId);
           await user.save();
         }
-        // Publish Portal user updated event
         await publishPortalUserUpdated(user, previousValues);
       }
 
