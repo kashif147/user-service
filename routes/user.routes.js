@@ -12,20 +12,26 @@ router.post("/users/login", UserController.handleLogin);
 
 // Public user validation endpoint for Azure B2C custom policies
 // Protected with Basic Auth (optional - set B2C_API_USERNAME and B2C_API_PASSWORD)
-// Wrapped to ensure no errors escape to global handler (Azure B2C requires HTTP 200 always)
+// Wrapped to ensure no errors escape to global handler
 router.post(
   "/users/validate",
+  // CRITICAL: Set Content-Type header BEFORE processing
+  (req, res, next) => {
+    res.setHeader('Content-Type', 'application/json');
+    next();
+  },
   azureB2CBasicAuth(), // Basic Auth middleware (no-op if password not configured)
   async (req, res, next) => {
     try {
       await UserController.validateUser(req, res, next);
     } catch (error) {
-      // Final safety net - ensure we never return 400/500 to Azure B2C
+      // Final safety net - ensure we never return unhandled errors to Azure B2C
       console.error("FATAL: validateUser error escaped:", error);
       if (!res.headersSent) {
+        res.setHeader('Content-Type', 'application/json');
         return res.status(200).json({
           version: "1.0.0",
-          action: "ValidationError",
+          action: "ShowBlockPage",
           userMessage: "An error occurred during validation. Please try again.",
         });
       }

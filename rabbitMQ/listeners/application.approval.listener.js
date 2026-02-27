@@ -85,7 +85,9 @@ async function findPortalUser({ userId, email, tenantId }) {
 async function handleApplicationApproved(payload) {
   try {
     const data = payload.data || payload;
-    const { effective, tenantId, applicationId, userId: payloadUserId } = data;
+    const { effective, applicationId, userId: payloadUserId } = data;
+    const tenantIdRaw = data.tenantId ?? payload.tenantId;
+    const tenantId = tenantIdRaw != null ? String(tenantIdRaw) : null;
 
     if (!tenantId) {
       console.warn(
@@ -94,7 +96,7 @@ async function handleApplicationApproved(payload) {
       return;
     }
 
-    const email = getEmailFromEffective(effective);
+    const email = effective ? getEmailFromEffective(effective) : null;
     if (!email && !payloadUserId) {
       console.warn(
         "[APPLICATION_APPROVAL_LISTENER] No userId or email in payload, skipping role update:",

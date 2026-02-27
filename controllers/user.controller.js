@@ -179,9 +179,10 @@ const validateUserInternal = async (req, res, next) => {
       console.error(
         `[${requestId}] ⚠️ Request timeout - responding with error`
       );
+      res.setHeader('Content-Type', 'application/json');
       res.status(200).json({
         version: "1.0.0",
-        action: "ValidationError",
+        action: "ShowBlockPage",
         userMessage: "Request timed out. Please try again.",
       });
     }
@@ -197,6 +198,8 @@ const validateUserInternal = async (req, res, next) => {
           `[${requestId}] 📦 Response data:`,
           JSON.stringify(data, null, 2)
         );
+        // CRITICAL: Azure B2C requires explicit Content-Type header
+        res.setHeader('Content-Type', 'application/json');
         const response = res.status(status).json(data);
         console.log(
           `[${requestId}] ✅ Response sent successfully - HTTP ${status}`
@@ -286,14 +289,16 @@ const validateUserInternal = async (req, res, next) => {
     }
 
     // Validate required fields for User Flows
-    // NOTE: Azure B2C requires HTTP 200 status even for validation errors
+    // NOTE: Azure B2C supports both HTTP 200 and HTTP 400 for ValidationError
+    // Using HTTP 400 for field validation errors (per Azure B2C docs)
     if (!email) {
       console.log(`[${requestId}] ❌ Validation failed: Email is required`);
       const duration = Date.now() - startTime;
       console.log(`[${requestId}] Response time: ${duration}ms`);
       console.log(`[${requestId}] ${"=".repeat(80)}\n`);
-      return sendResponse(200, {
+      return sendResponse(400, {
         version: "1.0.0",
+        status: 400,
         action: "ValidationError",
         userMessage: "Email is required.",
       });
@@ -306,8 +311,9 @@ const validateUserInternal = async (req, res, next) => {
       const duration = Date.now() - startTime;
       console.log(`[${requestId}] Response time: ${duration}ms`);
       console.log(`[${requestId}] ${"=".repeat(80)}\n`);
-      return sendResponse(200, {
+      return sendResponse(400, {
         version: "1.0.0",
+        status: 400,
         action: "ValidationError",
         userMessage: "Please enter a valid email address.",
       });
@@ -319,8 +325,9 @@ const validateUserInternal = async (req, res, next) => {
       const duration = Date.now() - startTime;
       console.log(`[${requestId}] Response time: ${duration}ms`);
       console.log(`[${requestId}] ${"=".repeat(80)}\n`);
-      return sendResponse(200, {
+      return sendResponse(400, {
         version: "1.0.0",
+        status: 400,
         action: "ValidationError",
         userMessage: "Please enter a valid mobile phone number.",
       });
@@ -332,8 +339,9 @@ const validateUserInternal = async (req, res, next) => {
       const duration = Date.now() - startTime;
       console.log(`[${requestId}] Response time: ${duration}ms`);
       console.log(`[${requestId}] ${"=".repeat(80)}\n`);
-      return sendResponse(200, {
+      return sendResponse(400, {
         version: "1.0.0",
+        status: 400,
         action: "ValidationError",
         userMessage: "Please enter a valid member number.",
       });
@@ -402,24 +410,23 @@ const validateUserInternal = async (req, res, next) => {
         `[${requestId}] ✨ User NOT found in database - NEW USER REGISTRATION`
       );
 
-      // For new users, return input claims plus default tenantId
-      // You can customize the default tenantId logic here
+      // For new users, return minimal response with only required fields
+      // Azure B2C will proceed with registration
       const defaultTenantId =
         process.env.DEFAULT_TENANT_ID || "default-tenant-id";
 
+      // CRITICAL: Keep response minimal - only include fields you absolutely need
       const responseData = {
         version: "1.0.0",
         action: "Continue",
-        // Return all input claims
         email: email,
-        ...(givenName && { givenName }),
-        ...(surname && { surname }),
-        ...(displayName && { displayName }),
-        ...(mobilephone && { mobilephone }),
-        ...(memberno && { memberno }),
-        // Add tenantId for new users
         tenantId: defaultTenantId,
       };
+
+      // Only add optional fields if they exist
+      if (givenName) responseData.givenName = givenName;
+      if (surname) responseData.surname = surname;
+      if (displayName) responseData.displayName = displayName;
 
       console.log(
         `[${requestId}] ✅ New user - returning input claims with default tenantId:`,
@@ -461,9 +468,11 @@ const validateUserInternal = async (req, res, next) => {
       );
       console.log(`[${requestId}] 📋 Step: "${step}" - treating as signup`);
 
+      // Use ShowBlockPage to completely block duplicate signup attempts
+      // This is more appropriate than ValidationError for business logic violations
       const errorResponse = {
         version: "1.0.0",
-        action: "ValidationError",
+        action: "ShowBlockPage",
         userMessage:
           "An account with this email address already exists. Please sign in instead.",
       };
@@ -476,7 +485,7 @@ const validateUserInternal = async (req, res, next) => {
       const duration = Date.now() - startTime;
       console.log(`[${requestId}] ⏱️  Response time: ${duration}ms`);
       console.log(
-        `[${requestId}] 📤 Response: HTTP 200, action=ValidationError (User already exists)`
+        `[${requestId}] 📤 Response: HTTP 200, action=ShowBlockPage (User already exists)`
       );
       console.log(`[${requestId}] ${"=".repeat(80)}\n`);
 
@@ -489,69 +498,50 @@ const validateUserInternal = async (req, res, next) => {
     );
 
     // User found - prepare response data for User Flows
+    // CRITICAL: Azure B2C API Connector response must ONLY contain these fields:
+    // - version (required)
+    // - action (required)
+    // - userMessage (optional, for ValidationError only)
+    // - any additional claims (simple key-value pairs)
     const responseData = {
       version: "1.0.0",
       action: "Continue",
+      email: email,
     };
 
-    // Return all input claims plus user data from database
-    responseData.email = email;
-    if (givenName) responseData.givenName = givenName;
-    if (surname) responseData.surname = surname;
-    if (displayName) responseData.displayName = displayName;
-    if (mobilephone) responseData.mobilephone = mobilephone;
-    if (memberno) responseData.memberno = memberno;
-
-    // Add user data from database (these will override input claims if different)
+    // Add user data from database (only if available)
     if (user.userFirstName) {
       responseData.givenName = user.userFirstName;
+    } else if (givenName) {
+      responseData.givenName = givenName;
     }
 
     if (user.userLastName) {
       responseData.surname = user.userLastName;
+    } else if (surname) {
+      responseData.surname = surname;
     }
 
     if (user.userFullName) {
       responseData.displayName = user.userFullName;
+    } else if (displayName) {
+      responseData.displayName = displayName;
     }
 
-    // Add tenant-specific attributes
+    // Add tenant ID
     if (user.tenantId) {
       responseData.tenantId = user.tenantId.toString();
     }
 
-    // Add additional claims that Azure B2C can use
-    responseData.objectId = user._id.toString();
-
-    // Add step-specific logic for User Flows
-    if (step) {
-      responseData.step = step;
-
-      // Example: Different behavior based on step
-      switch (step) {
-        case "signup":
-          // Additional validation for signup
-          console.log(`[${requestId}] 📝 Processing signup step`);
-          break;
-        case "profile":
-          // Additional validation for profile updates
-          console.log(`[${requestId}] 👤 Processing profile step`);
-          break;
-        case "signin":
-          // Additional validation for sign in
-          console.log(`[${requestId}] 🔑 Processing signin step`);
-          break;
-        default:
-          // Default behavior
-          console.log(`[${requestId}] 🔄 Processing step: ${step || "none"}`);
-          break;
-      }
+    // Add user type if available
+    if (user.userType) {
+      responseData.userType = user.userType;
     }
 
-    // Add any custom extension attributes
-    // These would be configured in your Azure B2C tenant
-    responseData.extension_MembershipUserType = user.userType || "Standard";
-    responseData.extension_MembershipTenantId = user.tenantId?.toString() || "";
+    // Log step for debugging
+    if (step) {
+      console.log(`[${requestId}] 📋 Processing step: "${step}"`);
+    }
 
     console.log(
       `[${requestId}] ✅ Validation successful - returning claims:`,
@@ -570,11 +560,11 @@ const validateUserInternal = async (req, res, next) => {
     console.log(`[${requestId}] ⏱️  Error response time: ${duration}ms`);
     console.log(`[${requestId}] ${"=".repeat(80)}\n`);
 
-    // Return validation error for unexpected issues
-    // NOTE: Must return HTTP 200 even for errors (Azure B2C requirement)
+    // Return ShowBlockPage for unexpected errors (blocks user but allows retry)
+    // Use HTTP 200 for system errors (not field validation errors)
     return sendResponse(200, {
       version: "1.0.0",
-      action: "ValidationError",
+      action: "ShowBlockPage",
       userMessage: "An error occurred during validation. Please try again.",
     });
   }
@@ -588,9 +578,10 @@ module.exports.validateUser = async (req, res, next) => {
     // Final catch-all for any errors that escaped (should never happen)
     console.error("FATAL: validateUser threw synchronously:", outerError);
     if (!res.headersSent) {
+      res.setHeader('Content-Type', 'application/json');
       return res.status(200).json({
         version: "1.0.0",
-        action: "ValidationError",
+        action: "ShowBlockPage",
         userMessage: "An error occurred during validation. Please try again.",
       });
     }

@@ -33,13 +33,16 @@ function azureB2CBasicAuth() {
 
   return (req, res, next) => {
     try {
+      // CRITICAL: Set Content-Type header for all responses
+      res.setHeader('Content-Type', 'application/json');
+      
       const authHeader = req.headers.authorization || req.headers.Authorization;
 
       if (!authHeader || !authHeader.startsWith("Basic ")) {
-        // Return HTTP 200 with ValidationError (Azure B2C requirement)
+        // Return HTTP 200 with ShowBlockPage (system/auth errors use HTTP 200)
         return res.status(200).json({
           version: "1.0.0",
-          action: "ValidationError",
+          action: "ShowBlockPage",
           userMessage: "Authentication required",
         });
       }
@@ -54,22 +57,24 @@ function azureB2CBasicAuth() {
         // Authentication successful
         return next();
       } else {
-        // Invalid credentials - return HTTP 200 with ValidationError (Azure B2C requirement)
+        // Invalid credentials - return HTTP 200 with ShowBlockPage
         console.warn(
           `⚠️  Basic Auth failed - Invalid credentials for user: ${providedUsername}`
         );
         return res.status(200).json({
           version: "1.0.0",
-          action: "ValidationError",
+          action: "ShowBlockPage",
           userMessage: "Authentication failed",
         });
       }
     } catch (error) {
       console.error("Basic Auth middleware error:", error);
-      // Return HTTP 200 with ValidationError on any error (Azure B2C requirement)
+      // Ensure Content-Type is set even on error
+      res.setHeader('Content-Type', 'application/json');
+      // Return HTTP 200 with ShowBlockPage on any error
       return res.status(200).json({
         version: "1.0.0",
-        action: "ValidationError",
+        action: "ShowBlockPage",
         userMessage: "Authentication error occurred",
       });
     }
