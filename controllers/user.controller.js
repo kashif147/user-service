@@ -347,212 +347,79 @@ const validateUserInternal = async (req, res, next) => {
       });
     }
 
-    console.log(`[${requestId}] 🔍 Searching for user with email: ${email}`);
+    console.log(`[${requestId}] 🔍 Forwarding validation to profile-service`);
     console.log(`[${requestId}] 📋 Step: ${step || "not provided"}`);
     console.log(`[${requestId}] 🆔 Client ID: ${client_id || "not provided"}`);
 
-    // Check MongoDB connection state before querying
-    const mongoose = require("mongoose");
-    if (mongoose.connection.readyState !== 1) {
-      // 0 = disconnected, 1 = connected, 2 = connecting, 3 = disconnecting
-      console.error(
-        `[${requestId}] ⚠️ MongoDB not connected (state: ${mongoose.connection.readyState}) - treating as user not found`
+    // IMPORTANT: Forward validation to profile-service
+    // Profile-service will check for duplicate profiles (membership records)
+    // This ensures we're checking against actual member profiles, not just user accounts
+    const profileServiceUrl = process.env.PROFILE_SERVICE_URL || 'http://localhost:3002';
+    const profileValidationUrl = `${profileServiceUrl}/api/profile/validate`;
+
+    console.log(`[${requestId}] 🔗 Calling profile-service: ${profileValidationUrl}`);
+
+    const profileServiceStartTime = Date.now();
+    
+    try {
+      const axios = require('axios');
+      
+      // Forward the entire request body to profile-service
+      const profileResponse = await axios.post(
+        profileValidationUrl,
+        req.body,
+        {
+          timeout: 15000, // 15 second timeout
+          headers: {
+            'Content-Type': 'application/json',
+          }
+        }
       );
+
+      const profileServiceDuration = Date.now() - profileServiceStartTime;
+      console.log(`[${requestId}] ⏱️  Profile service response time: ${profileServiceDuration}ms`);
+      console.log(`[${requestId}] 📥 Profile service response:`, JSON.stringify(profileResponse.data, null, 2));
+
+      // Forward the profile-service response directly to Azure B2C
       const duration = Date.now() - startTime;
       console.log(`[${requestId}] ⏱️  Total response time: ${duration}ms`);
-      // Treat as new user if DB is unavailable (fail open)
-      const defaultTenantId =
-        process.env.DEFAULT_TENANT_ID || "default-tenant-id";
-      return sendResponse(200, {
-        version: "1.0.0",
-        action: "Continue",
-        email: email,
-        tenantId: defaultTenantId,
-      });
-    }
+      console.log(`[${requestId}] ${"=".repeat(80)}\n`);
 
-    // Search for user across all tenants (public endpoint)
-    // Add aggressive timeout to database query to prevent hanging
-    const User = require("../models/user.model");
-    const dbStartTime = Date.now();
-
-    // Reduce timeout to 3 seconds for faster failure and response
-    const QUERY_TIMEOUT = 3000; // 3 seconds
-
-    // Create a promise with timeout
-    const queryPromise = User.findOne({
-      userEmail: email,
-      isActive: true,
-    })
-      .maxTimeMS(QUERY_TIMEOUT) // 3 second timeout for MongoDB query
-      .lean() // Use lean() for faster query
-      .exec();
-
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(
-        () => reject(new Error("Database query timeout")),
-        QUERY_TIMEOUT
-      );
-    });
-
-    const user = await Promise.race([queryPromise, timeoutPromise]).catch(
-      (error) => {
-        console.error(`[${requestId}] ⚠️ Database query error:`, error.message);
-        return null; // Return null on timeout/error, will be treated as user not found
+      // Return the response from profile-service with appropriate HTTP status
+      if (profileResponse.data.action === 'ValidationError' && profileResponse.data.status === 400) {
+        return sendResponse(400, profileResponse.data);
+      } else {
+        return sendResponse(200, profileResponse.data);
       }
-    );
-
-    const dbDuration = Date.now() - dbStartTime;
-    console.log(`[${requestId}] ⏱️  Database query time: ${dbDuration}ms`);
-
-    if (!user) {
-      console.log(
-        `[${requestId}] ✨ User NOT found in database - NEW USER REGISTRATION`
-      );
-
-      // For new users, return minimal response with only required fields
-      // Azure B2C will proceed with registration
-      const defaultTenantId =
-        process.env.DEFAULT_TENANT_ID || "default-tenant-id";
-
-      // CRITICAL: Keep response minimal - only include fields you absolutely need
-      const responseData = {
-        version: "1.0.0",
-        action: "Continue",
-        email: email,
-        tenantId: defaultTenantId,
-      };
-
-      // Only add optional fields if they exist
-      if (givenName) responseData.givenName = givenName;
-      if (surname) responseData.surname = surname;
-      if (displayName) responseData.displayName = displayName;
-
-      console.log(
-        `[${requestId}] ✅ New user - returning input claims with default tenantId:`,
-        JSON.stringify(responseData, null, 2)
-      );
-      const duration = Date.now() - startTime;
-      console.log(`[${requestId}] ⏱️  Total response time: ${duration}ms`);
-      console.log(
-        `[${requestId}] 📤 Response: HTTP 200, action=Continue (Azure B2C will proceed with registration)`
-      );
-      console.log(
-        `[${requestId}] 📤 Response body:`,
-        JSON.stringify(responseData, null, 2)
-      );
-      console.log(`[${requestId}] ${"=".repeat(80)}\n`);
-      return sendResponse(200, responseData);
+    } catch (profileServiceError) {
+      const profileServiceDuration = Date.now() - profileServiceStartTime;
+      console.error(`[${requestId}] ❌ Profile service call failed after ${profileServiceDuration}ms:`, profileServiceError.message);
+      
+      // If profile-service is down or times out, fail open (allow signup)
+      // This ensures Azure B2C signup isn't blocked by profile-service issues
+      if (profileServiceError.code === 'ECONNREFUSED' || profileServiceError.code === 'ETIMEDOUT') {
+        console.warn(`[${requestId}] ⚠️ Profile service unavailable - allowing signup (fail open)`);
+        
+        const defaultTenantId = process.env.DEFAULT_TENANT_ID || "default-tenant-id";
+        
+        const duration = Date.now() - startTime;
+        console.log(`[${requestId}] ⏱️  Total response time: ${duration}ms`);
+        console.log(`[${requestId}] ${"=".repeat(80)}\n`);
+        
+        return sendResponse(200, {
+          version: "1.0.0",
+          action: "Continue",
+          email: email,
+          tenantId: defaultTenantId,
+          ...(givenName && { givenName }),
+          ...(surname && { surname }),
+          ...(displayName && { displayName }),
+        });
+      }
+      
+      // For other errors, re-throw to be caught by outer catch block
+      throw profileServiceError;
     }
-
-    console.log(`[${requestId}] 👤 User FOUND in database:`, {
-      id: user._id.toString(),
-      email: user.userEmail,
-      userType: user.userType,
-      tenantId: user.tenantId?.toString(),
-      userMicrosoftId: user.userMicrosoftId || "not set",
-    });
-
-    // Block duplicate signups - if user exists in database and trying to signup
-    // NOTE: "PostAttributeCollection" is the step name in Azure B2C User Flows during signup
-    // Must return HTTP 200 even for ValidationError (Azure B2C requirement)
-    const isSignupStep =
-      step === "signup" || step === "PostAttributeCollection" || !step;
-
-    if (isSignupStep) {
-      console.log(
-        `[${requestId}] 🚫 BLOCKING: Existing user attempting duplicate signup!`
-      );
-      console.log(
-        `[${requestId}] 📋 User already exists in database - preventing duplicate registration`
-      );
-      console.log(`[${requestId}] 📋 Step: "${step}" - treating as signup`);
-
-      // Use ShowBlockPage to completely block duplicate signup attempts
-      // This is more appropriate than ValidationError for business logic violations
-      const errorResponse = {
-        version: "1.0.0",
-        action: "ShowBlockPage",
-        userMessage:
-          "An account with this email address already exists. Please sign in instead.",
-      };
-
-      console.log(
-        `[${requestId}] 📤 Response body:`,
-        JSON.stringify(errorResponse, null, 2)
-      );
-
-      const duration = Date.now() - startTime;
-      console.log(`[${requestId}] ⏱️  Response time: ${duration}ms`);
-      console.log(
-        `[${requestId}] 📤 Response: HTTP 200, action=ShowBlockPage (User already exists)`
-      );
-      console.log(`[${requestId}] ${"=".repeat(80)}\n`);
-
-      return sendResponse(200, errorResponse);
-    }
-
-    // For non-signup steps (signin, profile), allow continuation
-    console.log(
-      `[${requestId}] ✅ User exists but step is "${step}" - allowing continuation (signin/profile update)`
-    );
-
-    // User found - prepare response data for User Flows
-    // CRITICAL: Azure B2C API Connector response must ONLY contain these fields:
-    // - version (required)
-    // - action (required)
-    // - userMessage (optional, for ValidationError only)
-    // - any additional claims (simple key-value pairs)
-    const responseData = {
-      version: "1.0.0",
-      action: "Continue",
-      email: email,
-    };
-
-    // Add user data from database (only if available)
-    if (user.userFirstName) {
-      responseData.givenName = user.userFirstName;
-    } else if (givenName) {
-      responseData.givenName = givenName;
-    }
-
-    if (user.userLastName) {
-      responseData.surname = user.userLastName;
-    } else if (surname) {
-      responseData.surname = surname;
-    }
-
-    if (user.userFullName) {
-      responseData.displayName = user.userFullName;
-    } else if (displayName) {
-      responseData.displayName = displayName;
-    }
-
-    // Add tenant ID
-    if (user.tenantId) {
-      responseData.tenantId = user.tenantId.toString();
-    }
-
-    // Add user type if available
-    if (user.userType) {
-      responseData.userType = user.userType;
-    }
-
-    // Log step for debugging
-    if (step) {
-      console.log(`[${requestId}] 📋 Processing step: "${step}"`);
-    }
-
-    console.log(
-      `[${requestId}] ✅ Validation successful - returning claims:`,
-      JSON.stringify(responseData, null, 2)
-    );
-    const duration = Date.now() - startTime;
-    console.log(`[${requestId}] ⏱️  Total response time: ${duration}ms`);
-    console.log(`[${requestId}] 📤 Response: action=Continue`);
-    console.log(`[${requestId}] ${"=".repeat(80)}\n`);
-
-    return sendResponse(200, responseData);
   } catch (error) {
     console.error(`[${requestId}] ❌ User Validation Error:`, error);
     console.error(`[${requestId}] Stack:`, error.stack);

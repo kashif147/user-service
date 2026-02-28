@@ -105,7 +105,7 @@ const getMeProfile = async (req, res, next) => {
           select: "name code description category",
         })
         .select(
-          "userEmail userFirstName userLastName userFullName userType tenantId isActive createdAt"
+          "userEmail userFirstName userLastName userFullName userType tenantId isActive createdAt",
         );
 
       if (!user) {
@@ -152,20 +152,42 @@ const getMeProfile = async (req, res, next) => {
           isActive: true,
         }).select("permissions");
 
-        permissions = rolePermissions.reduce((acc, role) => {
-          if (role.permissions) {
+        // Collect all permission codes from roles
+        const permissionCodes = rolePermissions.reduce((acc, role) => {
+          if (role.permissions && role.permissions.length > 0) {
             acc.push(...role.permissions);
           }
           return acc;
         }, []);
+
+        // Remove duplicates
+        const uniquePermissionCodes = [...new Set(permissionCodes)];
+
+        // Fetch actual permission details from Permission collection
+        if (uniquePermissionCodes.length > 0) {
+          const permissionDocs = await Permission.find({
+            code: { $in: uniquePermissionCodes },
+            isActive: true,
+          }).select("code name description resource action category");
+
+          permissions = permissionDocs.map((perm) => ({
+            code: perm.code,
+            name: perm.name,
+            description: perm.description,
+            resource: perm.resource,
+            action: perm.action,
+            category: perm.category,
+          }));
+        }
       }
 
       userData = {
         id: user._id.toString(),
-        email: user.userEmail,
-        firstName: user.userFirstName,
-        lastName: user.userLastName,
-        fullName: user.userFullName,
+        userEmail: user.userEmail,
+        userFirstName: user.userFirstName,
+        userLastName: user.userLastName,
+        userFullName: user.userFullName,
+        userMobilePhone: user.userMobilePhone,
         userType: user.userType,
         tenantId: user.tenantId,
         roles: activeRoles.map((role) => ({
@@ -174,7 +196,7 @@ const getMeProfile = async (req, res, next) => {
           description: role.description,
           category: role.category,
         })),
-        permissions: [...new Set(permissions)], // Remove duplicates
+        permissions,
         isActive: user.isActive,
         memberSince: user.createdAt,
       };
@@ -216,7 +238,7 @@ const getMeProfile = async (req, res, next) => {
       req.headers["x-correlation-id"] || crypto.randomUUID();
 
     return next(
-      AppError.internalServerError("Failed to retrieve user profile")
+      AppError.internalServerError("Failed to retrieve user profile"),
     );
   }
 };
