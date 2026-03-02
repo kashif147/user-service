@@ -8,11 +8,7 @@
  * - CRM user creates application for someone, or portal user creates their own application
  * - User logs in with portal → gets NON-MEMBER role (limited access)
  * - When application is approved → profile is created/updated in profile service
- * - This listener receives the approval event and upgrades the user's role to MEMBER
- *
- * Lookup: userId from payload (preferred) → fallback to email
- * Role handling: Add Member for approved membership regardless of current role;
- * remove NON-MEMBER when present.
+* - This listener receives the approval event and upgrades the user's role to MEMBER
  */
 
 const mongoose = require("mongoose");
@@ -74,14 +70,7 @@ async function findPortalUser({ userId, email, tenantId }) {
   });
 }
 
-/**
- * Handle application approved event - upgrade user role to Member
- *
- * Lookup: userId (preferred) or email from effective.contactInfo
- * Role: Add Member, remove NON-MEMBER when present (relaxed - no requirement to have NON-MEMBER)
- *
- * @param {Object} payload - Event payload (may be wrapped in payload.data by middleware)
- */
+
 async function handleApplicationApproved(payload) {
   try {
     const data = payload.data || payload;
@@ -129,40 +118,31 @@ async function handleApplicationApproved(payload) {
     }
 
     const nonMemberRole = await Role.findOne({ tenantId, code: "NON-MEMBER", isActive: true });
-    const hasNonMember = nonMemberRole && user.roles?.some((r) => r.equals(nonMemberRole._id));
 
-    const update = {
-      $addToSet: { roles: memberRole._id },
-      $set: { updatedAt: new Date() },
-    };
-    if (hasNonMember) {
-      update.$pull = { roles: nonMemberRole._id };
+    // Always add MEMBER and remove NON-MEMBER (work directly on the user document)
+    let roles = Array.isArray(user.roles) ? user.roles.slice() : [];
+
+    if (nonMemberRole) {
+      roles = roles.filter((r) => !r.equals(nonMemberRole._id));
     }
 
-    const result = await User.updateOne(
-      { _id: user._id },
-      update
-    );
-
-    if (result.modifiedCount === 0 && result.matchedCount > 0) {
-      const alreadyHasMember = user.roles?.some((r) => r.equals(memberRole._id));
-      if (alreadyHasMember) {
-        console.log(
-          "[APPLICATION_APPROVAL_LISTENER] User already has MEMBER role:",
-          { userId: user._id.toString(), tenantId, applicationId }
-        );
-      }
-      return;
+    const hasMember = roles.some((r) => r.equals(memberRole._id));
+    if (!hasMember) {
+      roles.push(memberRole._id);
     }
+
+    user.roles = roles;
+    user.updatedAt = new Date();
+    await user.save();
 
     console.log(
-      "✅ [APPLICATION_APPROVAL_LISTENER] Assigned Member role:",
+      "✅ [APPLICATION_APPROVAL_LISTENER] Upgraded user to MEMBER",
       {
         userId: user._id.toString(),
         email: user.userEmail,
         tenantId,
         applicationId,
-        removedNonMember: hasNonMember,
+        removedNonMember: !!nonMemberRole,
       }
     );
   } catch (error) {
@@ -174,7 +154,6 @@ async function handleApplicationApproved(payload) {
         applicationId: (payload?.data || payload)?.applicationId,
       }
     );
-    throw error;
   }
 }
 
