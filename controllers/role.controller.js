@@ -157,6 +157,45 @@ module.exports.assignRolesToUser = async (req, res, next) => {
   }
 };
 
+module.exports.syncRolesForUser = async (req, res, next) => {
+  try {
+    const { userId, roleIds } = req.body;
+    const tenantId = req.ctx.tenantId;
+
+    if (!userId) {
+      return next(AppError.badRequest("userId is required"));
+    }
+    if (!Array.isArray(roleIds)) {
+      return next(AppError.badRequest("roleIds must be an array"));
+    }
+
+    const result = await RoleHandler.syncRolesForUser(
+      userId,
+      roleIds,
+      tenantId
+    );
+
+    res.status(200).json({
+      status: "success",
+      message: "User roles updated successfully",
+      data: { user: result.user },
+    });
+  } catch (error) {
+    const message =
+      error.message?.includes("Error syncing roles")
+        ? error.message.replace("Error syncing roles for user: ", "")
+        : error.message || "Failed to sync user roles";
+    if (
+      message.includes("Invalid") ||
+      message.includes("User not found") ||
+      message.includes("Roles not found")
+    ) {
+      return next(AppError.badRequest(message));
+    }
+    return next(AppError.internalServerError(message));
+  }
+};
+
 module.exports.removeRolesFromUser = async (req, res, next) => {
   try {
     const { userId, roleIds } = req.body;

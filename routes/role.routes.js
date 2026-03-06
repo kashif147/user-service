@@ -57,6 +57,11 @@ router.put(
 );
 
 // User role management (Super User only - ASU uses tenant-scoped endpoint)
+router.put(
+  "/users/sync-roles",
+  defaultPolicyAdapter.middleware("role", "admin"),
+  RoleController.syncRolesForUser
+);
 router.post(
   "/users/assign-role",
   defaultPolicyAdapter.middleware("role", "admin"),

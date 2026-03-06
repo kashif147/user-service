@@ -300,6 +300,66 @@ module.exports.assignRolesToUser = async (userId, roleIds, tenantId) => {
   }
 };
 
+/**
+ * Sync user roles to match the given list. Adds missing roles and removes roles not in the list.
+ * @param {string} userId - User ID
+ * @param {string[]} roleIds - Desired role IDs (can be empty to remove all)
+ * @param {string} tenantId - Tenant ID
+ */
+module.exports.syncRolesForUser = async (userId, roleIds, tenantId) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      throw new Error(
+        `Invalid userId format: ${userId}. ObjectId must be a 24-character hex string.`
+      );
+    }
+
+    const ids = Array.isArray(roleIds) ? roleIds : [];
+    for (const roleId of ids) {
+      if (!mongoose.Types.ObjectId.isValid(roleId)) {
+        throw new Error(
+          `Invalid roleId format: ${roleId}. ObjectId must be a 24-character hex string.`
+        );
+      }
+    }
+
+    const user = await User.findOne({ _id: userId, tenantId });
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    if (ids.length === 0) {
+      user.roles = [];
+      await user.save();
+      const updatedUser = await User.findOne({ _id: userId, tenantId }).populate(
+        "roles"
+      );
+      return { user: updatedUser };
+    }
+
+    const roles = await Role.find({
+      _id: { $in: ids },
+      tenantId,
+      isActive: true,
+    });
+    if (roles.length !== ids.length) {
+      const foundIds = roles.map((r) => r._id.toString());
+      const missing = ids.filter((id) => !foundIds.includes(id));
+      throw new Error(`Roles not found: ${missing.join(", ")}`);
+    }
+
+    user.roles = ids.map((id) => new mongoose.Types.ObjectId(id));
+    await user.save();
+
+    const updatedUser = await User.findOne({ _id: userId, tenantId }).populate(
+      "roles"
+    );
+    return { user: updatedUser };
+  } catch (error) {
+    throw new Error(`Error syncing roles for user: ${error.message}`);
+  }
+};
+
 module.exports.removeRolesFromUser = async (userId, roleIds, tenantId) => {
   try {
     const user = await User.findOne({ _id: userId, tenantId });
@@ -309,7 +369,9 @@ module.exports.removeRolesFromUser = async (userId, roleIds, tenantId) => {
     }
 
     // Check which roles user actually has
-    const existingRoleIds = user.roles.map((roleId) => roleId.toString());
+    const existingRoleIds = (user.roles || []).map((roleId) =>
+      roleId.toString()
+    );
     const rolesToRemove = roleIds.filter((roleId) =>
       existingRoleIds.includes(roleId)
     );
@@ -322,7 +384,7 @@ module.exports.removeRolesFromUser = async (userId, roleIds, tenantId) => {
     }
 
     // Remove roles from user
-    user.roles = user.roles.filter(
+    user.roles = (user.roles || []).filter(
       (roleId) => !roleIds.includes(roleId.toString())
     );
     await user.save();
