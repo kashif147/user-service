@@ -256,7 +256,9 @@ module.exports.assignRolesToUser = async (userId, roleIds, tenantId) => {
     }
 
     // Check which roles user already has
-    const existingRoleIds = user.roles.map((roleId) => roleId.toString());
+    const existingRoleIds = (user.roles || []).map((roleId) =>
+      roleId.toString()
+    );
     const newRoleIds = roleIds.filter(
       (roleId) => !existingRoleIds.includes(roleId)
     );

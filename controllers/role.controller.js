@@ -113,6 +113,9 @@ module.exports.assignRolesToUser = async (req, res, next) => {
     const { userId, roleIds } = req.body;
     const tenantId = req.ctx.tenantId;
 
+    if (!userId) {
+      return next(AppError.badRequest("userId is required"));
+    }
     if (!Array.isArray(roleIds) || roleIds.length === 0) {
       return next(AppError.badRequest("roleIds must be a non-empty array"));
     }
@@ -137,7 +140,20 @@ module.exports.assignRolesToUser = async (req, res, next) => {
       },
     });
   } catch (error) {
-    return next(AppError.internalServerError("Failed to assign roles to user"));
+    console.error("[assignRolesToUser]", error.message);
+    const message =
+      error.message?.includes("Error assigning roles")
+        ? error.message.replace("Error assigning roles to user: ", "")
+        : error.message || "Failed to assign roles to user";
+    if (
+      message.includes("Invalid") ||
+      message.includes("User not found") ||
+      message.includes("Roles not found") ||
+      message.includes("already has all")
+    ) {
+      return next(AppError.badRequest(message));
+    }
+    return next(AppError.internalServerError(message));
   }
 };
 

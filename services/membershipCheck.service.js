@@ -43,6 +43,10 @@ async function hasActiveMembership(email, tenantId) {
       {
         timeout: MEMBERSHIP_CHECK_TIMEOUT,
         validateStatus: (s) => s >= 200 && s < 500,
+        headers: {
+          "x-internal-request": "true",
+          "x-tenant-id": tenantId,
+        },
       }
     );
 
