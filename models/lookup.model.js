@@ -1,5 +1,18 @@
 const mongoose = require("mongoose");
 
+const addressSchema = new mongoose.Schema(
+  {
+    eircode: { type: String, default: null },
+    buildingOrHouse: { type: String, required: true },
+    streetOrRoad: { type: String, default: null },
+    areaOrTown: { type: String, default: null },
+    countyCityOrPostCode: { type: String, required: true },
+    country: { type: String, required: true },
+    fullAddress: { type: String, default: null },
+  },
+  { _id: false }
+);
+
 const lookupSchema = new mongoose.Schema(
   {
     code: {
@@ -40,9 +53,43 @@ const lookupSchema = new mongoose.Schema(
       ref: "User", // Reference to User collection
       required: true,
     },
+    worklocationAddress: {
+      type: addressSchema,
+      required: false,
+      default: null,
+    },
   },
   { timestamps: true }
 );
+
+lookupSchema.pre("save", function (next) {
+  if (this.worklocationAddress && this.isModified("worklocationAddress")) {
+    const addr = this.worklocationAddress;
+    const parts = [];
+    if (addr.buildingOrHouse?.trim()) parts.push(addr.buildingOrHouse.trim());
+    if (addr.streetOrRoad?.trim()) parts.push(addr.streetOrRoad.trim());
+    if (addr.areaOrTown?.trim()) parts.push(addr.areaOrTown.trim());
+    if (addr.countyCityOrPostCode?.trim()) parts.push(addr.countyCityOrPostCode.trim());
+    if (addr.country?.trim()) parts.push(addr.country.trim());
+    this.worklocationAddress.fullAddress = parts.join(", ");
+  }
+  next();
+});
+
+lookupSchema.pre("findOneAndUpdate", function (next) {
+  const update = this.getUpdate();
+  const addr = update?.worklocationAddress || update?.$set?.worklocationAddress;
+  if (addr && addr.fullAddress === undefined) {
+    const parts = [];
+    if (addr.buildingOrHouse?.trim()) parts.push(addr.buildingOrHouse.trim());
+    if (addr.streetOrRoad?.trim()) parts.push(addr.streetOrRoad.trim());
+    if (addr.areaOrTown?.trim()) parts.push(addr.areaOrTown.trim());
+    if (addr.countyCityOrPostCode?.trim()) parts.push(addr.countyCityOrPostCode.trim());
+    if (addr.country?.trim()) parts.push(addr.country.trim());
+    addr.fullAddress = parts.join(", ");
+  }
+  next();
+});
 
 // Indexes for performance optimization
 // Single field indexes
