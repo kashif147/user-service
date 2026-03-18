@@ -17,6 +17,10 @@ const getAllLookup = async (req, res, next) => {
         .populate({
           path: "Parentlookupid",
           select: "lookupname",
+        })
+        .populate({
+          path: "officer",
+          select: "firstname lastname email",
         });
     });
 
@@ -39,6 +43,8 @@ const getAllLookup = async (req, res, next) => {
           ? lookups?.lookuptypeId?.lookuptype
           : null,
       },
+      officer: lookups?.officer || null,
+      worklocationAddress: lookups?.worklocationAddress || null,
       isactive: lookups?.isactive,
       isdeleted: lookups?.isdeleted,
     }));
@@ -65,6 +71,10 @@ const getLookup = async (req, res, next) => {
         .populate({
           path: "Parentlookupid",
           select: "lookupname",
+        })
+        .populate({
+          path: "officer",
+          select: "firstname lastname email",
         });
     });
 
@@ -93,6 +103,8 @@ const getLookup = async (req, res, next) => {
           ? lookup?.lookuptypeId?.lookuptype
           : null,
       },
+      officer: lookup?.officer || null,
+      worklocationAddress: lookup?.worklocationAddress || null,
       isactive: lookup?.isactive,
       isdeleted: lookup?.isdeleted,
     };
@@ -114,6 +126,8 @@ const createNewLookup = async (req, res, next) => {
       isdeleted,
       isactive,
       userid,
+      officer,
+      worklocationAddress,
     } = req.body;
 
     if (!code || !lookupname || !userid) {
@@ -121,14 +135,16 @@ const createNewLookup = async (req, res, next) => {
     }
 
     const lookup = await Lookup.create({
-      code: req.body.code,
-      lookupname: req.body.lookupname,
-      DisplayName: req.body.DisplayName,
-      Parentlookupid: req.body.Parentlookupid,
-      lookuptypeId: req.body.lookuptypeId,
-      isdeleted: req.body.isdeleted || false,
-      isactive: req.body.isactive,
-      userid: req.body.userid,
+      code,
+      lookupname,
+      DisplayName,
+      Parentlookupid,
+      lookuptypeId,
+      isdeleted: isdeleted || false,
+      isactive,
+      userid,
+      officer: officer || null,
+      worklocationAddress: worklocationAddress || null,
     });
 
     // Emit event for Profile Service
@@ -178,6 +194,8 @@ const updateLookup = async (req, res, next) => {
       isdeleted,
       isactive,
       userid,
+      officer,
+      worklocationAddress,
     } = req.body;
 
     const lookup = await Lookup.findById(id);
@@ -194,6 +212,8 @@ const updateLookup = async (req, res, next) => {
       lookuptypeId: lookup.lookuptypeId,
       isdeleted: lookup.isdeleted,
       isactive: lookup.isactive,
+      officer: lookup.officer,
+      worklocationAddress: lookup.worklocationAddress,
     };
 
     if (code) lookup.code = code;
@@ -204,6 +224,9 @@ const updateLookup = async (req, res, next) => {
     if (typeof isdeleted !== "undefined") lookup.isdeleted = isdeleted;
     if (typeof isactive !== "undefined") lookup.isactive = isactive;
     if (userid) lookup.userid = userid;
+    if (typeof officer !== "undefined") lookup.officer = officer;
+    if (typeof worklocationAddress !== "undefined")
+      lookup.worklocationAddress = worklocationAddress;
 
     await lookup.save();
 
@@ -260,6 +283,8 @@ const deleteLookup = async (req, res, next) => {
     Parentlookupid: lookup.Parentlookupid,
     lookuptypeId: lookup.lookuptypeId,
     userid: lookup.userid,
+    officer: lookup.officer,
+    worklocationAddress: lookup.worklocationAddress,
     timestamp: new Date(),
   };
 
@@ -301,7 +326,11 @@ const getLookupHierarchy = async (req, res, next) => {
           })
           .populate({
             path: "Parentlookupid",
-            select: "lookupname DisplayName code Parentlookupid lookuptypeId",
+            select: "lookupname DisplayName code Parentlookupid lookuptypeId officer worklocationAddress",
+          })
+          .populate({
+            path: "officer",
+            select: "firstname lastname email",
           });
 
         if (!lookup) {
@@ -334,6 +363,10 @@ const getLookupHierarchy = async (req, res, next) => {
                 path: "lookuptypeId",
                 select: "code lookuptype displayname",
               })
+              .populate({
+                path: "officer",
+                select: "firstname lastname email",
+              })
               .lean();
 
             // Create a map for quick lookup
@@ -356,6 +389,8 @@ const getLookupHierarchy = async (req, res, next) => {
                     lookuptype: parent.lookuptypeId?.lookuptype,
                     displayname: parent.lookuptypeId?.displayname,
                   },
+                  officer: parent.officer || null,
+                  worklocationAddress: parent.worklocationAddress || null,
                   isactive: parent.isactive,
                   isdeleted: parent.isdeleted,
                 });
@@ -377,6 +412,8 @@ const getLookupHierarchy = async (req, res, next) => {
               lookuptype: lookup.lookuptypeId?.lookuptype,
               displayname: lookup.lookuptypeId?.displayname,
             },
+            officer: lookup.officer || null,
+            worklocationAddress: lookup.worklocationAddress || null,
             isactive: lookup.isactive,
             isdeleted: lookup.isdeleted,
           },
@@ -426,11 +463,15 @@ const getLookupsByTypeWithHierarchy = async (req, res, next) => {
           isactive: true,
         })
           .select(
-            "code lookupname DisplayName lookuptypeId Parentlookupid isactive isdeleted"
+            "code lookupname DisplayName lookuptypeId Parentlookupid officer worklocationAddress isactive isdeleted"
           )
           .populate({
             path: "lookuptypeId",
             select: "code lookuptype displayname",
+          })
+          .populate({
+            path: "officer",
+            select: "firstname lastname email",
           })
           .lean();
 
@@ -464,11 +505,15 @@ const getLookupsByTypeWithHierarchy = async (req, res, next) => {
             },
           })
             .select(
-              "code lookupname DisplayName lookuptypeId Parentlookupid isactive isdeleted"
+              "code lookupname DisplayName lookuptypeId Parentlookupid officer worklocationAddress isactive isdeleted"
             )
             .populate({
               path: "lookuptypeId",
               select: "code lookuptype displayname",
+            })
+            .populate({
+              path: "officer",
+              select: "firstname lastname email",
             })
             .lean();
 
@@ -510,6 +555,8 @@ const getLookupsByTypeWithHierarchy = async (req, res, next) => {
                 lookuptype: parent.lookuptypeId?.lookuptype,
                 displayname: parent.lookuptypeId?.displayname,
               },
+              officer: parent.officer || null,
+              worklocationAddress: parent.worklocationAddress || null,
               isactive: parent.isactive,
               isdeleted: parent.isdeleted,
             });
@@ -531,6 +578,8 @@ const getLookupsByTypeWithHierarchy = async (req, res, next) => {
                 lookuptype: lookup.lookuptypeId?.lookuptype,
                 displayname: lookup.lookuptypeId?.displayname,
               },
+              officer: lookup.officer || null,
+              worklocationAddress: lookup.worklocationAddress || null,
               isactive: lookup.isactive,
               isdeleted: lookup.isdeleted,
             },

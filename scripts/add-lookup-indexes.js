@@ -2,7 +2,7 @@
 /**
  * Add performance indexes to Lookup collection
  * This script will:
- * 1. Add single field indexes on lookuptypeId, Parentlookupid, isdeleted, isactive, userid
+ * 1. Add single field indexes on lookuptypeId, Parentlookupid, isdeleted, isactive, userid, officer
  * 2. Add compound indexes for common query patterns
  * 3. Verify all indexes are created successfully
  */
@@ -90,6 +90,12 @@ async function createIndexes() {
     );
     console.log("  ✅ Created index: { userid: 1 }");
 
+    await collection.createIndex(
+      { officer: 1 },
+      { name: "officer_1", background: true }
+    );
+    console.log("  ✅ Created index: { officer: 1 }");
+
     // Compound indexes for common query patterns
     console.log("  Creating compound indexes...");
 
@@ -145,6 +151,7 @@ async function verifyIndexes() {
       "isdeleted_1",
       "isactive_1",
       "userid_1",
+      "officer_1",
       "lookuptypeId_1_isdeleted_1_isactive_1",
       "isactive_1_isdeleted_1",
       "Parentlookupid_1_isdeleted_1_isactive_1",

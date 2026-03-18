@@ -204,9 +204,23 @@ module.exports.updateRolePermissions = async (
   updatedBy
 ) => {
   try {
+    if (!mongoose.Types.ObjectId.isValid(roleId)) {
+      throw new Error(
+        `Invalid roleId format: ${roleId}. ObjectId must be a 24-character hex string.`
+      );
+    }
+
+    const update = {
+      $set: {
+        permissions: Array.isArray(permissions) ? permissions : [],
+        updatedAt: Date.now(),
+        updatedBy: updatedBy || null,
+      },
+    };
+
     const role = await Role.findOneAndUpdate(
       { _id: roleId, tenantId },
-      { permissions, updatedAt: Date.now(), updatedBy },
+      update,
       { new: true }
     );
 

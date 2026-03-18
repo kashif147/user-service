@@ -89,6 +89,13 @@ module.exports.updateRolePermissions = async (req, res, next) => {
     const { permissions } = req.body;
     const tenantId = req.ctx.tenantId;
     const updatedBy = req.ctx.userId;
+
+    if (!Array.isArray(permissions)) {
+      return next(
+        AppError.badRequest("permissions must be an array (can be empty)")
+      );
+    }
+
     const role = await RoleHandler.updateRolePermissions(
       req.params.id,
       permissions,
@@ -100,9 +107,17 @@ module.exports.updateRolePermissions = async (req, res, next) => {
     }
     res.status(200).json({ status: "success", data: role });
   } catch (error) {
-    return next(
-      AppError.internalServerError("Failed to update role permissions")
-    );
+    const message =
+      error.message?.includes("Error updating role permissions")
+        ? error.message.replace("Error updating role permissions: ", "")
+        : error.message || "Failed to update role permissions";
+    if (
+      message.includes("Invalid") ||
+      message.includes("Role not found")
+    ) {
+      return next(AppError.badRequest(message));
+    }
+    return next(AppError.internalServerError(message));
   }
 };
 

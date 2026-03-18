@@ -53,6 +53,11 @@ const lookupSchema = new mongoose.Schema(
       ref: "User", // Reference to User collection
       required: true,
     },
+    officer: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
     worklocationAddress: {
       type: addressSchema,
       required: false,
@@ -98,6 +103,7 @@ lookupSchema.index({ Parentlookupid: 1 });
 lookupSchema.index({ isdeleted: 1 });
 lookupSchema.index({ isactive: 1 });
 lookupSchema.index({ userid: 1 });
+lookupSchema.index({ officer: 1 });
 
 // Compound indexes for common query patterns
 // Used in getLookupsByTypeWithHierarchy: find({ lookuptypeId, isdeleted: false, isactive: true })
