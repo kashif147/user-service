@@ -26,6 +26,13 @@ router
     lookupController.deleteLookup
   );
 
+// Bulk officer assignment (updates many lookups at once)
+router.patch(
+  "/lookups/officer",
+  defaultPolicyAdapter.middleware("lookup", "write"),
+  lookupController.bulkUpdateOfficer
+);
+
 router
   .route("/lookup/:id")
   .get(

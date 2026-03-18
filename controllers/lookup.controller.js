@@ -20,7 +20,7 @@ const getAllLookup = async (req, res, next) => {
         })
         .populate({
           path: "officer",
-          select: "firstname lastname email",
+          select: "userEmail userFirstName userLastName userFullName",
         });
     });
 
@@ -74,7 +74,7 @@ const getLookup = async (req, res, next) => {
         })
         .populate({
           path: "officer",
-          select: "firstname lastname email",
+          select: "userEmail userFirstName userLastName userFullName",
         });
     });
 
@@ -304,6 +304,64 @@ const deleteLookup = async (req, res, next) => {
   // }
 
   res.json(result);
+};
+
+/**
+ * Bulk update officer for multiple lookups
+ * PATCH /api/lookups/officer
+ * Body: { ids: string[], officer: string|null }
+ */
+const bulkUpdateOfficer = async (req, res, next) => {
+  try {
+    const { ids, officer } = req.body || {};
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return next(AppError.badRequest("ids must be a non-empty array"));
+    }
+
+    const invalidIds = ids.filter((id) => !mongoose.Types.ObjectId.isValid(id));
+    if (invalidIds.length) {
+      return next(
+        AppError.badRequest(`Invalid lookup ids: ${invalidIds.join(", ")}`)
+      );
+    }
+
+    if (
+      typeof officer !== "undefined" &&
+      officer !== null &&
+      !mongoose.Types.ObjectId.isValid(officer)
+    ) {
+      return next(AppError.badRequest("officer must be a valid ObjectId or null"));
+    }
+
+    const update = { $set: { officer: officer ?? null } };
+    const result = await Lookup.updateMany(
+      { _id: { $in: ids } },
+      update,
+      { runValidators: true }
+    );
+
+    await lookupCacheService.invalidateLookupCache();
+    await Promise.all(
+      ids.map(async (id) => {
+        await lookupCacheService.invalidateLookupCache(id);
+        await lookupCacheService.invalidateHierarchyCache(id);
+      })
+    );
+
+    return res.status(200).json({
+      status: "success",
+      data: {
+        matchedCount: result.matchedCount ?? result.n ?? 0,
+        modifiedCount: result.modifiedCount ?? result.nModified ?? 0,
+      },
+    });
+  } catch (error) {
+    if (error.name === "ValidationError") {
+      return next(AppError.badRequest(error.message));
+    }
+    return next(AppError.internalServerError("Failed to bulk update officer"));
+  }
 };
 
 /**
@@ -621,6 +679,7 @@ module.exports = {
   createNewLookup,
   updateLookup,
   deleteLookup,
+  bulkUpdateOfficer,
   getLookupHierarchy,
   getLookupsByTypeWithHierarchy,
 };
