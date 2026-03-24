@@ -102,10 +102,10 @@ const getMeProfile = async (req, res, next) => {
         .populate({
           path: "roles",
           match: { isActive: true },
-          select: "name code description category",
+          select: "name code description category isActive",
         })
         .select(
-          "userEmail userFirstName userLastName userFullName userType tenantId isActive createdAt",
+          "userEmail userFirstName userLastName userFullName userMobilePhone userType tenantId isActive createdAt",
         );
 
       if (!user) {
