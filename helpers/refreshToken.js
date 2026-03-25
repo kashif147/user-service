@@ -33,21 +33,19 @@ class RefreshTokenHelper {
 
       console.log("✅ User found:", user.userEmail);
 
-      // Check if refresh token is expired (if expiry is stored)
-      if (user.tokens.refresh_token_expires_in) {
-        const tokenAge =
-          Date.now() - user.tokens.refresh_token_expires_in * 1000;
-        const maxAge = 90 * 24 * 60 * 60 * 1000; // 90 days in milliseconds
-
-        if (tokenAge > maxAge) {
-          console.log("❌ Refresh token expired");
-          // Clear expired refresh token
-          await User.findByIdAndUpdate(user._id, {
-            "tokens.refresh_token": null,
-            "tokens.refresh_token_expires_in": null,
-          });
-          throw new Error("Refresh token expired");
-        }
+      // Microsoft sends refresh_token_expires_in as *remaining seconds*, not Unix time.
+      // We persist absolute deadline as refresh_token_expires_at (ms).
+      const expiresAt = user.tokens.refresh_token_expires_at;
+      if (expiresAt != null && Date.now() > expiresAt) {
+        console.log("❌ Refresh token expired");
+        await User.findByIdAndUpdate(user._id, {
+          $unset: {
+            "tokens.refresh_token": 1,
+            "tokens.refresh_token_expires_in": 1,
+            "tokens.refresh_token_expires_at": 1,
+          },
+        });
+        throw new Error("Refresh token expired");
       }
 
       // Generate new access token
@@ -60,11 +58,10 @@ class RefreshTokenHelper {
 
       if (shouldRotateRefreshToken) {
         console.log("🔄 Rotating refresh token...");
-        // Generate new refresh token (you might want to get this from Microsoft again)
-        // For now, we'll keep the same refresh token but update expiry
+        const ninetyDaysMs = 90 * 24 * 60 * 60 * 1000;
         await User.findByIdAndUpdate(user._id, {
-          "tokens.refresh_token_expires_in":
-            Math.floor(Date.now() / 1000) + 90 * 24 * 60 * 60, // 90 days
+          "tokens.refresh_token_expires_at": Date.now() + ninetyDaysMs,
+          "tokens.refresh_token_expires_in": Math.floor(ninetyDaysMs / 1000),
         });
       }
 
@@ -109,6 +106,7 @@ class RefreshTokenHelper {
         $unset: {
           "tokens.refresh_token": 1,
           "tokens.refresh_token_expires_in": 1,
+          "tokens.refresh_token_expires_at": 1,
         },
       });
 
@@ -137,6 +135,7 @@ class RefreshTokenHelper {
         $unset: {
           "tokens.refresh_token": 1,
           "tokens.refresh_token_expires_in": 1,
+          "tokens.refresh_token_expires_at": 1,
         },
       });
 
@@ -160,16 +159,17 @@ class RefreshTokenHelper {
     try {
       console.log("=== Cleaning Up Expired Refresh Tokens ===");
 
-      const cutoffTime = Math.floor(Date.now() / 1000) - 90 * 24 * 60 * 60; // 90 days ago
+      const now = Date.now();
 
       const result = await User.updateMany(
         {
-          "tokens.refresh_token_expires_in": { $lt: cutoffTime },
+          "tokens.refresh_token_expires_at": { $lt: now, $exists: true, $ne: null },
         },
         {
           $unset: {
             "tokens.refresh_token": 1,
             "tokens.refresh_token_expires_in": 1,
+            "tokens.refresh_token_expires_at": 1,
           },
         }
       );

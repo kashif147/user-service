@@ -1,6 +1,34 @@
 const Role = require("../models/role.model");
 
 /**
+ * Sets portal user to NON-MEMBER only (replaces role list).
+ * @returns {Promise<boolean>}
+ */
+module.exports.assignNonMemberRole = async (user, tenantId) => {
+  try {
+    const nonMemberRole = await Role.findOne({
+      code: "NON-MEMBER",
+      tenantId,
+      isActive: true,
+    });
+    if (!nonMemberRole) {
+      console.log(
+        `Warning: NON-MEMBER role not found for tenant ${tenantId}, cannot demote`
+      );
+      return false;
+    }
+    user.roles = [nonMemberRole._id];
+    console.log(
+      `Assigned NON-MEMBER role to portal user in tenant ${tenantId} (membership ended)`
+    );
+    return true;
+  } catch (error) {
+    console.log("Error assigning NON-MEMBER role:", error.message);
+    return false;
+  }
+};
+
+/**
  * Assigns MEMBER role to a user (e.g. when they have approved membership on first login)
  * @param {Object} user - The user object
  * @param {string} tenantId - The tenant ID for tenant isolation

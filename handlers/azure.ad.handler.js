@@ -1,5 +1,6 @@
 const axios = require("axios");
 const User = require("../models/user.model");
+const { buildUserTokensSubdocument } = require("../helpers/oauthTokenStorage");
 const Role = require("../models/role.model");
 const Tenant = require("../models/tenant.model");
 const jwt = require("jsonwebtoken");
@@ -271,12 +272,7 @@ class AzureADHandler {
         userType: "CRM",
         userLastLogin: new Date(),
         tenantId: tenantId,
-        tokens: {
-          id_token: tokens.id_token || null,
-          refresh_token: tokens.refresh_token || null,
-          id_token_expires_in: tokens.expires_in || null,
-          refresh_token_expires_in: tokens.refresh_token_expires_in || null,
-        },
+        tokens: buildUserTokensSubdocument(tokens),
         updatedAt: new Date(),
       };
 
@@ -370,12 +366,7 @@ class AzureADHandler {
             userType: "CRM",
             userLastLogin: new Date(),
             tenantId: tenantId,
-            tokens: {
-              id_token: tokens.id_token || null,
-              refresh_token: tokens.refresh_token || null,
-              id_token_expires_in: tokens.expires_in || null,
-              refresh_token_expires_in: tokens.refresh_token_expires_in || null,
-            },
+            tokens: buildUserTokensSubdocument(tokens),
           });
           await user.save();
           return user;

@@ -118,6 +118,11 @@ const {
   APPLICATION_REVIEW_APPROVED,
   handleApplicationApproved,
 } = require("./listeners/application.approval.listener.js");
+const {
+  SUBSCRIPTION_RESIGNED,
+  SUBSCRIPTION_CANCEL_GRACE_ENDED,
+  handlePortalMemberDemotion,
+} = require("./listeners/subscription.membership.demotion.listener.js");
 
 // Set up consumers using middleware
 async function setupConsumers() {
@@ -152,6 +157,39 @@ async function setupConsumers() {
 
     await consumer.consume(APPLICATION_QUEUE, { prefetch: 10 });
     console.log("✅ Application approval consumer ready:", APPLICATION_QUEUE);
+
+    const MEMBERSHIP_DEMOTION_QUEUE = "users.membership.demotion.events";
+    console.log("🔧 [SETUP] Creating membership demotion queue...");
+    console.log("   Queue:", MEMBERSHIP_DEMOTION_QUEUE);
+    console.log("   Exchange: membership.events");
+    console.log(
+      "   Routing Keys:",
+      SUBSCRIPTION_RESIGNED,
+      ",",
+      SUBSCRIPTION_CANCEL_GRACE_ENDED
+    );
+
+    await consumer.createQueue(MEMBERSHIP_DEMOTION_QUEUE, {
+      durable: true,
+      messageTtl: 3600000,
+    });
+
+    await consumer.bindQueue(MEMBERSHIP_DEMOTION_QUEUE, "membership.events", [
+      SUBSCRIPTION_RESIGNED,
+      SUBSCRIPTION_CANCEL_GRACE_ENDED,
+    ]);
+
+    const demotionHandler = async (payload, ctx) => {
+      await handlePortalMemberDemotion(payload, ctx);
+    };
+    consumer.registerHandler(SUBSCRIPTION_RESIGNED, demotionHandler);
+    consumer.registerHandler(SUBSCRIPTION_CANCEL_GRACE_ENDED, demotionHandler);
+
+    await consumer.consume(MEMBERSHIP_DEMOTION_QUEUE, { prefetch: 10 });
+    console.log(
+      "✅ Membership demotion consumer ready:",
+      MEMBERSHIP_DEMOTION_QUEUE
+    );
 
     console.log("✅ All consumers set up successfully");
   } catch (error) {

@@ -1,6 +1,7 @@
 const axios = require("axios");
 const B2CUser = require("../models/user.model");
 const jwt = require("jsonwebtoken");
+const { buildUserTokensSubdocument } = require("./oauthTokenStorage");
 
 const TENANT_NAME = process.env.MS_TENANT_NAME;
 const POLICY = process.env.MS_POLICY;
@@ -98,12 +99,7 @@ class MicrosoftAuthHelper {
       userAuthProvider: "microsoft",
       userLastLogin: new Date(),
       tenantId: tenantId,
-      tokens: {
-        id_token: tokens.id_token || null,
-        refresh_token: tokens.refresh_token || null,
-        id_token_expires_in: tokens.expires_in || null,
-        refresh_token_expires_in: tokens.refresh_token_expires_in || null,
-      },
+      tokens: buildUserTokensSubdocument(tokens),
     };
 
     try {

@@ -92,6 +92,7 @@ module.exports.handleLogout = async (userId, tenantId) => {
       $unset: {
         "tokens.refresh_token": 1,
         "tokens.refresh_token_expires_in": 1,
+        "tokens.refresh_token_expires_at": 1,
         "tokens.id_token": 1,
         "tokens.access_token": 1,
       },

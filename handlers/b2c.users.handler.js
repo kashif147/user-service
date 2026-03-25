@@ -1,14 +1,12 @@
 const axios = require("axios");
 const B2CUser = require("../models/user.model");
 const Tenant = require("../models/tenant.model");
-const Role = require("../models/role.model");
-const jwt = require("jsonwebtoken");
-const { assignDefaultRole, assignMemberRole } = require("../helpers/roleAssignment");
-const { hasActiveMembership } = require("../services/membershipCheck.service");
+const { syncPortalUserRolesFromMembership } = require("../helpers/portalRoleSync");
 const {
   publishPortalUserCreated,
   publishPortalUserUpdated,
 } = require("../rabbitMQ/publishers/user.portal.publisher");
+const { buildUserTokensSubdocument } = require("../helpers/oauthTokenStorage");
 
 /**
  * Find Tenant document by Azure B2C directory ID
@@ -210,12 +208,7 @@ class B2CUsersHandler {
       userType: "PORTAL", // Ensure portal users are marked as PORTAL type
       userLastLogin: new Date(),
       tenantId: tenantId,
-      tokens: {
-        id_token: tokens.id_token || null,
-        refresh_token: tokens.refresh_token || null,
-        id_token_expires_in: tokens.expires_in || null,
-        refresh_token_expires_in: tokens.refresh_token_expires_in || null,
-      },
+      tokens: buildUserTokensSubdocument(tokens),
       updatedAt: new Date(),
     };
 
@@ -271,37 +264,13 @@ class B2CUsersHandler {
         }
       );
 
-      const needsRoleAssignment = isNewUser || !user.roles || user.roles.length === 0;
-      const nonMemberRole = await Role.findOne({ tenantId, code: "NON-MEMBER", isActive: true });
-      const hasOnlyNonMember =
-        nonMemberRole &&
-        user.roles?.length === 1 &&
-        user.roles[0].equals(nonMemberRole._id);
-
-      const shouldCheckMembership = needsRoleAssignment || hasOnlyNonMember;
-      let assignedMemberFromCheck = false;
-
-      if (shouldCheckMembership) {
-        const hasMembership = await hasActiveMembership(email, tenantId);
-        if (hasMembership) {
-          assignedMemberFromCheck = await assignMemberRole(user, tenantId);
-          if (assignedMemberFromCheck) await user.save();
-        }
-      }
+      await syncPortalUserRolesFromMembership(user, email, tenantId, { isNewUser });
 
       if (isNewUser) {
         console.log("Creating new user");
-        if (needsRoleAssignment && !assignedMemberFromCheck) {
-          await assignDefaultRole(user, "PORTAL", tenantId);
-          await user.save();
-        }
         await publishPortalUserCreated(user);
       } else {
         console.log("Updating existing user");
-        if (needsRoleAssignment && !assignedMemberFromCheck) {
-          await assignDefaultRole(user, "PORTAL", tenantId);
-          await user.save();
-        }
         await publishPortalUserUpdated(user, previousValues);
       }
 
@@ -320,9 +289,11 @@ class B2CUsersHandler {
           tenantId: tenantId,
         });
         if (user) {
-          // Update the user with latest data
           Object.assign(user, updateData);
           await user.save();
+          await syncPortalUserRolesFromMembership(user, email, tenantId, {
+            isNewUser: false,
+          });
           return user;
         }
       }

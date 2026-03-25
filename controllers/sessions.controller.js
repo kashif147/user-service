@@ -3,6 +3,7 @@ const azureB2CConfig = require("../config/azure-b2c");
 const Tenant = require("../models/tenant.model");
 const User = require("../models/user.model"); // Use standard User model
 const { generateToken } = require("../helpers/jwt");
+const { syncPortalUserRolesFromMembership } = require("../helpers/portalRoleSync");
 const crypto = require("crypto");
 
 /**
@@ -233,7 +234,6 @@ class SessionsController {
       tenantId: tenant._id.toString(),
       // Store Microsoft directory ID separately for reference
       microsoftDirectoryId: extractedDirectoryId,
-      roles: ["member"], // Default role
       iat: Math.floor(Date.now() / 1000),
       exp: Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60, // 30 days
     };
@@ -254,14 +254,14 @@ class SessionsController {
       throw new Error("Missing email or tenantId for user lookup");
     }
 
-    // Find existing user by email and tenantId
     let user = await User.findOne({
       userEmail: email,
       tenantId: tenantId,
     });
 
+    const isNewUser = !user;
+
     if (!user) {
-      // Create new user if not found
       console.log("Creating new B2C user:", email);
       user = new User({
         userEmail: email,
@@ -274,10 +274,11 @@ class SessionsController {
       await user.save();
       console.log("✅ New B2C user created:", user._id.toString());
     } else {
-      // Update last login
       user.userLastLogin = new Date();
       await user.save();
     }
+
+    await syncPortalUserRolesFromMembership(user, email, tenantId, { isNewUser });
 
     return user;
   }

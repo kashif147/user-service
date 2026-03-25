@@ -1,8 +1,7 @@
 /**
  * Membership check service - calls profile-service and subscription-service
- * to determine if a user (by email + tenantId) has an active subscription.
- * Used for assigning Member role on first login when application was approved
- * before the user logged in (CRM-created application).
+ * to determine if a user (by email + tenantId) has an active profile and a
+ * current subscription in Active status.
  */
 const axios = require("axios");
 

@@ -44,7 +44,10 @@ const UserSchema = new mongoose.Schema({
     id_token: { type: String, default: null }, // full ID token from Microsoft
     refresh_token: { type: String, default: null }, // refresh token
     id_token_expires_in: { type: Number, default: null }, // token expiry time (optional)
-    refresh_token_expires_in: { type: Number, default: null }, // refresh token expiry (optional)
+    // Remaining lifetime in seconds from Microsoft (not Unix time)
+    refresh_token_expires_in: { type: Number, default: null },
+    // Absolute expiry of refresh token (ms since epoch); used for /auth/refresh checks
+    refresh_token_expires_at: { type: Number, default: null },
   },
 
   // Audit fields
