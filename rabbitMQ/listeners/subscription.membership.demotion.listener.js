@@ -22,17 +22,27 @@ function escapeRegex(str) {
 
 async function findPortalUser({ userId, userEmail, tenantId }) {
   const tid = tenantId != null ? String(tenantId) : null;
-  if (!tid) return null;
 
   if (userId && mongoose.Types.ObjectId.isValid(userId)) {
+    const oid = new mongoose.Types.ObjectId(userId);
+    if (tid) {
+      const byIdAndTenant = await User.findOne({
+        _id: oid,
+        tenantId: tid,
+        userType: "PORTAL",
+        isActive: true,
+      });
+      if (byIdAndTenant) return byIdAndTenant;
+    }
     const byId = await User.findOne({
-      _id: new mongoose.Types.ObjectId(userId),
-      tenantId: tid,
+      _id: oid,
       userType: "PORTAL",
       isActive: true,
     });
     if (byId) return byId;
   }
+
+  if (!tid) return null;
 
   const normalizedEmail = normalizeEmail(userEmail);
   if (!normalizedEmail) return null;
@@ -67,28 +77,42 @@ async function handlePortalMemberDemotion(payload, context) {
       tenantId,
     });
 
-    if (!tenantId) {
-      console.warn(
-        "[MEMBERSHIP_DEMOTION_LISTENER] Missing tenantId, skipping demotion"
-      );
-      return;
-    }
+    const roleTenantId =
+      tenantId != null && String(tenantId).trim()
+        ? String(tenantId)
+        : null;
 
     const user = await findPortalUser({
       userId,
       userEmail,
-      tenantId,
+      tenantId: roleTenantId,
     });
 
     if (!user) {
       console.log(
         "[MEMBERSHIP_DEMOTION_LISTENER] No portal user found for demotion:",
-        { userId, userEmail: userEmail || "(none)", tenantId, profileId }
+        {
+          userId,
+          userEmail: userEmail || "(none)",
+          tenantId: roleTenantId || "(none)",
+          profileId,
+        }
       );
       return;
     }
 
-    const ok = await assignNonMemberRole(user, tenantId);
+    const tenantForRole =
+      user.tenantId != null && String(user.tenantId).trim()
+        ? String(user.tenantId)
+        : roleTenantId;
+    if (!tenantForRole) {
+      console.warn(
+        "[MEMBERSHIP_DEMOTION_LISTENER] Cannot resolve tenant for role assignment, skipping"
+      );
+      return;
+    }
+
+    const ok = await assignNonMemberRole(user, tenantForRole);
     if (!ok) {
       console.warn(
         "[MEMBERSHIP_DEMOTION_LISTENER] assignNonMemberRole failed:",
@@ -103,7 +127,7 @@ async function handlePortalMemberDemotion(payload, context) {
     console.log("✅ [MEMBERSHIP_DEMOTION_LISTENER] Portal user demoted to NON-MEMBER", {
       userId: user._id.toString(),
       userEmail: user.userEmail,
-      tenantId: String(tenantId),
+      tenantId: tenantForRole,
       profileId,
       reason: reason || routingKey,
     });
