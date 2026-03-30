@@ -1,6 +1,7 @@
 /**
  * Upgrades portal users from NON-MEMBER → MEMBER when:
  * - Subscription resignation is undone (members.subscription.resignation.undone.v1)
+ * - Subscription cancellation is undone (members.subscription.cancellation.undone.v1)
  */
 
 const mongoose = require("mongoose");
@@ -9,6 +10,8 @@ const { assignMemberRole } = require("../../helpers/roleAssignment");
 
 const SUBSCRIPTION_RESIGNATION_UNDONE =
   "members.subscription.resignation.undone.v1";
+const SUBSCRIPTION_CANCELLATION_UNDONE =
+  "members.subscription.cancellation.undone.v1";
 
 function normalizeEmail(email) {
   return (email || "").trim().toLowerCase();
@@ -130,5 +133,6 @@ async function handlePortalMemberPromotion(payload, context) {
 
 module.exports = {
   SUBSCRIPTION_RESIGNATION_UNDONE,
+  SUBSCRIPTION_CANCELLATION_UNDONE,
   handlePortalMemberPromotion,
 };

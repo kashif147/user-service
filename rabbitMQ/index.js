@@ -125,6 +125,7 @@ const {
 } = require("./listeners/subscription.membership.demotion.listener.js");
 const {
   SUBSCRIPTION_RESIGNATION_UNDONE,
+  SUBSCRIPTION_CANCELLATION_UNDONE,
   handlePortalMemberPromotion,
 } = require("./listeners/subscription.membership.promotion.listener.js");
 
@@ -172,7 +173,9 @@ async function setupConsumers() {
       ",",
       SUBSCRIPTION_CANCEL_GRACE_ENDED,
       ",",
-      SUBSCRIPTION_RESIGNATION_UNDONE
+      SUBSCRIPTION_RESIGNATION_UNDONE,
+      ",",
+      SUBSCRIPTION_CANCELLATION_UNDONE
     );
 
     await consumer.createQueue(MEMBERSHIP_DEMOTION_QUEUE, {
@@ -184,6 +187,7 @@ async function setupConsumers() {
       SUBSCRIPTION_RESIGNED,
       SUBSCRIPTION_CANCEL_GRACE_ENDED,
       SUBSCRIPTION_RESIGNATION_UNDONE,
+      SUBSCRIPTION_CANCELLATION_UNDONE,
     ]);
 
     const demotionHandler = async (payload, ctx) => {
@@ -195,6 +199,7 @@ async function setupConsumers() {
     consumer.registerHandler(SUBSCRIPTION_RESIGNED, demotionHandler);
     consumer.registerHandler(SUBSCRIPTION_CANCEL_GRACE_ENDED, demotionHandler);
     consumer.registerHandler(SUBSCRIPTION_RESIGNATION_UNDONE, promotionHandler);
+    consumer.registerHandler(SUBSCRIPTION_CANCELLATION_UNDONE, promotionHandler);
 
     await consumer.consume(MEMBERSHIP_DEMOTION_QUEUE, { prefetch: 10 });
     console.log(
