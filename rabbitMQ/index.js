@@ -123,6 +123,10 @@ const {
   SUBSCRIPTION_CANCEL_GRACE_ENDED,
   handlePortalMemberDemotion,
 } = require("./listeners/subscription.membership.demotion.listener.js");
+const {
+  SUBSCRIPTION_RESIGNATION_UNDONE,
+  handlePortalMemberPromotion,
+} = require("./listeners/subscription.membership.promotion.listener.js");
 
 // Set up consumers using middleware
 async function setupConsumers() {
@@ -166,7 +170,9 @@ async function setupConsumers() {
       "   Routing Keys:",
       SUBSCRIPTION_RESIGNED,
       ",",
-      SUBSCRIPTION_CANCEL_GRACE_ENDED
+      SUBSCRIPTION_CANCEL_GRACE_ENDED,
+      ",",
+      SUBSCRIPTION_RESIGNATION_UNDONE
     );
 
     await consumer.createQueue(MEMBERSHIP_DEMOTION_QUEUE, {
@@ -177,13 +183,18 @@ async function setupConsumers() {
     await consumer.bindQueue(MEMBERSHIP_DEMOTION_QUEUE, "membership.events", [
       SUBSCRIPTION_RESIGNED,
       SUBSCRIPTION_CANCEL_GRACE_ENDED,
+      SUBSCRIPTION_RESIGNATION_UNDONE,
     ]);
 
     const demotionHandler = async (payload, ctx) => {
       await handlePortalMemberDemotion(payload, ctx);
     };
+    const promotionHandler = async (payload, ctx) => {
+      await handlePortalMemberPromotion(payload, ctx);
+    };
     consumer.registerHandler(SUBSCRIPTION_RESIGNED, demotionHandler);
     consumer.registerHandler(SUBSCRIPTION_CANCEL_GRACE_ENDED, demotionHandler);
+    consumer.registerHandler(SUBSCRIPTION_RESIGNATION_UNDONE, promotionHandler);
 
     await consumer.consume(MEMBERSHIP_DEMOTION_QUEUE, { prefetch: 10 });
     console.log(
