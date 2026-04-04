@@ -484,6 +484,18 @@ module.exports.initializeDefaultPermissions = async () => {
         category: "NOTIFICATION",
         level: 10,
       },
+
+      // Audit service (GET /api/audit-logs, /summary, /resource/..., /:id) — policy resource audit:read
+      {
+        name: "Read Audit Logs",
+        code: "AUDIT_READ",
+        description:
+          "View audit logs, summaries, and per-resource history (audit-service read APIs)",
+        resource: "audit",
+        action: "read",
+        category: "CRM",
+        level: 30,
+      },
     ];
 
     const permissionsWithSystemFlag = defaultPermissions.map((permission) => ({

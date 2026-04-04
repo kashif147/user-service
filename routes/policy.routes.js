@@ -32,7 +32,9 @@ router.post("/evaluate", async (req, res, next) => {
     // Check for gateway-verified headers first
     const jwtVerified = req.headers["x-jwt-verified"];
     const authSource = req.headers["x-auth-source"];
-    const hasGatewayHeaders = jwtVerified === "true" && authSource === "gateway";
+    const hasGatewayHeaders =
+      jwtVerified === "true" &&
+      (authSource === "gateway" || authSource === "azuread");
 
     let result;
     if (hasGatewayHeaders) {
@@ -157,7 +159,9 @@ router.get("/permissions/:resource", async (req, res, next) => {
     // Check for gateway-verified headers first
     const jwtVerified = req.headers["x-jwt-verified"];
     const authSource = req.headers["x-auth-source"];
-    const hasGatewayHeaders = jwtVerified === "true" && authSource === "gateway";
+    const hasGatewayHeaders =
+      jwtVerified === "true" &&
+      (authSource === "gateway" || authSource === "azuread");
 
     let result;
     if (hasGatewayHeaders) {
@@ -423,6 +427,12 @@ router.get("/info", (req, res) => {
         description: "API endpoints access",
         actions: ["read", "write", "delete"],
         userTypes: ["CRM", "MEMBER"],
+      },
+      audit: {
+        description: "Audit log read access (audit-service)",
+        actions: ["read"],
+        userTypes: ["CRM"],
+        minRoleLevel: 30,
       },
       role: {
         description: "Role management access",

@@ -1,0 +1,1108 @@
+{
+  "info": {
+    "name": "User Service — Missing Endpoints",
+    "description": "Endpoints not covered by the main User Service Postman collection. Same {{baseUrl}} / {{authToken}} / {{tenantId}} variables as the primary collection.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000", "type": "string" },
+    { "key": "authToken", "value": "", "type": "string" },
+    { "key": "tenantId", "value": "", "type": "string" },
+    { "key": "productTypeId", "value": "", "type": "string" },
+    { "key": "productId", "value": "", "type": "string" },
+    { "key": "pricingId", "value": "", "type": "string" },
+    { "key": "contactId", "value": "", "type": "string" },
+    { "key": "contactTypeId", "value": "", "type": "string" },
+    { "key": "roleId", "value": "", "type": "string" },
+    { "key": "userId", "value": "", "type": "string" },
+    { "key": "roleCode", "value": "SU", "type": "string" },
+    { "key": "tenantDbId", "value": "", "type": "string", "description": "Mongo _id for tenant routes" },
+    { "key": "connectionId", "value": "", "type": "string" },
+    { "key": "permissionCategory", "value": "general", "type": "string" },
+    { "key": "policyCacheKey", "value": "", "type": "string" },
+    { "key": "tenantDomain", "value": "example.com", "type": "string" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{authToken}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "Health & sessions",
+      "item": [
+        {
+          "name": "GET Health",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            }
+          }
+        },
+        {
+          "name": "POST Sessions (B2C id_token)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id_token\": \"<paste_b2c_id_token>\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/sessions",
+              "host": ["{{baseUrl}}"],
+              "path": ["sessions"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Me",
+      "item": [
+        {
+          "name": "GET Current user profile",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "x-tenant-id", "value": "{{tenantId}}", "disabled": true }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "me"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Users (B2C validate)",
+      "item": [
+        {
+          "name": "POST Validate user (Azure B2C policy)",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              {
+                "key": "Authorization",
+                "value": "Basic <base64(user:pass)>",
+                "description": "Optional if B2C_API_USERNAME/PASSWORD set",
+                "disabled": true
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"user@example.com\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/users/validate",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "users", "validate"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Products",
+      "item": [
+        {
+          "name": "GET All products",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/products",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "products"]
+            }
+          }
+        },
+        {
+          "name": "POST Create product",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Product name\",\n  \"code\": \"PROD_CODE\",\n  \"description\": \"Optional\",\n  \"productTypeId\": \"{{productTypeId}}\",\n  \"status\": \"active\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/products",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "products"]
+            }
+          }
+        },
+        {
+          "name": "GET Products by product type",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/products/by-type/{{productTypeId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "products", "by-type", "{{productTypeId}}"]
+            }
+          }
+        },
+        {
+          "name": "GET Product by id",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/products/{{productId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "products", "{{productId}}"]
+            }
+          }
+        },
+        {
+          "name": "PUT Update product",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated name\",\n  \"description\": \"Updated\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/products/{{productId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "products", "{{productId}}"]
+            }
+          }
+        },
+        {
+          "name": "DELETE Product",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/products/{{productId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "products", "{{productId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Product types",
+      "item": [
+        {
+          "name": "GET Product types with products",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/product-types/with-products",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "product-types", "with-products"]
+            }
+          }
+        },
+        {
+          "name": "GET All product types",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/product-types",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "product-types"]
+            }
+          }
+        },
+        {
+          "name": "POST Create product type",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Type name\",\n  \"code\": \"TYPE_CODE\",\n  \"description\": \"Optional\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/product-types",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "product-types"]
+            }
+          }
+        },
+        {
+          "name": "GET Product type by id",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/product-types/{{productTypeId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "product-types", "{{productTypeId}}"]
+            }
+          }
+        },
+        {
+          "name": "PUT Update product type",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated type\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/product-types/{{productTypeId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "product-types", "{{productTypeId}}"]
+            }
+          }
+        },
+        {
+          "name": "DELETE Product type",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/product-types/{{productTypeId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "product-types", "{{productTypeId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Pricing",
+      "item": [
+        {
+          "name": "GET All pricing",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/pricing",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "pricing"]
+            }
+          }
+        },
+        {
+          "name": "POST Create pricing",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productId\": \"{{productId}}\",\n  \"currency\": \"EUR\",\n  \"price\": 99.99,\n  \"memberPrice\": 79.99,\n  \"nonMemberPrice\": 99.99,\n  \"effectiveFrom\": \"2026-01-01T00:00:00.000Z\",\n  \"effectiveTo\": null,\n  \"status\": \"active\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/pricing",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "pricing"]
+            }
+          }
+        },
+        {
+          "name": "GET Pricing by product",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/pricing/by-product/{{productId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "pricing", "by-product", "{{productId}}"]
+            }
+          }
+        },
+        {
+          "name": "GET Current pricing for product",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/pricing/current/{{productId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "pricing", "current", "{{productId}}"]
+            }
+          }
+        },
+        {
+          "name": "GET Pricing by id",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/pricing/{{pricingId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "pricing", "{{pricingId}}"]
+            }
+          }
+        },
+        {
+          "name": "PUT Update pricing",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"price\": 89.99\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/pricing/{{pricingId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "pricing", "{{pricingId}}"]
+            }
+          }
+        },
+        {
+          "name": "DELETE Pricing",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/pricing/{{pricingId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "pricing", "{{pricingId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Contacts",
+      "item": [
+        {
+          "name": "GET All contacts",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/contacts",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "contacts"]
+            }
+          }
+        },
+        {
+          "name": "GET Search contacts",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/contacts/search?q=term",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "contacts", "search"],
+              "query": [{ "key": "q", "value": "term" }]
+            }
+          }
+        },
+        {
+          "name": "GET Contact by id",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/contacts/{{contactId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "contacts", "{{contactId}}"]
+            }
+          }
+        },
+        {
+          "name": "POST Create contact",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"Jane\",\n  \"lastName\": \"Doe\",\n  \"email\": \"jane@example.com\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/contacts",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "contacts"]
+            }
+          }
+        },
+        {
+          "name": "PUT Update contact",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"Updated\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/contacts/{{contactId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "contacts", "{{contactId}}"]
+            }
+          }
+        },
+        {
+          "name": "DELETE Contact",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/contacts/{{contactId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "contacts", "{{contactId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Contact types",
+      "item": [
+        {
+          "name": "GET All contact types",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/contact-types",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "contact-types"]
+            }
+          }
+        },
+        {
+          "name": "GET Search contact types",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/contact-types/search?q=term",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "contact-types", "search"],
+              "query": [{ "key": "q", "value": "term" }]
+            }
+          }
+        },
+        {
+          "name": "GET Contact type by id",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/contact-types/{{contactTypeId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "contact-types", "{{contactTypeId}}"]
+            }
+          }
+        },
+        {
+          "name": "POST Create contact type",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Primary\",\n  \"code\": \"PRIMARY\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/contact-types",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "contact-types"]
+            }
+          }
+        },
+        {
+          "name": "PUT Update contact type",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/contact-types/{{contactTypeId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "contact-types", "{{contactTypeId}}"]
+            }
+          }
+        },
+        {
+          "name": "DELETE Contact type",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/contact-types/{{contactTypeId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "contact-types", "{{contactTypeId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Policy (extra)",
+      "item": [
+        {
+          "name": "GET Permissions system",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/policy/permissions/system",
+              "host": ["{{baseUrl}}"],
+              "path": ["policy", "permissions", "system"]
+            }
+          }
+        },
+        {
+          "name": "GET Permissions roles",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/policy/permissions/roles",
+              "host": ["{{baseUrl}}"],
+              "path": ["policy", "permissions", "roles"]
+            }
+          }
+        },
+        {
+          "name": "GET Permissions routes",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/policy/permissions/routes",
+              "host": ["{{baseUrl}}"],
+              "path": ["policy", "permissions", "routes"]
+            }
+          }
+        },
+        {
+          "name": "GET Policy cache stats",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/policy/cache/stats",
+              "host": ["{{baseUrl}}"],
+              "path": ["policy", "cache", "stats"]
+            }
+          }
+        },
+        {
+          "name": "DELETE Clear policy cache",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/policy/cache",
+              "host": ["{{baseUrl}}"],
+              "path": ["policy", "cache"]
+            }
+          }
+        },
+        {
+          "name": "DELETE Policy cache key",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/policy/cache/{{policyCacheKey}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["policy", "cache", "{{policyCacheKey}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Roles & users (extra)",
+      "item": [
+        {
+          "name": "POST Test default role assignment",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userType\": \"CRM\",\n  \"email\": \"test@example.com\",\n  \"fullName\": \"Test User\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/test/default-role",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "test", "default-role"]
+            }
+          }
+        },
+        {
+          "name": "POST Initialize roles",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/roles/initialize",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "roles", "initialize"]
+            }
+          }
+        },
+        {
+          "name": "PUT Role permissions (global)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"permissionIds\": []\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/roles/{{roleId}}/permissions",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "roles", "{{roleId}}", "permissions"]
+            }
+          }
+        },
+        {
+          "name": "PUT Sync roles for user",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{userId}}\",\n  \"roleIds\": []\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/users/sync-roles",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "users", "sync-roles"]
+            }
+          }
+        },
+        {
+          "name": "POST Assign roles batch",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{userId}}\",\n  \"roleIds\": []\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/users/assign-roles-batch",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "users", "assign-roles-batch"]
+            }
+          }
+        },
+        {
+          "name": "POST Remove roles batch",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": \"{{userId}}\",\n  \"roleIds\": []\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/users/remove-roles-batch",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "users", "remove-roles-batch"]
+            }
+          }
+        },
+        {
+          "name": "GET User has role",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/users/{{userId}}/has-role/{{roleCode}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "users", "{{userId}}", "has-role", "{{roleCode}}"]
+            }
+          }
+        },
+        {
+          "name": "GET Users by role",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/roles/{{roleId}}/users",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "roles", "{{roleId}}", "users"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Tenants (extra)",
+      "item": [
+        {
+          "name": "GET Tenant by domain",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/tenants/domain/{{tenantDomain}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tenants", "domain", "{{tenantDomain}}"]
+            }
+          }
+        },
+        {
+          "name": "GET Tenant stats",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/tenants/{{tenantDbId}}/stats",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tenants", "{{tenantDbId}}", "stats"]
+            }
+          }
+        },
+        {
+          "name": "PUT Tenant status",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"active\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/tenants/{{tenantDbId}}/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tenants", "{{tenantDbId}}", "status"]
+            }
+          }
+        },
+        {
+          "name": "POST Auth connection",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"connectionType\": \"Azure B2C\",\n  \"directoryId\": \"<azure-tenant-guid>\",\n  \"isActive\": true\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/tenants/{{tenantDbId}}/auth-connections",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tenants", "{{tenantDbId}}", "auth-connections"]
+            }
+          }
+        },
+        {
+          "name": "GET Auth connections",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/tenants/{{tenantDbId}}/auth-connections",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tenants", "{{tenantDbId}}", "auth-connections"]
+            }
+          }
+        },
+        {
+          "name": "PUT Auth connection",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"isActive\": true\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/tenants/{{tenantDbId}}/auth-connections/{{connectionId}}",
+              "host": ["{{baseUrl}}"],
+              "path": [
+                "api",
+                "tenants",
+                "{{tenantDbId}}",
+                "auth-connections",
+                "{{connectionId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "DELETE Auth connection",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/tenants/{{tenantDbId}}/auth-connections/{{connectionId}}",
+              "host": ["{{baseUrl}}"],
+              "path": [
+                "api",
+                "tenants",
+                "{{tenantDbId}}",
+                "auth-connections",
+                "{{connectionId}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Permissions (extra)",
+      "item": [
+        {
+          "name": "GET Permission stats",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/permissions/stats",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "permissions", "stats"]
+            }
+          }
+        },
+        {
+          "name": "GET Permissions by category",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/permissions/category/{{permissionCategory}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "permissions", "category", "{{permissionCategory}}"]
+            }
+          }
+        },
+        {
+          "name": "POST Initialize default permissions",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/permissions/initialize",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "permissions", "initialize"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Tenant-scoped (extra)",
+      "item": [
+        {
+          "name": "PUT Tenant role permissions",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"permissionIds\": []\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/tenant/roles/{{roleId}}/permissions",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "tenant", "roles", "{{roleId}}", "permissions"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin cache & maps",
+      "item": [
+        {
+          "name": "GET Role hierarchy",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/role-hierarchy",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "role-hierarchy"]
+            }
+          }
+        },
+        {
+          "name": "GET Permissions map",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/permissions-map",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "permissions-map"]
+            }
+          }
+        },
+        {
+          "name": "GET Role permissions by role code",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/role-permissions/{{roleCode}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "role-permissions", "{{roleCode}}"]
+            }
+          }
+        },
+        {
+          "name": "POST Clear lookup caches",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/lookup/clear",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "lookup", "clear"]
+            }
+          }
+        },
+        {
+          "name": "GET Lookup cache stats",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/lookup/stats",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "lookup", "stats"]
+            }
+          }
+        },
+        {
+          "name": "POST Clear country caches",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{authToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/country/clear",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "country", "clear"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Lookup (extra)",
+      "item": [
+        {
+          "name": "PATCH Bulk officer assignment",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{authToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ids\": [\"<lookupObjectId1>\", \"<lookupObjectId2>\"],\n  \"officer\": \"<userObjectId_or_null>\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/lookups/officer",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "lookups", "officer"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
