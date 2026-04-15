@@ -199,13 +199,18 @@ class AzureADHandler {
     console.log("📌 Using Tenant._id as tenantId in user document and JWT token");
     console.log("");
 
+    const tokenFirstName = payload.given_name || payload.givenName || null;
+    const tokenLastName = payload.family_name || payload.surname || null;
+    const tokenFullName =
+      payload.name ||
+      `${tokenFirstName || ""} ${tokenLastName || ""}`.trim() ||
+      null;
+
     const profile = {
       userEmail: payload.email || payload.preferred_username || null,
-      userFirstName: payload.given_name || null,
-      userLastName: payload.family_name || null,
-      userFullName: `${payload.given_name || ""} ${
-        payload.family_name || ""
-      }`.trim(),
+      userFirstName: tokenFirstName,
+      userLastName: tokenLastName,
+      userFullName: tokenFullName,
       userMobilePhone: payload.phone_number || null,
       userMemberNumber: null,
       userMicrosoftId: payload.oid || payload.sub || null,
@@ -407,6 +412,16 @@ class AzureADHandler {
 
       const combinedProfile = {
         ...baseProfile,
+        userFirstName:
+          graphProfile.givenName || baseProfile.userFirstName || null,
+        userLastName: graphProfile.surname || baseProfile.userLastName || null,
+        userFullName:
+          graphProfile.displayName ||
+          `${graphProfile.givenName || baseProfile.userFirstName || ""} ${
+            graphProfile.surname || baseProfile.userLastName || ""
+          }`.trim() ||
+          baseProfile.userFullName ||
+          null,
         userDisplayName: graphProfile.displayName || baseProfile.userFullName,
         userJobTitle: graphProfile.jobTitle || null,
         userDepartment: graphProfile.department || null,

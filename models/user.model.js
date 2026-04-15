@@ -70,6 +70,11 @@ UserSchema.index({ "tokens.refresh_token": 1 }, { sparse: true }); // Sparse ind
 
 // Pre-save middleware to update audit fields
 UserSchema.pre("save", function (next) {
+  if (this.userFirstName || this.userLastName) {
+    this.userFullName = `${this.userFirstName || ""} ${
+      this.userLastName || ""
+    }`.trim();
+  }
   this.updatedAt = Date.now();
   next();
 });
