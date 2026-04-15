@@ -258,6 +258,12 @@ class AzureADHandler {
 
       const email = profile.userEmail;
       const tenantId = profile.tenantId;
+      const resolvedFirstName = profile.userFirstName || null;
+      const resolvedLastName = profile.userLastName || null;
+      const resolvedFullName =
+        profile.userFullName ||
+        `${resolvedFirstName || ""} ${resolvedLastName || ""}`.trim() ||
+        null;
 
       console.log("Extracted email:", email);
       console.log("Extracted tenantId:", tenantId);
@@ -273,6 +279,9 @@ class AzureADHandler {
 
       const updateData = {
         ...profile,
+        userFirstName: resolvedFirstName,
+        userLastName: resolvedLastName,
+        userFullName: resolvedFullName,
         userAuthProvider: "azure-ad",
         userType: "CRM",
         userLastLogin: new Date(),

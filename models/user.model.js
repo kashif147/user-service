@@ -79,4 +79,26 @@ UserSchema.pre("save", function (next) {
   next();
 });
 
+UserSchema.pre("findOneAndUpdate", function (next) {
+  const update = this.getUpdate() || {};
+  const set = update.$set || update;
+
+  const firstName = set.userFirstName;
+  const lastName = set.userLastName;
+
+  if (firstName !== undefined || lastName !== undefined) {
+    set.userFullName = `${firstName || ""} ${lastName || ""}`.trim() || null;
+  }
+
+  set.updatedAt = Date.now();
+
+  if (update.$set) {
+    update.$set = set;
+  } else {
+    this.setUpdate(set);
+  }
+
+  next();
+});
+
 module.exports = mongoose.model("User", UserSchema);
