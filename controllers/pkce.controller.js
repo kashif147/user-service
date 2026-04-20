@@ -13,7 +13,7 @@ module.exports.generatePKCE = async (req, res, next) => {
 
     for (let i = 0; i < 128; i++) {
       codeVerifier += charset.charAt(
-        Math.floor(Math.random() * charset.length)
+        Math.floor(Math.random() * charset.length),
       );
     }
 
@@ -48,7 +48,10 @@ module.exports.generatePKCE = async (req, res, next) => {
 
     // B2C authorization URL
     const b2cTenantId = process.env.MS_TENANT_NAME || "projectshellAB2C";
-    const policy = process.env.MS_POLICY || "B2C_1_projectshell";
+    const policy =
+      process.env.MS_POLICY ||
+      process.env.MS_POLICY_NAME ||
+      "B2C_1_projectshell";
     const b2cClientId =
       process.env.MS_CLIENT_ID || "e3688a2f-3956-42f9-8c98-6fea7a60a5b4";
     const b2cRedirectUri =
@@ -86,7 +89,7 @@ module.exports.generatePKCE = async (req, res, next) => {
   } catch (error) {
     console.error("PKCE generation error:", error);
     return next(
-      AppError.internalServerError("Failed to generate PKCE parameters")
+      AppError.internalServerError("Failed to generate PKCE parameters"),
     );
   }
 };

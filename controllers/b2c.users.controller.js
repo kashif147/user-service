@@ -112,8 +112,22 @@ module.exports.handleMicrosoftCallback = async (req, res, next) => {
     });
   } catch (error) {
     console.error("Microsoft Auth Error:", error);
+    const oauthDetail =
+      error.response?.data?.error_description || error.response?.data?.error;
+    const devExtras =
+      process.env.NODE_ENV !== "production"
+        ? {
+            extras: {
+              details: oauthDetail || error.message,
+              oauth: error.response?.data,
+            },
+          }
+        : {};
     return next(
-      AppError.internalServerError("Microsoft authentication failed")
+      AppError.internalServerError(
+        "Microsoft authentication failed",
+        devExtras,
+      ),
     );
   }
 };
