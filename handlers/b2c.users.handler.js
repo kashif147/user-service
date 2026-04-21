@@ -9,6 +9,7 @@ const {
   publishPortalUserUpdated,
 } = require("../rabbitMQ/publishers/user.portal.publisher");
 const { buildUserTokensSubdocument } = require("../helpers/oauthTokenStorage");
+const { b2cTokenEndpoint } = require("../helpers/b2cPolicy");
 
 /**
  * Find Tenant document by Azure B2C directory ID
@@ -54,21 +55,16 @@ async function findTenantByB2CDirectoryId(directoryId) {
   }
 }
 
-const TENANT_ID = process.env.MS_TENANT_NAME || "projectshellAB2C";
-const POLICY =
-  process.env.MS_POLICY ||
-  process.env.MS_POLICY_NAME ||
-  "B2C_1_projectshell";
 const CLIENT_ID =
   process.env.MS_CLIENT_ID || "e3688a2f-3956-42f9-8c98-6fea7a60a5b4";
 const REDIRECT_URI = process.env.MS_REDIRECT_URI || "http://localhost:3000";
 
-const TOKEN_ENDPOINT = `https://${TENANT_ID}.b2clogin.com/${TENANT_ID}.onmicrosoft.com/${POLICY}/oauth2/v2.0/token`;
-
 class B2CUsersHandler {
-  static async exchangeCodeForTokens(code, codeVerifier) {
+  static async exchangeCodeForTokens(code, codeVerifier, policyName) {
+    const tokenEndpoint = b2cTokenEndpoint(policyName);
     console.log("=== Token Exchange Debug ===");
-    console.log("Token Endpoint:", TOKEN_ENDPOINT);
+    console.log("B2C policy (user flow):", policyName);
+    console.log("Token Endpoint:", tokenEndpoint);
     console.log("Client ID:", CLIENT_ID);
     console.log("Redirect URI:", REDIRECT_URI);
     console.log("Code (first 50 chars):", code.substring(0, 50) + "...");
@@ -90,7 +86,7 @@ class B2CUsersHandler {
 
     try {
       console.log("🔄 Sending token exchange request...");
-      const response = await axios.post(TOKEN_ENDPOINT, data.toString(), {
+      const response = await axios.post(tokenEndpoint, data.toString(), {
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
       });
 
@@ -344,8 +340,12 @@ class B2CUsersHandler {
     }
   }
 
-  static async handleB2CAuth(code, codeVerifier) {
-    const tokens = await this.exchangeCodeForTokens(code, codeVerifier);
+  static async handleB2CAuth(code, codeVerifier, policyName) {
+    const tokens = await this.exchangeCodeForTokens(
+      code,
+      codeVerifier,
+      policyName,
+    );
     const profile = await this.decodeIdToken(tokens.id_token);
     const user = await this.findOrCreateUser(profile, tokens);
     return { user, tokens };

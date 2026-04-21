@@ -2,6 +2,7 @@ const B2CUsersHandler = require("../handlers/b2c.users.handler");
 const jwtHelper = require("../helpers/jwt");
 const { encryptToken } = require("../helpers/tokenEncryption");
 const { AppError } = require("../errors/AppError");
+const { resolveB2CPolicy } = require("../helpers/b2cPolicy");
 
 function getFrontendBaseUrl() {
   if (!process.env.MS_REDIRECT_URI) {
@@ -83,9 +84,20 @@ module.exports.handleMicrosoftCallback = async (req, res, next) => {
       );
     }
 
+    let policyName;
+    try {
+      policyName = resolveB2CPolicy({
+        flow: req.body.flow,
+        policy: req.body.policy,
+      });
+    } catch (e) {
+      return next(AppError.badRequest(e.message));
+    }
+
     const { user, tokens } = await B2CUsersHandler.handleB2CAuth(
       code,
-      codeVerifier
+      codeVerifier,
+      policyName,
     );
 
     const tokenData = await jwtHelper.generateToken(user);

@@ -101,8 +101,21 @@
 
       <div class="section">
         <h3>🌐 Step 2: Start Authentication</h3>
-        <button onclick="startAuth()" id="authBtn" disabled>
-          Start B2C Authentication
+        <button onclick="startAuth('default')" id="authBtn" disabled>
+          Start B2C (default)
+        </button>
+        <button onclick="startAuth('signin')" id="authBtnSignIn" disabled>
+          Start sign-in flow
+        </button>
+        <button onclick="startAuth('signup')" id="authBtnSignUp" disabled>
+          Start sign-up flow
+        </button>
+        <button
+          onclick="startAuth('password-reset')"
+          id="authBtnPasswordReset"
+          disabled
+        >
+          Start password reset flow
         </button>
         <div class="result info" id="authResult" style="display: none"></div>
       </div>
@@ -137,6 +150,8 @@
       const BASE_URL = "http://localhost:3000";
       let pkceData = null;
       let authResult = null;
+      /** @type {null | 'signin' | 'signup' | 'password-reset'} set by Step 2 so Step 3 POST uses the same user flow */
+      let pkceLastFlow = null;
 
       // Load configuration
       async function loadConfig() {
@@ -152,17 +167,32 @@
 
           if (data.success) {
             pkceData = data;
+            pkceLastFlow = null;
             // Store PKCE data in localStorage for persistence across redirects
             localStorage.setItem("pkceData", JSON.stringify(data));
+            localStorage.removeItem("pkceLastFlow");
 
             document.getElementById("pkceResult").style.display = "block";
             document.getElementById("pkceResult").textContent =
               `Code Verifier: ${data.codeVerifier.substring(0, 20)}...\n` +
               `Code Challenge: ${data.codeChallenge.substring(0, 20)}...\n` +
               `State: ${data.state}\n` +
-              `B2C Auth URL: ${data.authorizationUrls.azureB2C}`;
+              `Policies: ${JSON.stringify(data.b2cPolicies || {}, null, 2)}\n` +
+              `B2C (default): ${data.authorizationUrls.azureB2C}\n` +
+              (data.authorizationUrls.azureB2CSignIn
+                ? `B2C sign-in: ${data.authorizationUrls.azureB2CSignIn}\n`
+                : "") +
+              (data.authorizationUrls.azureB2CSignUp
+                ? `B2C sign-up: ${data.authorizationUrls.azureB2CSignUp}\n`
+                : "") +
+              (data.authorizationUrls.azureB2CPasswordReset
+                ? `B2C password reset: ${data.authorizationUrls.azureB2CPasswordReset}\n`
+                : "");
 
             document.getElementById("authBtn").disabled = false;
+            document.getElementById("authBtnSignIn").disabled = false;
+            document.getElementById("authBtnSignUp").disabled = false;
+            document.getElementById("authBtnPasswordReset").disabled = false;
           } else {
             throw new Error(data.message || "Failed to generate PKCE");
           }
@@ -175,22 +205,36 @@
         }
       }
 
-      // Start authentication
-      function startAuth() {
-        if (pkceData && pkceData.authorizationUrls.azureB2C) {
-          document.getElementById("authResult").style.display = "block";
-          document.getElementById("authResult").className = "result info";
-          document.getElementById("authResult").textContent =
-            `Opening authentication URL...\n` +
-            `URL: ${pkceData.authorizationUrls.azureB2C}\n\n` +
-            `After authentication, you'll be redirected back with a code.\n` +
-            `Copy the 'code' parameter from the URL and paste it in Step 3.`;
-
-          // Open auth URL in new window
-          window.open(pkceData.authorizationUrls.azureB2C, "_blank");
-
-          document.getElementById("completeBtn").disabled = false;
+      // Start authentication (which URL you open must match Step 3: same flow / policy on the server)
+      function startAuth(kind) {
+        if (!pkceData || !pkceData.authorizationUrls.azureB2C) return;
+        const urls = pkceData.authorizationUrls;
+        let url = urls.azureB2C;
+        if (kind === "signin" && urls.azureB2CSignIn) {
+          url = urls.azureB2CSignIn;
+          pkceLastFlow = "signin";
+        } else if (kind === "signup" && urls.azureB2CSignUp) {
+          url = urls.azureB2CSignUp;
+          pkceLastFlow = "signup";
+        } else if (kind === "password-reset" && urls.azureB2CPasswordReset) {
+          url = urls.azureB2CPasswordReset;
+          pkceLastFlow = "password-reset";
+        } else {
+          pkceLastFlow = null;
         }
+        document.getElementById("authResult").style.display = "block";
+        document.getElementById("authResult").className = "result info";
+        document.getElementById("authResult").textContent =
+          `Opening authentication URL...\n` +
+          `URL: ${url}\n` +
+          (pkceLastFlow
+            ? `\n(Using flow "${pkceLastFlow}" for token exchange in Step 3)\n`
+            : "\n(Using default policy for token exchange in Step 3)\n") +
+          `\nAfter authentication, copy the 'code' from the redirect URL into Step 3.`;
+
+        window.open(url, "_blank");
+        localStorage.setItem("pkceLastFlow", pkceLastFlow || "");
+        document.getElementById("completeBtn").disabled = false;
       }
 
       // Complete authentication
@@ -216,6 +260,7 @@
             body: JSON.stringify({
               code: authCode,
               codeVerifier: pkceData.codeVerifier,
+              ...(pkceLastFlow ? { flow: pkceLastFlow } : {}),
             }),
           });
 
@@ -245,6 +290,8 @@
 
             // Clear PKCE data from localStorage after successful authentication
             localStorage.removeItem("pkceData");
+            localStorage.removeItem("pkceLastFlow");
+            pkceLastFlow = null;
           } else {
             document.getElementById("completeResult").className =
               "result error";
@@ -317,6 +364,11 @@
         if (storedPkceData) {
           try {
             pkceData = JSON.parse(storedPkceData);
+            const lf = localStorage.getItem("pkceLastFlow");
+            pkceLastFlow =
+              lf === "signin" || lf === "signup" || lf === "password-reset"
+                ? lf
+                : null;
             console.log("Restored PKCE data from localStorage");
 
             // Show PKCE info
@@ -328,9 +380,15 @@
                 20
               )}...\n` +
               `State: ${pkceData.state}\n` +
+              (pkceLastFlow
+                ? `Last opened flow (for POST): ${pkceLastFlow}\n`
+                : "") +
               `B2C Auth URL: ${pkceData.authorizationUrls.azureB2C}`;
 
             document.getElementById("authBtn").disabled = false;
+            document.getElementById("authBtnSignIn").disabled = false;
+            document.getElementById("authBtnSignUp").disabled = false;
+            document.getElementById("authBtnPasswordReset").disabled = false;
           } catch (error) {
             console.error("Failed to restore PKCE data:", error);
             localStorage.removeItem("pkceData");

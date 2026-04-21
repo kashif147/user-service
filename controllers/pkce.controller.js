@@ -1,5 +1,13 @@
 const crypto = require("crypto");
 const { AppError } = require("../errors/AppError");
+const {
+  resolveB2CPolicy,
+  b2cAuthorizationUrl,
+  getDefaultPolicy,
+  getSignInPolicy,
+  getSignUpPolicy,
+  getPasswordResetPolicy,
+} = require("../helpers/b2cPolicy");
 
 /**
  * Generate PKCE parameters for Azure AD authentication
@@ -46,26 +54,27 @@ module.exports.generatePKCE = async (req, res, next) => {
       `code_challenge=${codeChallenge}&` +
       `code_challenge_method=S256`;
 
-    // B2C authorization URL
-    const b2cTenantId = process.env.MS_TENANT_NAME || "projectshellAB2C";
-    const policy =
-      process.env.MS_POLICY ||
-      process.env.MS_POLICY_NAME ||
-      "B2C_1_projectshell";
-    const b2cClientId =
-      process.env.MS_CLIENT_ID || "e3688a2f-3956-42f9-8c98-6fea7a60a5b4";
-    const b2cRedirectUri =
-      process.env.MS_REDIRECT_URI || "http://localhost:3000";
+    const pkceQuery = { state, codeChallenge };
+    let selectedPolicy;
+    try {
+      selectedPolicy = resolveB2CPolicy({
+        flow: req.query.flow,
+        policy: req.query.policy,
+      });
+    } catch (e) {
+      return next(AppError.badRequest(e.message));
+    }
 
-    const b2cAuthUrl =
-      `https://${b2cTenantId}.b2clogin.com/${b2cTenantId}.onmicrosoft.com/${policy}/oauth2/v2.0/authorize?` +
-      `client_id=${b2cClientId}&` +
-      `response_type=code&` +
-      `redirect_uri=${encodeURIComponent(b2cRedirectUri)}&` +
-      `scope=${encodeURIComponent("openid offline_access")}&` +
-      `state=${state}&` +
-      `code_challenge=${codeChallenge}&` +
-      `code_challenge_method=S256`;
+    const b2cAuthUrl = b2cAuthorizationUrl(selectedPolicy, pkceQuery);
+    const signInPolicy = getSignInPolicy();
+    const signUpPolicy = getSignUpPolicy();
+    const b2cAuthUrlSignIn = b2cAuthorizationUrl(signInPolicy, pkceQuery);
+    const b2cAuthUrlSignUp = b2cAuthorizationUrl(signUpPolicy, pkceQuery);
+    const passwordResetPolicy = getPasswordResetPolicy();
+    const b2cAuthUrlPasswordReset = b2cAuthorizationUrl(
+      passwordResetPolicy,
+      pkceQuery,
+    );
 
     res.json({
       success: true,
@@ -73,17 +82,28 @@ module.exports.generatePKCE = async (req, res, next) => {
       codeChallenge,
       codeChallengeMethod: "S256",
       state,
+      b2cPolicies: {
+        default: getDefaultPolicy(),
+        selected: selectedPolicy,
+        signIn: signInPolicy,
+        signUp: signUpPolicy,
+        passwordReset: passwordResetPolicy,
+      },
       authorizationUrls: {
         azureAD: azureADAuthUrl,
         azureB2C: b2cAuthUrl,
+        azureB2CSignIn: b2cAuthUrlSignIn,
+        azureB2CSignUp: b2cAuthUrlSignUp,
+        azureB2CPasswordReset: b2cAuthUrlPasswordReset,
       },
       instructions: {
         step1:
-          "Use the authorization URL to authenticate with Azure AD or Azure B2C",
+          "Open the B2C URL for the journey you need. Optional: GET /pkce/generate?flow=signin|signup|password-reset or ?policy=B2C_1_YourFlow",
         step2: "Copy the 'code' parameter from the redirect URL",
         step3:
-          "Use the code and codeVerifier in your token exchange request. The response will include an 'accessToken' field containing the Bearer token for API authentication (works for both Azure AD and Azure B2C)",
-        step4: "Send POST request to /auth/azure-portal or /auth/azure-b2c",
+          "POST /auth/azure-portal with the same flow or policy you used to obtain the code (body: code, codeVerifier, and optionally flow or policy)",
+        step4:
+          "flow must match the user flow that issued the code (signin, signup, password-reset), or send policy explicitly",
       },
     });
   } catch (error) {
