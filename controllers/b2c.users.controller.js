@@ -3,6 +3,7 @@ const jwtHelper = require("../helpers/jwt");
 const { encryptToken } = require("../helpers/tokenEncryption");
 const { AppError } = require("../errors/AppError");
 const { resolveB2CPolicy } = require("../helpers/b2cPolicy");
+const { takePolicyForState } = require("../helpers/pkceStateStore");
 
 function getFrontendBaseUrl() {
   if (!process.env.MS_REDIRECT_URI) {
@@ -86,13 +87,32 @@ module.exports.handleMicrosoftCallback = async (req, res, next) => {
 
     let policyName;
     try {
-      policyName = resolveB2CPolicy({
-        flow: req.body.flow,
-        policy: req.body.policy,
-      });
+      if (req.body.policy != null && String(req.body.policy).trim() !== "") {
+        policyName = resolveB2CPolicy({
+          policy: req.body.policy,
+          flow: undefined,
+        });
+      } else {
+        const fromState = takePolicyForState(req.body.state);
+        if (fromState) {
+          policyName = fromState;
+        } else {
+          policyName = resolveB2CPolicy({
+            flow: req.body.flow,
+            policy: undefined,
+          });
+        }
+      }
     } catch (e) {
       return next(AppError.badRequest(e.message));
     }
+
+    console.log("B2C /auth/azure-portal", {
+      resolvedPolicy: policyName,
+      flow: req.body.flow,
+      bodyPolicy: req.body.policy,
+      usedStateBinding: Boolean(req.body.state),
+    });
 
     const { user, tokens } = await B2CUsersHandler.handleB2CAuth(
       code,
@@ -126,6 +146,27 @@ module.exports.handleMicrosoftCallback = async (req, res, next) => {
     console.error("Microsoft Auth Error:", error);
     const oauthDetail =
       error.response?.data?.error_description || error.response?.data?.error;
+    const detailStr = String(oauthDetail || "");
+    if (
+      detailStr.includes("AADB2C90088") ||
+      (error.response?.data?.error === "invalid_grant" &&
+        detailStr.includes("not been issued for this endpoint"))
+    ) {
+      return next(
+        AppError.badRequest(
+          "B2C user flow mismatch: the token endpoint used a different policy than the one that issued the code. " +
+            "Use the same `flow` or `policy` in POST as for GET /pkce/generate (e.g. flow=gmail, flow=signup, or policy=...). " +
+            "If the app sends two POSTs (e.g. React StrictMode), the second can fail: dedupe the callback.",
+          {
+            code: "B2C_POLICY_MISMATCH",
+            extras:
+              process.env.NODE_ENV !== "production"
+                ? { oauth: error.response?.data }
+                : undefined,
+          },
+        ),
+      );
+    }
     const devExtras =
       process.env.NODE_ENV !== "production"
         ? {

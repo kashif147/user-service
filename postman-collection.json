@@ -24,6 +24,12 @@
       "description": "From GET /pkce/generate response"
     },
     {
+      "key": "b2cOAuthState",
+      "value": "",
+      "type": "string",
+      "description": "state query param from B2C redirect; maps to the correct B2C policy (same PKCE, per-policy state)"
+    },
+    {
       "key": "azureAdAuthCode",
       "value": "",
       "type": "string"
@@ -151,7 +157,7 @@
               }
             },
             {
-              "name": "B2C POST /auth/azure-portal (default policy)",
+              "name": "B2C POST /auth/azure-portal (code + verifier + state)",
               "request": {
                 "method": "POST",
                 "header": [
@@ -159,14 +165,14 @@
                 ],
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"code\": \"{{b2cAuthCode}}\",\n  \"codeVerifier\": \"{{b2cCodeVerifier}}\"\n}"
+                  "raw": "{\n  \"code\": \"{{b2cAuthCode}}\",\n  \"codeVerifier\": \"{{b2cCodeVerifier}}\",\n  \"state\": \"{{b2cOAuthState}}\"\n}"
                 },
                 "url": {
                   "raw": "{{baseUrl}}/auth/azure-portal",
                   "host": ["{{baseUrl}}"],
                   "path": ["auth", "azure-portal"]
                 },
-                "description": "Omits flow → MS_POLICY / MS_POLICY_NAME default."
+                "description": "state from redirect = correct B2C user flow. flow/policy optional. Without state+mapping, use flow= or policy=."
               }
             },
             {

@@ -152,6 +152,8 @@
       let authResult = null;
       /** @type {null | 'signin' | 'signup' | 'password-reset'} set by Step 2 so Step 3 POST uses the same user flow */
       let pkceLastFlow = null;
+      /** B2C redirect `state` (may differ from pkceData.state if you used Sign-in vs Sign-up URL) */
+      let oauthRedirectState = null;
 
       // Load configuration
       async function loadConfig() {
@@ -260,6 +262,10 @@
             body: JSON.stringify({
               code: authCode,
               codeVerifier: pkceData.codeVerifier,
+              state:
+                oauthRedirectState ||
+                new URLSearchParams(window.location.search).get("state") ||
+                pkceData.state,
               ...(pkceLastFlow ? { flow: pkceLastFlow } : {}),
             }),
           });
@@ -419,21 +425,22 @@
             code.substring(0, 50) + "..."
           );
           document.getElementById("authCode").value = code;
+          oauthRedirectState = state;
 
           // Enable complete button if we have both code and PKCE data
           if (pkceData) {
             document.getElementById("completeBtn").disabled = false;
 
-            // Automatically complete authentication if we have both code and PKCE data
-            if (pkceData.state === state) {
+            // Each authorize URL has its own state; server maps state -> policy. Auto-complete if PKCE is loaded.
+            if (state) {
               console.log(
-                "✅ State matches, automatically completing authentication..."
+                "✅ B2C state from redirect (maps to user flow on server):",
+                state
               );
-              completeAuth();
-              return;
-            } else {
-              console.log("⚠️ State mismatch, manual completion required");
             }
+            console.log("✅ Completing authentication (state sent in POST)...");
+            completeAuth();
+            return;
           }
 
           // Show success message
