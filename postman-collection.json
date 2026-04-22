@@ -7,8 +7,37 @@
   "variable": [
     {
       "key": "baseUrl",
-      "value": "http://localhost:3000",
+      "value": "http://localhost:5001",
+      "type": "string",
+      "description": "User-service root (or gateway URL e.g. https://host/user-service)"
+    },
+    {
+      "key": "b2cAuthCode",
+      "value": "",
+      "type": "string",
+      "description": "Authorization code from B2C redirect"
+    },
+    {
+      "key": "b2cCodeVerifier",
+      "value": "",
+      "type": "string",
+      "description": "From GET /pkce/generate response"
+    },
+    {
+      "key": "azureAdAuthCode",
+      "value": "",
       "type": "string"
+    },
+    {
+      "key": "azureAdCodeVerifier",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "azureAdRedirectUri",
+      "value": "http://localhost:3000/auth/azure-crm",
+      "type": "string",
+      "description": "Must match AZURE_AD_REDIRECT_URI used in authorize request"
     },
     {
       "key": "authToken",
@@ -50,60 +79,189 @@
       "name": "Authentication",
       "item": [
         {
-          "name": "Azure AD CRM Login",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/auth/azure-crm",
-              "host": ["{{baseUrl}}"],
-              "path": ["auth", "azure-crm"]
-            }
-          }
-        },
-        {
-          "name": "Azure AD CRM Callback",
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"code\": \"auth_code_here\",\n  \"state\": \"state_value\"\n}"
+          "name": "Azure AD (CRM)",
+          "item": [
+            {
+              "name": "Azure AD GET /auth/azure-crm",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/auth/azure-crm",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["auth", "azure-crm"]
+                },
+                "description": "Callback route; SPA builds login.microsoftonline.com authorize with PKCE."
+              }
             },
-            "url": {
-              "raw": "{{baseUrl}}/auth/azure-crm",
-              "host": ["{{baseUrl}}"],
-              "path": ["auth", "azure-crm"]
+            {
+              "name": "Azure AD POST /auth/azure-crm (token exchange)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"code\": \"{{azureAdAuthCode}}\",\n  \"codeVerifier\": \"{{azureAdCodeVerifier}}\",\n  \"redirectUri\": \"{{azureAdRedirectUri}}\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/auth/azure-crm",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["auth", "azure-crm"]
+                },
+                "description": "redirectUri optional; must match the redirect_uri used when obtaining code. Uses AZURE_AD_* env."
+              }
             }
-          }
+          ]
         },
         {
-          "name": "Azure B2C Portal Login",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/auth/azure-portal",
-              "host": ["{{baseUrl}}"],
-              "path": ["auth", "azure-portal"]
-            }
-          }
-        },
-        {
-          "name": "Azure B2C Portal Callback",
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"code\": \"auth_code_here\",\n  \"state\": \"state_value\"\n}"
+          "name": "Azure B2C (Portal)",
+          "item": [
+            {
+              "name": "B2C GET /auth/azure-portal (browser redirect)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/auth/azure-portal",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["auth", "azure-portal"]
+                },
+                "description": "OAuth redirect target after B2C returns ?code=&state= to MS_REDIRECT_URI."
+              }
             },
-            "url": {
-              "raw": "{{baseUrl}}/auth/azure-portal",
-              "host": ["{{baseUrl}}"],
-              "path": ["auth", "azure-portal"]
+            {
+              "name": "B2C GET /auth/azure-portal (mobile JSON)",
+              "request": {
+                "method": "GET",
+                "header": [
+                  { "key": "Accept", "value": "application/json" }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/auth/azure-portal?code=&state=",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["auth", "azure-portal"],
+                  "query": [
+                    { "key": "code", "value": "" },
+                    { "key": "state", "value": "" }
+                  ]
+                },
+                "description": "With Accept: application/json returns JSON code/state instead of redirect."
+              }
+            },
+            {
+              "name": "B2C POST /auth/azure-portal (default policy)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"code\": \"{{b2cAuthCode}}\",\n  \"codeVerifier\": \"{{b2cCodeVerifier}}\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/auth/azure-portal",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["auth", "azure-portal"]
+                },
+                "description": "Omits flow → MS_POLICY / MS_POLICY_NAME default."
+              }
+            },
+            {
+              "name": "B2C POST /auth/azure-portal flow=signin",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"code\": \"{{b2cAuthCode}}\",\n  \"codeVerifier\": \"{{b2cCodeVerifier}}\",\n  \"flow\": \"signin\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/auth/azure-portal",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["auth", "azure-portal"]
+                }
+              }
+            },
+            {
+              "name": "B2C POST /auth/azure-portal flow=signup",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"code\": \"{{b2cAuthCode}}\",\n  \"codeVerifier\": \"{{b2cCodeVerifier}}\",\n  \"flow\": \"signup\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/auth/azure-portal",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["auth", "azure-portal"]
+                }
+              }
+            },
+            {
+              "name": "B2C POST /auth/azure-portal flow=password-reset",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"code\": \"{{b2cAuthCode}}\",\n  \"codeVerifier\": \"{{b2cCodeVerifier}}\",\n  \"flow\": \"password-reset\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/auth/azure-portal",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["auth", "azure-portal"]
+                }
+              }
+            },
+            {
+              "name": "B2C POST /auth/azure-portal flow=gmail (Google combined)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"code\": \"{{b2cAuthCode}}\",\n  \"codeVerifier\": \"{{b2cCodeVerifier}}\",\n  \"flow\": \"gmail\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/auth/azure-portal",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["auth", "azure-portal"]
+                },
+                "description": "Requires MS_POLICY_GMAIL_COMBINED. Same as policy=B2C_1_..._gmail for one-button sign-in+sign-up."
+              }
+            },
+            {
+              "name": "B2C POST /auth/azure-portal policy=explicit",
+              "request": {
+                "method": "POST",
+                "header": [
+                  { "key": "Content-Type", "value": "application/json" }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"code\": \"{{b2cAuthCode}}\",\n  \"codeVerifier\": \"{{b2cCodeVerifier}}\",\n  \"policy\": \"B2C_1_projectshell_signin\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/auth/azure-portal",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["auth", "azure-portal"]
+                },
+                "description": "policy must be in allowlist (MS_POLICY_*, MS_B2C_POLICIES, defaults)."
+              }
             }
-          }
+          ]
         },
         {
           "name": "General CRM Register",
@@ -1273,7 +1431,7 @@
       "name": "PKCE",
       "item": [
         {
-          "name": "Generate PKCE",
+          "name": "Generate PKCE (default B2C policy)",
           "request": {
             "method": "GET",
             "header": [],
@@ -1281,6 +1439,84 @@
               "raw": "{{baseUrl}}/pkce/generate",
               "host": ["{{baseUrl}}"],
               "path": ["pkce", "generate"]
+            },
+            "description": "Returns codeVerifier, state, authorizationUrls (azureAD, azureB2C, azureB2CSignIn, azureB2CSignUp, azureB2CPasswordReset), b2cPolicies."
+          }
+        },
+        {
+          "name": "Generate PKCE ?flow=signin",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/pkce/generate?flow=signin",
+              "host": ["{{baseUrl}}"],
+              "path": ["pkce", "generate"],
+              "query": [{ "key": "flow", "value": "signin" }]
+            }
+          }
+        },
+        {
+          "name": "Generate PKCE ?flow=signup",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/pkce/generate?flow=signup",
+              "host": ["{{baseUrl}}"],
+              "path": ["pkce", "generate"],
+              "query": [{ "key": "flow", "value": "signup" }]
+            }
+          }
+        },
+        {
+          "name": "Generate PKCE ?flow=password-reset",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/pkce/generate?flow=password-reset",
+              "host": ["{{baseUrl}}"],
+              "path": ["pkce", "generate"],
+              "query": [{ "key": "flow", "value": "password-reset" }]
+            }
+          }
+        },
+        {
+          "name": "Generate PKCE ?flow=gmail (Google combined)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/pkce/generate?flow=gmail",
+              "host": ["{{baseUrl}}"],
+              "path": ["pkce", "generate"],
+              "query": [
+                {
+                  "key": "flow",
+                  "value": "gmail",
+                  "description": "Requires MS_POLICY_GMAIL_COMBINED. Response may include authorizationUrls.azureB2CGmailCombined"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Generate PKCE ?policy=explicit",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/pkce/generate?policy=B2C_1_projectshell_signin",
+              "host": ["{{baseUrl}}"],
+              "path": ["pkce", "generate"],
+              "query": [
+                {
+                  "key": "policy",
+                  "value": "B2C_1_projectshell_signin",
+                  "description": "Must be allowlisted via env"
+                }
+              ]
             }
           }
         }

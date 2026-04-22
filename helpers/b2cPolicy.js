@@ -23,6 +23,14 @@ function getPasswordResetPolicy() {
   return process.env.MS_POLICY_PASSWORD_RESET || getDefaultPolicy();
 }
 
+/**
+ * Google-only (or other) combined sign-in/sign-up user flow, e.g. one SPA button.
+ * Set MS_POLICY_GMAIL_COMBINED to the B2C policy name; use POST/GET flow=gmail|google|gmail-combined.
+ */
+function getGmailCombinedPolicy() {
+  return process.env.MS_POLICY_GMAIL_COMBINED || getDefaultPolicy();
+}
+
 function getAllowedPolicies() {
   const set = new Set();
   const add = (p) => {
@@ -34,6 +42,7 @@ function getAllowedPolicies() {
   add(process.env.MS_POLICY_SIGNIN);
   add(process.env.MS_POLICY_SIGNUP);
   add(process.env.MS_POLICY_PASSWORD_RESET);
+  add(process.env.MS_POLICY_GMAIL_COMBINED);
   (process.env.MS_B2C_POLICIES || "")
     .split(",")
     .forEach((s) => add(s));
@@ -60,7 +69,7 @@ function resolveB2CPolicy(input = {}) {
     }
     if (!allowed.has(p)) {
       throw new Error(
-        "Policy is not enabled for this application. Set MS_POLICY_SIGNIN, MS_POLICY_SIGNUP, MS_POLICY_PASSWORD_RESET, MS_B2C_POLICIES, or MS_POLICY / MS_POLICY_NAME.",
+        "Policy is not enabled for this application. Set MS_POLICY_SIGNIN, MS_POLICY_SIGNUP, MS_POLICY_PASSWORD_RESET, MS_POLICY_GMAIL_COMBINED, MS_B2C_POLICIES, or MS_POLICY / MS_POLICY_NAME.",
       );
     }
     return p;
@@ -82,8 +91,11 @@ function resolveB2CPolicy(input = {}) {
     ) {
       return getPasswordResetPolicy();
     }
+    if (f === "gmail" || f === "google" || f === "gmail-combined") {
+      return getGmailCombinedPolicy();
+    }
     throw new Error(
-      'flow must be "signin", "signup", "password-reset", "login", "register", or "reset" (or send policy explicitly)',
+      'flow must be "signin", "signup", "gmail", "google", "password-reset", "login", "register", or "reset" (or send policy explicitly)',
     );
   }
 
@@ -124,6 +136,7 @@ module.exports = {
   getSignInPolicy,
   getSignUpPolicy,
   getPasswordResetPolicy,
+  getGmailCombinedPolicy,
   getAllowedPolicies,
   resolveB2CPolicy,
   b2cTokenEndpoint,

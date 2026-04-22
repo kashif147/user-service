@@ -7,6 +7,7 @@ const {
   getSignInPolicy,
   getSignUpPolicy,
   getPasswordResetPolicy,
+  getGmailCombinedPolicy,
 } = require("../helpers/b2cPolicy");
 
 /**
@@ -76,34 +77,46 @@ module.exports.generatePKCE = async (req, res, next) => {
       pkceQuery,
     );
 
+    const b2cPolicies = {
+      default: getDefaultPolicy(),
+      selected: selectedPolicy,
+      signIn: signInPolicy,
+      signUp: signUpPolicy,
+      passwordReset: passwordResetPolicy,
+    };
+    const authorizationUrls = {
+      azureAD: azureADAuthUrl,
+      azureB2C: b2cAuthUrl,
+      azureB2CSignIn: b2cAuthUrlSignIn,
+      azureB2CSignUp: b2cAuthUrlSignUp,
+      azureB2CPasswordReset: b2cAuthUrlPasswordReset,
+    };
+
+    if (process.env.MS_POLICY_GMAIL_COMBINED) {
+      const gmailPolicy = getGmailCombinedPolicy();
+      b2cPolicies.gmailCombined = gmailPolicy;
+      authorizationUrls.azureB2CGmailCombined = b2cAuthorizationUrl(
+        gmailPolicy,
+        pkceQuery,
+      );
+    }
+
     res.json({
       success: true,
       codeVerifier,
       codeChallenge,
       codeChallengeMethod: "S256",
       state,
-      b2cPolicies: {
-        default: getDefaultPolicy(),
-        selected: selectedPolicy,
-        signIn: signInPolicy,
-        signUp: signUpPolicy,
-        passwordReset: passwordResetPolicy,
-      },
-      authorizationUrls: {
-        azureAD: azureADAuthUrl,
-        azureB2C: b2cAuthUrl,
-        azureB2CSignIn: b2cAuthUrlSignIn,
-        azureB2CSignUp: b2cAuthUrlSignUp,
-        azureB2CPasswordReset: b2cAuthUrlPasswordReset,
-      },
+      b2cPolicies,
+      authorizationUrls,
       instructions: {
         step1:
-          "Open the B2C URL for the journey you need. Optional: GET /pkce/generate?flow=signin|signup|password-reset or ?policy=B2C_1_YourFlow",
+          "Open the B2C URL for the journey. GET /pkce/generate?flow=signin|signup|gmail|password-reset or ?policy=B2C_1_YourFlow. Single Google button: set MS_POLICY_GMAIL_COMBINED and use flow=gmail (or that authorize URL) then POST with flow=gmail",
         step2: "Copy the 'code' parameter from the redirect URL",
         step3:
           "POST /auth/azure-portal with the same flow or policy you used to obtain the code (body: code, codeVerifier, and optionally flow or policy)",
         step4:
-          "flow must match the user flow that issued the code (signin, signup, password-reset), or send policy explicitly",
+          "The token endpoint policy must match the user flow that issued the code, or you get AADB2C90088",
       },
     });
   } catch (error) {
