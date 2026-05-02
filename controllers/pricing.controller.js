@@ -7,6 +7,16 @@ const {
   publishPricingDeleted,
 } = require("../rabbitMQ/publishers/product.publisher");
 
+/** Period has ended before today (calendar dates in local TZ). Open-ended (no effectiveTo) is never "historical". */
+function isPricingPeriodFullyEnded(pricing) {
+  if (!pricing.effectiveTo) return false;
+  const end = new Date(pricing.effectiveTo);
+  const endDay = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return endDay < todayStart;
+}
+
 const getAllPricing = async (req, res, next) => {
   try {
     const { tenantId } = req.ctx;
@@ -457,6 +467,87 @@ const updatePricing = async (req, res, next) => {
       return res.notFoundRecord("Pricing not found");
     }
 
+    const ended = isPricingPeriodFullyEnded(pricing);
+
+    if (ended) {
+      const forbiddenFieldPresent = [
+        "currency",
+        "price",
+        "memberPrice",
+        "nonMemberPrice",
+        "effectiveFrom",
+        "effectiveTo",
+      ].some((k) => req.body[k] !== undefined);
+
+      if (forbiddenFieldPresent) {
+        return next(
+          AppError.badRequest(
+            "Historical pricing can only be deactivated or reactivated (status change only)."
+          )
+        );
+      }
+      if (status === undefined) {
+        return next(
+          AppError.badRequest(
+            "Provide status to update historical pricing (e.g. Inactive to deactivate)."
+          )
+        );
+      }
+
+      pricing.status = status;
+      pricing.isActive = status === "Active";
+      pricing.updatedBy = userId;
+
+      await pricing.save();
+
+      const updatedPricing = await Pricing.findById(pricing._id)
+        .populate("productId", "name code description")
+        .populate("createdBy", "firstName lastName email")
+        .populate("updatedBy", "firstName lastName email");
+
+      await publishPricingUpdated(updatedPricing);
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          _id: updatedPricing._id,
+          product: updatedPricing.productId
+            ? {
+                _id: updatedPricing.productId._id,
+                name: updatedPricing.productId.name,
+                code: updatedPricing.productId.code,
+                description: updatedPricing.productId.description,
+              }
+            : null,
+          currency: updatedPricing.currency,
+          price: updatedPricing.price,
+          memberPrice: updatedPricing.memberPrice,
+          nonMemberPrice: updatedPricing.nonMemberPrice,
+          effectiveFrom: updatedPricing.effectiveFrom,
+          effectiveTo: updatedPricing.effectiveTo,
+          status: updatedPricing.status,
+          isActive: updatedPricing.isActive,
+          createdBy: updatedPricing.createdBy
+            ? {
+                _id: updatedPricing.createdBy._id,
+                name: `${updatedPricing.createdBy.firstName} ${updatedPricing.createdBy.lastName}`,
+                email: updatedPricing.createdBy.email,
+              }
+            : null,
+          updatedBy: updatedPricing.updatedBy
+            ? {
+                _id: updatedPricing.updatedBy._id,
+                name: `${updatedPricing.updatedBy.firstName} ${updatedPricing.updatedBy.lastName}`,
+                email: updatedPricing.updatedBy.email,
+              }
+            : null,
+          createdAt: updatedPricing.createdAt,
+          updatedAt: updatedPricing.updatedAt,
+        },
+        message: "Pricing updated successfully",
+      });
+    }
+
     // Check for overlapping pricing periods (excluding current record)
     if (effectiveFrom || effectiveTo) {
       const newEffectiveFrom = effectiveFrom
@@ -573,6 +664,14 @@ const deletePricing = async (req, res, next) => {
       return res.notFoundRecord("Pricing not found");
     }
 
+    if (isPricingPeriodFullyEnded(pricing)) {
+      return next(
+        AppError.badRequest(
+          "Cannot delete historical pricing. Set status to Inactive to deactivate it."
+        )
+      );
+    }
+
     // Soft delete
     pricing.isDeleted = true;
     pricing.isActive = false;
@@ -580,7 +679,22 @@ const deletePricing = async (req, res, next) => {
     pricing.updatedBy = userId;
     await pricing.save();
 
-    await publishPricingDeleted(pricing);
+    const populatedForPublish = await Pricing.findById(pricing._id)
+      .populate("productId", "name code description")
+      .populate("createdBy", "firstName lastName email")
+      .populate("updatedBy", "firstName lastName email");
+
+    if (!populatedForPublish) {
+      return next(
+        AppError.internalServerError(
+          "Pricing could not be loaded for domain publish after delete"
+        )
+      );
+    }
+
+    // Account-service (and others): full snapshot with isDeleted/isActive/status
+    await publishPricingUpdated(populatedForPublish);
+    await publishPricingDeleted(populatedForPublish);
 
     res.status(200).json({
       success: true,
