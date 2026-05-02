@@ -1,5 +1,23 @@
 const { publishDomainEvent, EVENT_TYPES } = require("../index");
 
+/** Always emit a 24-char hex id for RabbitMQ JSON (never populated subdocs / inspect strings). */
+function toRefIdString(ref) {
+  if (ref == null || ref === "") return undefined;
+  if (typeof ref === "string") {
+    const t = ref.trim();
+    return /^[a-fA-F0-9]{24}$/.test(t) ? t : undefined;
+  }
+  if (typeof ref === "object") {
+    const nested = ref._id ?? ref.id;
+    if (nested != null && nested !== ref) return toRefIdString(nested);
+  }
+  if (typeof ref?.toString === "function") {
+    const s = ref.toString().trim();
+    if (/^[a-fA-F0-9]{24}$/.test(s)) return s;
+  }
+  return undefined;
+}
+
 function buildProductTypePayload(productType) {
   return {
     productTypeId: productType._id.toString(),
@@ -10,8 +28,8 @@ function buildProductTypePayload(productType) {
     isActive: productType.isActive,
     isDeleted: productType.isDeleted,
     tenantId: productType.tenantId,
-    createdBy: productType.createdBy?.toString?.() || productType.createdBy,
-    updatedBy: productType.updatedBy?.toString?.() || productType.updatedBy,
+    createdBy: toRefIdString(productType.createdBy) ?? null,
+    updatedBy: toRefIdString(productType.updatedBy) ?? null,
     createdAt: productType.createdAt,
     updatedAt: productType.updatedAt,
   };
@@ -23,22 +41,29 @@ function buildProductPayload(product) {
     name: product.name,
     code: product.code,
     description: product.description,
-    productTypeId: product.productTypeId?.toString?.() || product.productTypeId,
+    productTypeId: toRefIdString(product.productTypeId) ?? null,
     status: product.status,
     isActive: product.isActive,
     isDeleted: product.isDeleted,
     tenantId: product.tenantId,
-    createdBy: product.createdBy?.toString?.() || product.createdBy,
-    updatedBy: product.updatedBy?.toString?.() || product.updatedBy,
+    createdBy: toRefIdString(product.createdBy) ?? null,
+    updatedBy: toRefIdString(product.updatedBy) ?? null,
     createdAt: product.createdAt,
     updatedAt: product.updatedAt,
   };
 }
 
 function buildPricingPayload(pricing) {
+  const pricingId = toRefIdString(pricing._id);
+  const productId = toRefIdString(pricing.productId);
+  if (!pricingId || !productId) {
+    throw new Error(
+      `Cannot publish pricing: invalid refs pricingId=${pricingId} productId=${productId}`
+    );
+  }
   return {
-    pricingId: pricing._id.toString(),
-    productId: pricing.productId?.toString?.() || pricing.productId,
+    pricingId,
+    productId,
     currency: pricing.currency,
     price: pricing.price,
     memberPrice: pricing.memberPrice,
@@ -49,8 +74,8 @@ function buildPricingPayload(pricing) {
     isActive: pricing.isActive,
     isDeleted: pricing.isDeleted,
     tenantId: pricing.tenantId,
-    createdBy: pricing.createdBy?.toString?.() || pricing.createdBy,
-    updatedBy: pricing.updatedBy?.toString?.() || pricing.updatedBy,
+    createdBy: toRefIdString(pricing.createdBy) ?? null,
+    updatedBy: toRefIdString(pricing.updatedBy) ?? null,
     createdAt: pricing.createdAt,
     updatedAt: pricing.updatedAt,
   };
