@@ -7,6 +7,7 @@
 var app = require("../app");
 var debug = require("debug")("user-service:server");
 var http = require("http");
+var { initEventSystem, setupConsumers } = require("../rabbitMQ");
 
 /**
  * Get port from environment and store in Express.
@@ -22,15 +23,33 @@ app.set("port", port);
 
 var server = http.createServer(app);
 
-/**
- * Listen on provided port, on all network interfaces.
- */
-
-server.listen(port, "0.0.0.0", () =>
-  console.log(`Server Running on Port: ${port}`)
-);
 server.on("error", onError);
 server.on("listening", onListening);
+
+/**
+ * RabbitMQ before listen so publishes (e.g. pricing.created.v1) are not skipped
+ * while the client is still uninitialized.
+ */
+(async function startServer() {
+  try {
+    await initEventSystem();
+    await setupConsumers();
+    console.log("✅ RabbitMQ event system initialized (user-service)");
+  } catch (err) {
+    console.error(
+      "❌ Failed to initialize RabbitMQ event system:",
+      err.message,
+      err.stack
+    );
+    console.warn(
+      "⚠️ Service will continue without RabbitMQ - events will not be published"
+    );
+  }
+
+  server.listen(port, "0.0.0.0", () =>
+    console.log(`Server Running on Port: ${port}`)
+  );
+})();
 
 /**
  * Normalize a port into a number, string, or false.

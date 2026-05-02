@@ -261,29 +261,6 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Initialize RabbitMQ event system (non-blocking, don't crash service if it fails)
-const { initEventSystem, setupConsumers } = require("./rabbitMQ");
-
-(async () => {
-  try {
-    await initEventSystem();
-    await setupConsumers();
-    console.log("✅ RabbitMQ event system initialized (user-service)");
-  } catch (err) {
-    console.error(
-      "❌ Failed to initialize RabbitMQ event system:",
-      err.message,
-      err.stack
-    );
-    console.warn("⚠️ Service will continue without RabbitMQ - events will not be published");
-    // Don't throw - allow service to continue without RabbitMQ
-    // Service can still function, just without event publishing/consuming
-  }
-})().catch((err) => {
-  console.error("❌ RabbitMQ initialization error (non-fatal):", err.message);
-  // Swallow error to prevent service crash
-});
-
 process.on("SIGINT", async () => {
   process.exit(0);
 });
