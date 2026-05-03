@@ -16,9 +16,9 @@ services:
     ports:
       - "5001:5001"
     volumes:
-      - ./logs:/app/logs
+      - ../../logs:/var/log/projectshell
     env_file:
-      - /home/deploy/config/.env.common
+      - ${ENV_COMMON_PATH:-../../config/.env.common}
       - .env.staging
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
