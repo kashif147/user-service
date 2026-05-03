@@ -73,6 +73,12 @@ const {
   corsErrorHandler,
 } = require("./config/cors");
 const crypto = require("crypto");
+const bizLogger = require("./config/bizLogger.js");
+const {
+  correlationIdMiddleware,
+  logErrorMiddleware,
+  createSystemLogsRouter,
+} = require("@projectShell/logging-lib");
 
 var app = express();
 
@@ -80,24 +86,26 @@ var app = express();
 // Note: /me endpoint has explicit ETag handling, this only affects other routes
 app.set("etag", false);
 
+app.use(correlationIdMiddleware);
+
 /**
- * 🔎 TEMPORARY DEBUG – MUST BE FIRST
- * Confirms gateway headers actually arrive at the service
- * Using console.log instead of console.error to avoid Application Insights suppression
+ * Gateway header debug – enable with LOG_GATEWAY_DEBUG=true
  */
-app.use((req, res, next) => {
-  console.log("==================================");
-  console.log("SERVICE HEADERS CHECK");
-  console.log("METHOD:", req.method);
-  console.log("PATH:", req.originalUrl);
-  console.log("x-jwt-verified:", req.headers["x-jwt-verified"]);
-  console.log("x-gateway-signature:", req.headers["x-gateway-signature"]);
-  console.log("x-gateway-timestamp:", req.headers["x-gateway-timestamp"]);
-  console.log("x-user-id:", req.headers["x-user-id"]);
-  console.log("x-tenant-id:", req.headers["x-tenant-id"]);
-  console.log("==================================");
-  next();
-});
+if (String(process.env.LOG_GATEWAY_DEBUG || "").toLowerCase() === "true") {
+  app.use((req, res, next) => {
+    console.log("==================================");
+    console.log("SERVICE HEADERS CHECK");
+    console.log("METHOD:", req.method);
+    console.log("PATH:", req.originalUrl);
+    console.log("x-jwt-verified:", req.headers["x-jwt-verified"]);
+    console.log("x-gateway-signature:", req.headers["x-gateway-signature"]);
+    console.log("x-gateway-timestamp:", req.headers["x-gateway-timestamp"]);
+    console.log("x-user-id:", req.headers["x-user-id"]);
+    console.log("x-tenant-id:", req.headers["x-tenant-id"]);
+    console.log("==================================");
+    next();
+  });
+}
 
 app.use(responseMiddleware);
 
@@ -105,6 +113,8 @@ mongooseConnection();
 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json({ limit: "200mb" }));
+
+app.use("/api", createSystemLogsRouter(bizLogger));
 
 // Logger middleware should be after body parsing to log request bodies
 app.use(loggerMiddleware);
@@ -167,6 +177,8 @@ app.use("/", require("./routes/index"));
 app.use(function (req, res, next) {
   next(createError(404));
 });
+
+app.use(logErrorMiddleware(bizLogger));
 
 // Enhanced error handler for AppError and other errors
 app.use((err, req, res, next) => {
