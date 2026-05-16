@@ -24,6 +24,11 @@ const lookupTypeSchema = new mongoose.Schema({
     minlength: 3,
     maxlength: 50
   },
+  ParentlookuptypeId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "LookupType",
+    default: null,
+  },
   isdeleted: {
     type: Boolean,
     default: false
@@ -40,6 +45,8 @@ const lookupTypeSchema = new mongoose.Schema({
 }, {
   timestamps: true
 });
+
+lookupTypeSchema.index({ ParentlookuptypeId: 1 });
 
 module.exports = mongoose.model('LookupType', lookupTypeSchema);
 

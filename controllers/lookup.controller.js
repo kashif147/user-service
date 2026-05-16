@@ -1,55 +1,214 @@
 const Lookup = require("../models/lookup.model");
+const LookupType = require("../models/lookupType.model");
 const { AppError } = require("../errors/AppError");
 const lookupCacheService = require("../services/lookupCacheService");
 const mongoose = require("mongoose");
-// const { publishEvent } = require("message-bus");
+
+const LOOKUP_TYPE_SELECT = "code lookuptype displayname ParentlookuptypeId";
+const LOOKUP_TYPE_POPULATE = {
+  path: "ParentlookuptypeId",
+  select: "code lookuptype displayname",
+};
+
+const LOOKUP_QUERY_POPULATE = [
+  {
+    path: "lookuptypeId",
+    select: LOOKUP_TYPE_SELECT,
+    populate: LOOKUP_TYPE_POPULATE,
+  },
+  {
+    path: "Parentlookupid",
+    select: "code lookupname DisplayName lookuptypeId",
+    populate: {
+      path: "lookuptypeId",
+      select: "code lookuptype displayname",
+    },
+  },
+  {
+    path: "officer",
+    select: "userEmail userFirstName userLastName userFullName",
+  },
+];
+
+const formatLookupType = (lookupType) => {
+  if (!lookupType) return null;
+  const doc =
+    typeof lookupType.toObject === "function"
+      ? lookupType.toObject()
+      : lookupType;
+  const parentType = doc.ParentlookuptypeId;
+
+  return {
+    _id: doc._id ?? null,
+    code: doc.code ?? null,
+    lookuptype: doc.lookuptype ?? null,
+    displayname: doc.displayname ?? null,
+    ParentlookuptypeId: parentType?._id ?? parentType ?? null,
+    Parentlookuptype: parentType?.lookuptype ?? null,
+  };
+};
+
+const formatLookup = (lookup) => {
+  if (!lookup) return null;
+  const doc =
+    typeof lookup.toObject === "function" ? lookup.toObject() : lookup;
+  const lookupType = doc.lookuptypeId;
+  const parentLookupType = lookupType?.ParentlookuptypeId;
+  const parentLookup = doc.Parentlookupid;
+
+  return {
+    _id: doc._id,
+    code: doc.code,
+    lookupname: doc.lookupname,
+    DisplayName: doc.DisplayName,
+    Parentlookupid: parentLookup?._id ?? parentLookup ?? null,
+    Parentlookup: parentLookup?.lookupname ?? null,
+    ParentlookuptypeId: parentLookupType?._id ?? parentLookupType ?? null,
+    Parentlookuptype: parentLookupType?.lookuptype ?? null,
+    lookuptypeId: formatLookupType(lookupType),
+    lookuptypeName: lookupType?.lookuptype ?? null,
+    officer: doc.officer || null,
+    worklocationAddress: doc.worklocationAddress || null,
+    userid: doc.userid ?? null,
+    isactive: doc.isactive,
+    isdeleted: doc.isdeleted,
+    createdAt: doc.createdAt ?? null,
+    updatedAt: doc.updatedAt ?? null,
+  };
+};
+
+const validateParentLookup = async (lookuptypeId, parentLookupId) => {
+  if (!lookuptypeId) {
+    throw AppError.badRequest("Lookup type is required");
+  }
+
+  const lookupType = await LookupType.findById(lookuptypeId)
+    .select("lookuptype ParentlookuptypeId")
+    .lean();
+
+  if (!lookupType) {
+    throw AppError.badRequest("Lookup type not found");
+  }
+
+  const expectedParentTypeId = lookupType.ParentlookuptypeId?.toString() || null;
+  const normalizedParentId =
+    parentLookupId === null ||
+    parentLookupId === "" ||
+    typeof parentLookupId === "undefined"
+      ? null
+      : parentLookupId.toString();
+
+  if (expectedParentTypeId) {
+    if (!normalizedParentId) {
+      throw AppError.badRequest(
+        `Parent lookup is required for lookup type "${lookupType.lookuptype}"`
+      );
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(normalizedParentId)) {
+      throw AppError.badRequest("Invalid parent lookup ID");
+    }
+
+    const parentLookup = await Lookup.findById(normalizedParentId)
+      .select("lookuptypeId lookupname")
+      .lean();
+
+    if (!parentLookup) {
+      throw AppError.badRequest("Parent lookup not found");
+    }
+
+    if (parentLookup.lookuptypeId?.toString() !== expectedParentTypeId) {
+      const parentType = await LookupType.findById(expectedParentTypeId)
+        .select("lookuptype")
+        .lean();
+      throw AppError.badRequest(
+        `Parent lookup must be a "${parentType?.lookuptype || "parent"}" lookup`
+      );
+    }
+
+    return normalizedParentId;
+  }
+
+  if (normalizedParentId) {
+    throw AppError.badRequest(
+      `Lookup type "${lookupType.lookuptype}" does not support a parent lookup`
+    );
+  }
+
+  return null;
+};
+
+const findPopulatedLookup = (filter) =>
+  Lookup.findOne(filter).populate(LOOKUP_QUERY_POPULATE);
+
+const findPopulatedLookups = (filter) =>
+  Lookup.find(filter).populate(LOOKUP_QUERY_POPULATE);
+
+const invalidateLookupCaches = async (lookupId = null, lookuptypeId = null) => {
+  await lookupCacheService.invalidateLookupCache();
+  if (lookupId) {
+    await lookupCacheService.invalidateLookupCache(lookupId.toString());
+    await lookupCacheService.invalidateHierarchyCache(lookupId.toString());
+  } else {
+    await lookupCacheService.invalidateHierarchyCache();
+  }
+  if (lookuptypeId) {
+    await lookupCacheService.invalidateHierarchyCache(
+      null,
+      lookuptypeId.toString()
+    );
+  }
+};
+
+const hierarchyConvenienceFields = (hierarchy) => ({
+  region: hierarchy.find((h) => h?.lookuptypeId?.code === "REGION") || null,
+  branch: hierarchy.find((h) => h?.lookuptypeId?.code === "BRANCH") || null,
+  workLocation:
+    hierarchy.find((h) => h?.lookuptypeId?.code === "WORKLOC") || null,
+});
+
+const buildAncestryHierarchy = async (parentLookupId) => {
+  if (!parentLookupId) return [];
+
+  const parentIds = [];
+  let currentParentId = parentLookupId._id || parentLookupId;
+
+  while (currentParentId) {
+    parentIds.push(currentParentId);
+    const tempParent = await Lookup.findById(currentParentId)
+      .select("Parentlookupid")
+      .lean();
+    currentParentId = tempParent?.Parentlookupid || null;
+  }
+
+  if (parentIds.length === 0) return [];
+
+  const parents = await Lookup.find({ _id: { $in: parentIds } }).populate(
+    LOOKUP_QUERY_POPULATE
+  );
+
+  const parentMap = new Map(
+    parents.map((parent) => [parent._id.toString(), parent])
+  );
+
+  return parentIds
+    .slice()
+    .reverse()
+    .map((id) => formatLookup(parentMap.get(id.toString())))
+    .filter(Boolean);
+};
 
 const getAllLookup = async (req, res, next) => {
   try {
-    // Use cache service to get all lookups
-    const lookups = await lookupCacheService.getAllLookups(async () => {
-      // Database query function
-      return await Lookup.find({})
-        .populate({
-          path: "lookuptypeId",
-          select: "code lookuptype displayname",
-        })
-        .populate({
-          path: "Parentlookupid",
-          select: "lookupname",
-        })
-        .populate({
-          path: "officer",
-          select: "userEmail userFirstName userLastName userFullName",
-        });
-    });
+    const lookups = await lookupCacheService.getAllLookups(async () =>
+      findPopulatedLookups({})
+    );
 
-    // Format the data
-    const formattedRegions = lookups.map((lookups) => ({
-      _id: lookups?._id,
-      code: lookups?.code,
-      lookupname: lookups?.lookupname,
-      DisplayName: lookups?.DisplayName,
-      Parentlookupid: lookups?.Parentlookupid
-        ? lookups?.Parentlookupid._id
-        : null,
-      Parentlookup: lookups?.Parentlookupid
-        ? lookups?.Parentlookupid.lookupname
-        : null,
-      lookuptypeId: {
-        _id: lookups?.lookuptypeId ? lookups?.lookuptypeId?._id : null,
-        code: lookups?.lookuptypeId ? lookups?.lookuptypeId?.code : null,
-        lookuptype: lookups?.lookuptypeId
-          ? lookups?.lookuptypeId?.lookuptype
-          : null,
-      },
-      officer: lookups?.officer || null,
-      worklocationAddress: lookups?.worklocationAddress || null,
-      isactive: lookups?.isactive,
-      isdeleted: lookups?.isdeleted,
-    }));
+    if (!lookups?.length) {
+      return res.status(200).json([]);
+    }
 
-    res.status(200).json(formattedRegions);
+    res.status(200).json(lookups.map(formatLookup));
   } catch (error) {
     console.error("Error fetching lookups:", error);
     return next(AppError.internalServerError("Failed to retrieve lookups"));
@@ -60,23 +219,13 @@ const getLookup = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    // Use cache service to get lookup by ID
-    const lookup = await lookupCacheService.getLookupById(id, async () => {
-      // Database query function
-      return await Lookup.findById(id)
-        .populate({
-          path: "lookuptypeId",
-          select: "code lookuptype displayname",
-        })
-        .populate({
-          path: "Parentlookupid",
-          select: "lookupname",
-        })
-        .populate({
-          path: "officer",
-          select: "userEmail userFirstName userLastName userFullName",
-        });
-    });
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return next(AppError.badRequest("Invalid lookup ID"));
+    }
+
+    const lookup = await lookupCacheService.getLookupById(id, async () =>
+      findPopulatedLookup({ _id: id })
+    );
 
     if (!lookup) {
       return res.status(200).json({
@@ -85,31 +234,7 @@ const getLookup = async (req, res, next) => {
       });
     }
 
-    const formattedLookup = {
-      _id: lookup?._id,
-      code: lookup?.code,
-      lookupname: lookup?.lookupname,
-      DisplayName: lookup?.DisplayName,
-      Parentlookupid: lookup?.Parentlookupid
-        ? lookup?.Parentlookupid._id
-        : null,
-      Parentlookup: lookup?.Parentlookupid
-        ? lookup?.Parentlookupid.lookupname
-        : null,
-      lookuptypeId: {
-        _id: lookup?.lookuptypeId ? lookup?.lookuptypeId?._id : null,
-        code: lookup?.lookuptypeId ? lookup?.lookuptypeId?.code : null,
-        lookuptype: lookup?.lookuptypeId
-          ? lookup?.lookuptypeId?.lookuptype
-          : null,
-      },
-      officer: lookup?.officer || null,
-      worklocationAddress: lookup?.worklocationAddress || null,
-      isactive: lookup?.isactive,
-      isdeleted: lookup?.isdeleted,
-    };
-
-    res.status(200).json(formattedLookup);
+    res.status(200).json(formatLookup(lookup));
   } catch (error) {
     return next(AppError.internalServerError("Failed to retrieve lookup"));
   }
@@ -131,46 +256,42 @@ const createNewLookup = async (req, res, next) => {
     } = req.body;
 
     if (!code || !lookupname || !userid) {
-      return next(AppError.badRequest("Code, Lookup, User ID are required"));
+      return next(
+        AppError.badRequest("Code, Lookup name, and User ID are required")
+      );
+    }
+
+    if (!lookuptypeId) {
+      return next(AppError.badRequest("Lookup type is required"));
+    }
+
+    let validatedParentLookupId = null;
+    try {
+      validatedParentLookupId = await validateParentLookup(
+        lookuptypeId,
+        Parentlookupid
+      );
+    } catch (err) {
+      return next(err);
     }
 
     const lookup = await Lookup.create({
       code,
       lookupname,
       DisplayName,
-      Parentlookupid,
+      Parentlookupid: validatedParentLookupId,
       lookuptypeId,
       isdeleted: isdeleted || false,
-      isactive,
+      isactive: isactive !== false,
       userid,
       officer: officer || null,
       worklocationAddress: worklocationAddress || null,
     });
 
-    // Emit event for Profile Service
-    // try {
-    //   await publishEvent("lookup.created", {
-    //     lookupId: lookup._id,
-    //     code: lookup.code,
-    //     lookupname: lookup.lookupname,
-    //     DisplayName: lookup.DisplayName,
-    //     Parentlookupid: lookup.Parentlookupid,
-    //     lookuptypeId: lookup.lookuptypeId,
-    //     isdeleted: lookup.isdeleted,
-    //     isactive: lookup.isactive,
-    //     userid: lookup.userid,
-    //     timestamp: new Date(),
-    //   });
-    //   console.log("✅ [Config] Lookup Created Event published:", lookup._id);
-    // } catch (eventError) {
-    //   console.error("❌ [Config] Error publishing Lookup Created Event:", eventError.message);
-    // }
+    const populated = await findPopulatedLookup({ _id: lookup._id });
+    res.status(201).json(formatLookup(populated));
 
-    res.status(201).json(lookup);
-
-    // Invalidate cache after successful creation
-    await lookupCacheService.invalidateLookupCache();
-    await lookupCacheService.invalidateHierarchyCache();
+    await invalidateLookupCaches(null, lookuptypeId);
   } catch (error) {
     if (error.name === "ValidationError") {
       return next(AppError.badRequest(error.message));
@@ -198,112 +319,108 @@ const updateLookup = async (req, res, next) => {
       worklocationAddress,
     } = req.body;
 
-    const lookup = await Lookup.findById(id);
-    if (!lookup) {
-      return res.notFoundRecord("Lookup not found");
+    if (!id) {
+      return next(AppError.badRequest("Lookup ID is required"));
     }
 
-    // Store old values for event
-    const oldValues = {
-      code: lookup.code,
-      lookupname: lookup.lookupname,
-      DisplayName: lookup.DisplayName,
-      Parentlookupid: lookup.Parentlookupid,
-      lookuptypeId: lookup.lookuptypeId,
-      isdeleted: lookup.isdeleted,
-      isactive: lookup.isactive,
-      officer: lookup.officer,
-      worklocationAddress: lookup.worklocationAddress,
-    };
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return next(AppError.badRequest("Invalid lookup ID"));
+    }
+
+    const lookup = await Lookup.findById(id);
+    if (!lookup) {
+      return next(AppError.notFound("Lookup not found"));
+    }
+
+    const previousLookupTypeId = lookup.lookuptypeId?.toString();
+    const nextLookupTypeId = lookuptypeId || lookup.lookuptypeId;
+    const nextParentLookupId =
+      typeof Parentlookupid !== "undefined"
+        ? Parentlookupid
+        : lookup.Parentlookupid;
+
+    try {
+      lookup.Parentlookupid = await validateParentLookup(
+        nextLookupTypeId,
+        nextParentLookupId
+      );
+    } catch (err) {
+      return next(err);
+    }
 
     if (code) lookup.code = code;
     if (lookupname) lookup.lookupname = lookupname;
-    if (DisplayName) lookup.DisplayName = DisplayName;
-    if (Parentlookupid) lookup.Parentlookupid = Parentlookupid;
+    if (typeof DisplayName !== "undefined") lookup.DisplayName = DisplayName;
     if (lookuptypeId) lookup.lookuptypeId = lookuptypeId;
     if (typeof isdeleted !== "undefined") lookup.isdeleted = isdeleted;
     if (typeof isactive !== "undefined") lookup.isactive = isactive;
     if (userid) lookup.userid = userid;
     if (typeof officer !== "undefined") lookup.officer = officer;
-    if (typeof worklocationAddress !== "undefined")
+    if (typeof worklocationAddress !== "undefined") {
       lookup.worklocationAddress = worklocationAddress;
+    }
 
     await lookup.save();
 
-    // Invalidate cache after successful update
-    await lookupCacheService.invalidateLookupCache();
-    await lookupCacheService.invalidateLookupCache(lookup._id.toString());
-    await lookupCacheService.invalidateHierarchyCache(lookup._id.toString());
+    const populated = await findPopulatedLookup({ _id: lookup._id });
+    res.status(200).json(formatLookup(populated));
 
-    // Emit event for Profile Service
-    // try {
-    //   await publishEvent("lookup.updated", {
-    //     lookupId: lookup._id,
-    //     oldValues,
-    //     newValues: {
-    //       code: lookup.code,
-    //       lookupname: lookup.lookupname,
-    //       DisplayName: lookup.DisplayName,
-    //       Parentlookupid: lookup.Parentlookupid,
-    //       lookuptypeId: lookup.lookuptypeId,
-    //       isdeleted: lookup.isdeleted,
-    //       isactive: lookup.isactive,
-    //     },
-    //     userid: lookup.userid,
-    //     timestamp: new Date(),
-    //   });
-    //   console.log("✅ [Config] Lookup Updated Event published:", lookup._id);
-    // } catch (eventError) {
-    //   console.error("❌ [Config] Error publishing Lookup Updated Event:", eventError.message);
-    // }
-
-    res.json(lookup);
+    await invalidateLookupCaches(
+      lookup._id,
+      lookuptypeId || previousLookupTypeId
+    );
   } catch (error) {
     if (error.name === "ValidationError") {
       return next(AppError.badRequest(error.message));
+    }
+    if (error.code === 11000) {
+      return next(AppError.badRequest("Code must be unique"));
     }
     return next(AppError.internalServerError("Failed to update lookup"));
   }
 };
 
 const deleteLookup = async (req, res, next) => {
-  if (!req?.body?.id) return next(AppError.badRequest("Lookup ID required"));
+  try {
+    if (!req?.body?.id) {
+      return next(AppError.badRequest("Lookup ID required"));
+    }
 
-  const lookup = await Lookup.findOne({ _id: req.body.id }).lean();
-  if (!lookup) {
-    return res.notFoundRecord(`No lookup matches ID ${req.body.id}`);
+    if (!mongoose.Types.ObjectId.isValid(req.body.id)) {
+      return next(AppError.badRequest("Invalid lookup ID"));
+    }
+
+    const lookup = await findPopulatedLookup({ _id: req.body.id });
+    if (!lookup) {
+      return next(AppError.notFound(`No lookup matches ID ${req.body.id}.`));
+    }
+
+    const childCount = await Lookup.countDocuments({
+      Parentlookupid: req.body.id,
+    });
+    if (childCount > 0) {
+      return next(
+        AppError.badRequest(
+          "Cannot delete lookup that is parent of other lookups"
+        )
+      );
+    }
+
+    const formatted = formatLookup(lookup);
+    const lookuptypeId = lookup.lookuptypeId?._id || lookup.lookuptypeId;
+
+    await Lookup.deleteOne({ _id: req.body.id });
+
+    res.status(200).json({
+      acknowledged: true,
+      deletedCount: 1,
+      data: formatted,
+    });
+
+    await invalidateLookupCaches(req.body.id, lookuptypeId);
+  } catch (error) {
+    return next(AppError.internalServerError("Failed to delete lookup"));
   }
-
-  // Store lookup data for event
-  const deletedLookup = {
-    lookupId: lookup._id,
-    code: lookup.code,
-    lookupname: lookup.lookupname,
-    DisplayName: lookup.DisplayName,
-    Parentlookupid: lookup.Parentlookupid,
-    lookuptypeId: lookup.lookuptypeId,
-    userid: lookup.userid,
-    officer: lookup.officer,
-    worklocationAddress: lookup.worklocationAddress,
-    timestamp: new Date(),
-  };
-
-  const result = await Lookup.deleteOne({ _id: req.body.id });
-
-  // Invalidate cache after successful deletion
-  await lookupCacheService.invalidateLookupCache();
-  await lookupCacheService.invalidateLookupCache(req.body.id);
-  await lookupCacheService.invalidateHierarchyCache(req.body.id);
-
-  // Emit event for Profile Service
-  // try {
-  //   await publishEvent("lookup.deleted", deletedLookup);
-  //   console.log("✅ [Config] Lookup Deleted Event published:", lookup._id);
-  // } catch (eventError) {
-  //   console.error("❌ [Config] Error publishing Lookup Deleted Event:", eventError.message);
-  // }
-
-  res.json(result);
 };
 
 /**
@@ -331,21 +448,24 @@ const bulkUpdateOfficer = async (req, res, next) => {
       officer !== null &&
       !mongoose.Types.ObjectId.isValid(officer)
     ) {
-      return next(AppError.badRequest("officer must be a valid ObjectId or null"));
+      return next(
+        AppError.badRequest("officer must be a valid ObjectId or null")
+      );
     }
 
-    const update = { $set: { officer: officer ?? null } };
     const result = await Lookup.updateMany(
       { _id: { $in: ids } },
-      update,
+      { $set: { officer: officer ?? null } },
       { runValidators: true }
     );
 
+    const updatedLookups = await findPopulatedLookups({ _id: { $in: ids } });
+
     await lookupCacheService.invalidateLookupCache();
     await Promise.all(
-      ids.map(async (id) => {
-        await lookupCacheService.invalidateLookupCache(id);
-        await lookupCacheService.invalidateHierarchyCache(id);
+      ids.map(async (lookupId) => {
+        await lookupCacheService.invalidateLookupCache(lookupId);
+        await lookupCacheService.invalidateHierarchyCache(lookupId);
       })
     );
 
@@ -354,6 +474,7 @@ const bulkUpdateOfficer = async (req, res, next) => {
       data: {
         matchedCount: result.matchedCount ?? result.n ?? 0,
         modifiedCount: result.modifiedCount ?? result.nModified ?? 0,
+        lookups: updatedLookups.map(formatLookup),
       },
     });
   } catch (error) {
@@ -366,125 +487,28 @@ const bulkUpdateOfficer = async (req, res, next) => {
 
 /**
  * Get lookup hierarchy - returns a lookup with its complete parent chain
- * Example: Given a work location ID, returns work location + branch + region
  */
 const getLookupHierarchy = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    // Use cache service to get lookup hierarchy
-    const response = await lookupCacheService.getLookupHierarchy(
-      id,
-      async () => {
-        // Database query function
-        const lookup = await Lookup.findById(id)
-          .populate({
-            path: "lookuptypeId",
-            select: "code lookuptype displayname",
-          })
-          .populate({
-            path: "Parentlookupid",
-            select: "lookupname DisplayName code Parentlookupid lookuptypeId officer worklocationAddress",
-          })
-          .populate({
-            path: "officer",
-            select: "firstname lastname email",
-          });
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return next(AppError.badRequest("Invalid lookup ID"));
+    }
 
-        if (!lookup) {
-          return null;
-        }
+    const response = await lookupCacheService.getLookupHierarchy(id, async () => {
+      const lookup = await findPopulatedLookup({ _id: id });
+      if (!lookup) return null;
 
-        // Build hierarchy array (only parents/ancestors, not the requested object itself)
-        const hierarchy = [];
+      const formattedLookup = formatLookup(lookup);
+      const hierarchy = await buildAncestryHierarchy(lookup.Parentlookupid);
 
-        // Optimized: Collect all parent IDs first, then fetch in batch
-        if (lookup.Parentlookupid) {
-          const parentIds = [];
-          let currentParentId =
-            lookup.Parentlookupid._id || lookup.Parentlookupid;
-
-          // Collect all parent IDs in the chain (minimal queries - just to get IDs)
-          while (currentParentId) {
-            parentIds.push(currentParentId);
-            // Fetch just the Parentlookupid field to get next parent ID
-            const tempParent = await Lookup.findById(currentParentId)
-              .select("Parentlookupid")
-              .lean();
-            currentParentId = tempParent?.Parentlookupid || null;
-          }
-
-          // Batch fetch all parents at once (much faster than sequential queries)
-          if (parentIds.length > 0) {
-            const parents = await Lookup.find({ _id: { $in: parentIds } })
-              .populate({
-                path: "lookuptypeId",
-                select: "code lookuptype displayname",
-              })
-              .populate({
-                path: "officer",
-                select: "firstname lastname email",
-              })
-              .lean();
-
-            // Create a map for quick lookup
-            const parentMap = new Map(
-              parents.map((p) => [p._id.toString(), p])
-            );
-
-            // Reconstruct hierarchy in correct order (top-to-bottom: region -> branch -> workLocation)
-            for (let i = parentIds.length - 1; i >= 0; i--) {
-              const parent = parentMap.get(parentIds[i].toString());
-              if (parent) {
-                hierarchy.unshift({
-                  _id: parent._id,
-                  code: parent.code,
-                  lookupname: parent.lookupname,
-                  DisplayName: parent.DisplayName,
-                  lookuptypeId: {
-                    _id: parent.lookuptypeId?._id,
-                    code: parent.lookuptypeId?.code,
-                    lookuptype: parent.lookuptypeId?.lookuptype,
-                    displayname: parent.lookuptypeId?.displayname,
-                  },
-                  officer: parent.officer || null,
-                  worklocationAddress: parent.worklocationAddress || null,
-                  isactive: parent.isactive,
-                  isdeleted: parent.isdeleted,
-                });
-              }
-            }
-          }
-        }
-
-        // Format response with hierarchy information
-        return {
-          requestedLookup: {
-            _id: lookup._id,
-            code: lookup.code,
-            lookupname: lookup.lookupname,
-            DisplayName: lookup.DisplayName,
-            lookuptypeId: {
-              _id: lookup.lookuptypeId?._id,
-              code: lookup.lookuptypeId?.code,
-              lookuptype: lookup.lookuptypeId?.lookuptype,
-              displayname: lookup.lookuptypeId?.displayname,
-            },
-            officer: lookup.officer || null,
-            worklocationAddress: lookup.worklocationAddress || null,
-            isactive: lookup.isactive,
-            isdeleted: lookup.isdeleted,
-          },
-          hierarchy: hierarchy,
-          // Convenience fields for easy access
-          region: hierarchy.find((h) => h?.lookuptypeId?.code === "REGION"),
-          branch: hierarchy.find((h) => h?.lookuptypeId?.code === "BRANCH"),
-          workLocation: hierarchy.find(
-            (h) => h?.lookuptypeId?.code === "WORKLOC"
-          ),
-        };
-      }
-    );
+      return {
+        requestedLookup: formattedLookup,
+        hierarchy,
+        ...hierarchyConvenienceFields(hierarchy),
+      };
+    });
 
     if (!response) {
       return res.status(200).json({
@@ -504,52 +528,53 @@ const getLookupHierarchy = async (req, res, next) => {
 
 /**
  * Get all lookups by lookup type with their complete parent hierarchy
- * Example: Given WORKLOC lookup type, returns all work locations with their branches and regions
  */
 const getLookupsByTypeWithHierarchy = async (req, res, next) => {
   try {
     const { lookuptypeId } = req.params;
 
-    // Use cache service to get lookups by type with hierarchy
+    if (!mongoose.Types.ObjectId.isValid(lookuptypeId)) {
+      return next(AppError.badRequest("Invalid lookup type ID"));
+    }
+
     const response = await lookupCacheService.getLookupsByTypeWithHierarchy(
       lookuptypeId,
       async () => {
-        // Database query function (lean + projection for speed)
-        const lookups = await Lookup.find({
-          lookuptypeId: lookuptypeId,
-          isdeleted: false,
-          isactive: true,
-        })
-          .select(
-            "code lookupname DisplayName lookuptypeId Parentlookupid officer worklocationAddress isactive isdeleted"
-          )
-          .populate({
-            path: "lookuptypeId",
-            select: "code lookuptype displayname",
-          })
-          .populate({
-            path: "officer",
-            select: "firstname lastname email",
-          })
-          .lean();
+        const lookupType = await LookupType.findById(lookuptypeId)
+          .select(LOOKUP_TYPE_SELECT)
+          .populate(LOOKUP_TYPE_POPULATE);
 
-        if (!lookups || lookups.length === 0) {
+        if (!lookupType) {
           return {
-            message: "No lookups found for the specified type",
-            lookuptypeId: lookuptypeId,
+            message: "Lookup type not found",
+            lookuptypeId,
+            lookuptype: null,
+            totalCount: 0,
             results: [],
           };
         }
 
-        // Get lookup type details for response
-        const lookupType = lookups[0].lookuptypeId;
+        const lookups = await Lookup.find({
+          lookuptypeId,
+          isdeleted: false,
+          isactive: true,
+        }).populate(LOOKUP_QUERY_POPULATE);
 
-        // Optimized: Fetch all parents in batches by depth to avoid N+1 queries
+        if (!lookups.length) {
+          return {
+            message: "No lookups found for the specified type",
+            lookuptypeId,
+            lookuptype: formatLookupType(lookupType),
+            totalCount: 0,
+            results: [],
+          };
+        }
+
         const parentMap = new Map();
         let pendingIds = new Set(
           lookups
-            .map((lookup) => lookup.Parentlookupid)
-            .filter((id) => id)
+            .map((lookup) => lookup.Parentlookupid?._id || lookup.Parentlookupid)
+            .filter(Boolean)
             .map((id) => id.toString())
         );
 
@@ -561,105 +586,52 @@ const getLookupsByTypeWithHierarchy = async (req, res, next) => {
             _id: {
               $in: batchIds.map((id) => new mongoose.Types.ObjectId(id)),
             },
-          })
-            .select(
-              "code lookupname DisplayName lookuptypeId Parentlookupid officer worklocationAddress isactive isdeleted"
-            )
-            .populate({
-              path: "lookuptypeId",
-              select: "code lookuptype displayname",
-            })
-            .populate({
-              path: "officer",
-              select: "firstname lastname email",
-            })
-            .lean();
+          }).populate(LOOKUP_QUERY_POPULATE);
 
           for (const parent of parents) {
             const parentId = parent._id.toString();
             if (!parentMap.has(parentId)) {
               parentMap.set(parentId, parent);
-              if (parent.Parentlookupid) {
-                const nextId = parent.Parentlookupid.toString();
-                if (!parentMap.has(nextId)) {
-                  pendingIds.add(nextId);
-                }
+              const nextParentId =
+                parent.Parentlookupid?._id || parent.Parentlookupid;
+              if (nextParentId && !parentMap.has(nextParentId.toString())) {
+                pendingIds.add(nextParentId.toString());
               }
             }
           }
         }
 
-        // Process each lookup to build its hierarchy using the batch-fetched parents
         const results = lookups.map((lookup) => {
           const hierarchy = [];
           const seen = new Set();
-          let currentParentId = lookup.Parentlookupid
-            ? lookup.Parentlookupid.toString()
-            : null;
+          let currentParentId =
+            lookup.Parentlookupid?._id || lookup.Parentlookupid;
 
-          while (currentParentId && !seen.has(currentParentId)) {
-            seen.add(currentParentId);
-            const parent = parentMap.get(currentParentId);
+          while (currentParentId && !seen.has(currentParentId.toString())) {
+            const parentKey = currentParentId.toString();
+            seen.add(parentKey);
+            const parent = parentMap.get(parentKey);
             if (!parent) break;
 
-            hierarchy.unshift({
-              _id: parent._id,
-              code: parent.code,
-              lookupname: parent.lookupname,
-              DisplayName: parent.DisplayName,
-              lookuptypeId: {
-                _id: parent.lookuptypeId?._id,
-                code: parent.lookuptypeId?.code,
-                lookuptype: parent.lookuptypeId?.lookuptype,
-                displayname: parent.lookuptypeId?.displayname,
-              },
-              officer: parent.officer || null,
-              worklocationAddress: parent.worklocationAddress || null,
-              isactive: parent.isactive,
-              isdeleted: parent.isdeleted,
-            });
+            hierarchy.push(formatLookup(parent));
 
-            currentParentId = parent.Parentlookupid
-              ? parent.Parentlookupid.toString()
-              : null;
+            currentParentId =
+              parent.Parentlookupid?._id || parent.Parentlookupid;
           }
 
+          hierarchy.reverse();
+
           return {
-            lookup: {
-              _id: lookup._id,
-              code: lookup.code,
-              lookupname: lookup.lookupname,
-              DisplayName: lookup.DisplayName,
-              lookuptypeId: {
-                _id: lookup.lookuptypeId?._id,
-                code: lookup.lookuptypeId?.code,
-                lookuptype: lookup.lookuptypeId?.lookuptype,
-                displayname: lookup.lookuptypeId?.displayname,
-              },
-              officer: lookup.officer || null,
-              worklocationAddress: lookup.worklocationAddress || null,
-              isactive: lookup.isactive,
-              isdeleted: lookup.isdeleted,
-            },
-            hierarchy: hierarchy,
-            // Convenience fields
-            region: hierarchy.find((h) => h?.lookuptypeId?.code === "REGION"),
-            branch: hierarchy.find((h) => h?.lookuptypeId?.code === "BRANCH"),
-            workLocation: hierarchy.find(
-              (h) => h?.lookuptypeId?.code === "WORKLOC"
-            ),
+            lookup: formatLookup(lookup),
+            hierarchy,
+            ...hierarchyConvenienceFields(hierarchy),
           };
         });
 
         return {
-          lookuptype: {
-            _id: lookupType._id,
-            code: lookupType.code,
-            lookuptype: lookupType.lookuptype,
-            displayname: lookupType.displayname,
-          },
+          lookuptype: formatLookupType(lookupType),
           totalCount: results.length,
-          results: results,
+          results,
         };
       }
     );
@@ -682,4 +654,5 @@ module.exports = {
   bulkUpdateOfficer,
   getLookupHierarchy,
   getLookupsByTypeWithHierarchy,
+  formatLookup,
 };

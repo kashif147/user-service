@@ -130,6 +130,9 @@ async function getLookupTypeIds() {
     }
 
     return {
+      regionType,
+      branchType,
+      workLocType,
       regionTypeId: regionType._id,
       branchTypeId: branchType._id,
       workLocTypeId: workLocType._id,
@@ -138,6 +141,25 @@ async function getLookupTypeIds() {
     console.error("❌ Error getting lookup type IDs:", error);
     throw error;
   }
+}
+
+/**
+ * Link lookup type hierarchy: WORKLOC -> BRANCH -> REGION
+ */
+async function linkLookupTypeParents() {
+  const { regionType, branchType, workLocType } = await getLookupTypeIds();
+
+  branchType.ParentlookuptypeId = regionType._id;
+  workLocType.ParentlookuptypeId = branchType._id;
+  regionType.ParentlookuptypeId = null;
+
+  await Promise.all([
+    regionType.save(),
+    branchType.save(),
+    workLocType.save(),
+  ]);
+
+  console.log("🔗 Linked lookup type parents: WORKLOC -> BRANCH -> REGION");
 }
 
 /**
@@ -411,6 +433,7 @@ async function main() {
     console.log("==============================================");
 
     await connectToDatabase();
+    await linkLookupTypeParents();
     await clearExistingLocationData();
     await seedLocationHierarchy();
     await verifySeededData();
@@ -432,6 +455,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  linkLookupTypeParents,
   seedLocationHierarchy,
   clearExistingLocationData,
   verifySeededData,
