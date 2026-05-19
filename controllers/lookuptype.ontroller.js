@@ -113,6 +113,11 @@ const { AppError } = require("../errors/AppError");
 const LookupType = require("../models/lookupType.model");
 const lookupCacheService = require("../services/lookupCacheService");
 const mongoose = require("mongoose");
+const {
+  isSimpleFormat,
+  buildSimpleLookupType,
+  buildSimpleLookupTypesList,
+} = require("../helpers/lookupResponseFormat");
 
 const LOOKUP_TYPE_POPULATE = {
   path: "ParentlookuptypeId",
@@ -193,6 +198,10 @@ const getAllLookupType = async (req, res, next) => {
       return res.status(204).json({ message: "No Lookup types found." });
     }
 
+    if (isSimpleFormat(req)) {
+      return res.json(buildSimpleLookupTypesList(lookupTypes));
+    }
+
     res.json(lookupTypes.map(formatLookupType));
   } catch (error) {
     return next(
@@ -219,6 +228,10 @@ const getLookupType = async (req, res, next) => {
         data: null,
         message: "Not found"
       });
+    }
+
+    if (isSimpleFormat(req)) {
+      return res.json(buildSimpleLookupType(lookupType));
     }
 
     res.json(formatLookupType(lookupType));
@@ -269,7 +282,14 @@ const createNewLookupType = async (req, res, next) => {
     const populated = await LookupType.findById(lookupType._id).populate(
       LOOKUP_TYPE_POPULATE
     );
-    res.status(201).json(formatLookupType(populated));
+
+    res
+      .status(201)
+      .json(
+        isSimpleFormat(req)
+          ? buildSimpleLookupType(populated)
+          : formatLookupType(populated)
+      );
 
     // Invalidate cache after successful creation
     await lookupCacheService.invalidateLookupTypeCache();
@@ -343,6 +363,10 @@ const updateLookupType = async (req, res, next) => {
 
     // Event emission can be added here when needed
 
+    if (isSimpleFormat(req)) {
+      return res.json(buildSimpleLookupType(populated));
+    }
+
     res.json(formatLookupType(populated));
   } catch (error) {
     if (error.name === "ValidationError") {
@@ -356,7 +380,9 @@ const deleteLookupType = async (req, res, next) => {
   if (!req?.body?.id)
     return next(AppError.badRequest("LookupType ID required"));
 
-  const lookuptype = await LookupType.findOne({ _id: req.body.id }).exec();
+  const lookuptype = await LookupType.findOne({ _id: req.body.id })
+    .populate(LOOKUP_TYPE_POPULATE)
+    .exec();
   if (!lookuptype) {
     return next(AppError.notFound(`No lookuptype matches ID ${req.body.id}.`));
   }
@@ -372,26 +398,22 @@ const deleteLookupType = async (req, res, next) => {
     );
   }
 
-  // Store values for audit before deletion
-  const deletedLookupType = {
-    lookupTypeId: lookuptype._id,
-    code: lookuptype.code,
-    lookuptype: lookuptype.lookuptype,
-    displayname: lookuptype.displayname,
-    userid: lookuptype.userid,
-    timestamp: new Date(),
-  };
+  const deletedPayload = isSimpleFormat(req)
+    ? buildSimpleLookupType(lookuptype)
+    : formatLookupType(lookuptype);
 
-  const result = await lookuptype.deleteOne({ _id: req.body.id });
+  await lookuptype.deleteOne({ _id: req.body.id });
 
   // Invalidate cache after successful deletion
   await lookupCacheService.invalidateLookupTypeCache();
   await lookupCacheService.invalidateLookupTypeCache(req.body.id);
   await lookupCacheService.invalidateHierarchyCache(null, req.body.id);
 
-  // Event emission can be added here when needed
-
-  res.json(result);
+  res.status(200).json({
+    acknowledged: true,
+    deletedCount: 1,
+    data: deletedPayload,
+  });
 };
 
 module.exports = {

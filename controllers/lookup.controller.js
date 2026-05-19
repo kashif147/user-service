@@ -3,6 +3,12 @@ const LookupType = require("../models/lookupType.model");
 const { AppError } = require("../errors/AppError");
 const lookupCacheService = require("../services/lookupCacheService");
 const mongoose = require("mongoose");
+const {
+  isSimpleFormat,
+  buildSimpleLookupTypeMeta,
+  buildSimpleLookupsList,
+  buildSimpleLookupRecord,
+} = require("../helpers/lookupResponseFormat");
 
 const LOOKUP_TYPE_SELECT = "code lookuptype displayname ParentlookuptypeId";
 const LOOKUP_TYPE_POPULATE = {
@@ -167,6 +173,166 @@ const hierarchyConvenienceFields = (hierarchy) => ({
     hierarchy.find((h) => h?.lookuptypeId?.code === "WORKLOC") || null,
 });
 
+const SIMPLE_TYPE_BY_CODE = {
+  REGION: "region",
+  BRANCH: "branch",
+  WORKLOC: "workLocation",
+};
+
+const toSimpleType = (lookupType) => {
+  const code = lookupType?.code;
+  if (code && SIMPLE_TYPE_BY_CODE[code]) return SIMPLE_TYPE_BY_CODE[code];
+  const label = lookupType?.lookuptype || "lookup";
+  return label.charAt(0).toLowerCase() + label.slice(1).replace(/\s+/g, "");
+};
+
+const toSimpleNode = (lookup) => {
+  const doc =
+    typeof lookup.toObject === "function" ? lookup.toObject() : lookup;
+
+  return {
+    id: doc._id,
+    code: doc.code,
+    name: doc.DisplayName || doc.lookupname,
+    type: toSimpleType(doc.lookuptypeId),
+  };
+};
+
+/**
+ * Nested tree: workLocation.branch.region, branch.region, or region only.
+ * ancestors: top-to-bottom (region, then branch).
+ */
+const buildSimpleLocationTree = (lookup, ancestors = []) => {
+  const root = toSimpleNode(lookup);
+  const typeCode = lookup.lookuptypeId?.code;
+
+  const findAncestor = (code) =>
+    ancestors.find((ancestor) => {
+      const doc =
+        typeof ancestor.toObject === "function"
+          ? ancestor.toObject()
+          : ancestor;
+      return doc.lookuptypeId?.code === code;
+    });
+
+  if (typeCode === "WORKLOC") {
+    const branchDoc = findAncestor("BRANCH");
+    const regionDoc = findAncestor("REGION");
+    if (branchDoc) {
+      root.branch = toSimpleNode(branchDoc);
+      if (regionDoc) {
+        root.branch.region = toSimpleNode(regionDoc);
+      }
+    } else if (regionDoc) {
+      root.region = toSimpleNode(regionDoc);
+    }
+  } else if (typeCode === "BRANCH") {
+    const regionDoc = findAncestor("REGION");
+    if (regionDoc) {
+      root.region = toSimpleNode(regionDoc);
+    }
+  }
+
+  return root;
+};
+
+const buildSimpleLocationTreeFromFormatted = (lookup, hierarchy = []) => {
+  const root = {
+    id: lookup._id,
+    code: lookup.code,
+    name: lookup.DisplayName || lookup.lookupname,
+    type: toSimpleType(lookup.lookuptypeId),
+  };
+
+  const typeCode = lookup.lookuptypeId?.code;
+  const findInHierarchy = (code) =>
+    hierarchy.find((h) => h?.lookuptypeId?.code === code);
+
+  if (typeCode === "WORKLOC") {
+    const branch = findInHierarchy("BRANCH");
+    const region = findInHierarchy("REGION");
+    if (branch) {
+      root.branch = {
+        id: branch._id,
+        code: branch.code,
+        name: branch.DisplayName || branch.lookupname,
+        type: "branch",
+      };
+      if (region) {
+        root.branch.region = {
+          id: region._id,
+          code: region.code,
+          name: region.DisplayName || region.lookupname,
+          type: "region",
+        };
+      }
+    } else if (region) {
+      root.region = {
+        id: region._id,
+        code: region.code,
+        name: region.DisplayName || region.lookupname,
+        type: "region",
+      };
+    }
+  } else if (typeCode === "BRANCH") {
+    const region = findInHierarchy("REGION");
+    if (region) {
+      root.region = {
+        id: region._id,
+        code: region.code,
+        name: region.DisplayName || region.lookupname,
+        type: "region",
+      };
+    }
+  }
+
+  return root;
+};
+
+/** ?lean=true — with default legacy only: omit region/branch/workLocation shortcuts */
+const isLeanQuery = (req) => {
+  const lean = req?.query?.lean;
+  return lean === true || lean === "true" || lean === "1" || lean === "yes";
+};
+
+const buildHierarchyResultItem = (lookup, hierarchy, lean) => {
+  const item = {
+    lookup,
+    hierarchy,
+  };
+  if (!lean) {
+    Object.assign(item, hierarchyConvenienceFields(hierarchy));
+  }
+  return item;
+};
+
+const buildSingleHierarchyResponse = (requestedLookup, hierarchy, lean) => {
+  const payload = {
+    requestedLookup,
+    hierarchy,
+  };
+  if (!lean) {
+    Object.assign(payload, hierarchyConvenienceFields(hierarchy));
+  } else {
+    payload.lean = true;
+  }
+  return payload;
+};
+
+const applyLeanToByTypeResponse = (response, lean) => {
+  if (!lean || !response) return response;
+  if (!Array.isArray(response.results)) return response;
+
+  return {
+    ...response,
+    lean: true,
+    results: response.results.map(({ lookup, hierarchy }) => ({
+      lookup,
+      hierarchy,
+    })),
+  };
+};
+
 const buildAncestryHierarchy = async (parentLookupId) => {
   if (!parentLookupId) return [];
 
@@ -208,6 +374,15 @@ const getAllLookup = async (req, res, next) => {
       return res.status(200).json([]);
     }
 
+    if (isSimpleFormat(req)) {
+      const simpleLookups = await buildSimpleLookupsList(
+        lookups,
+        Lookup,
+        LOOKUP_QUERY_POPULATE
+      );
+      return res.status(200).json(simpleLookups);
+    }
+
     res.status(200).json(lookups.map(formatLookup));
   } catch (error) {
     console.error("Error fetching lookups:", error);
@@ -232,6 +407,15 @@ const getLookup = async (req, res, next) => {
         data: null,
         message: "Not found",
       });
+    }
+
+    if (isSimpleFormat(req)) {
+      const simple = await buildSimpleLookupRecord(
+        lookup,
+        Lookup,
+        LOOKUP_QUERY_POPULATE
+      );
+      return res.status(200).json(simple);
     }
 
     res.status(200).json(formatLookup(lookup));
@@ -289,7 +473,17 @@ const createNewLookup = async (req, res, next) => {
     });
 
     const populated = await findPopulatedLookup({ _id: lookup._id });
-    res.status(201).json(formatLookup(populated));
+
+    if (isSimpleFormat(req)) {
+      const simple = await buildSimpleLookupRecord(
+        populated,
+        Lookup,
+        LOOKUP_QUERY_POPULATE
+      );
+      res.status(201).json(simple);
+    } else {
+      res.status(201).json(formatLookup(populated));
+    }
 
     await invalidateLookupCaches(null, lookuptypeId);
   } catch (error) {
@@ -363,7 +557,17 @@ const updateLookup = async (req, res, next) => {
     await lookup.save();
 
     const populated = await findPopulatedLookup({ _id: lookup._id });
-    res.status(200).json(formatLookup(populated));
+
+    if (isSimpleFormat(req)) {
+      const simple = await buildSimpleLookupRecord(
+        populated,
+        Lookup,
+        LOOKUP_QUERY_POPULATE
+      );
+      res.status(200).json(simple);
+    } else {
+      res.status(200).json(formatLookup(populated));
+    }
 
     await invalidateLookupCaches(
       lookup._id,
@@ -406,15 +610,18 @@ const deleteLookup = async (req, res, next) => {
       );
     }
 
-    const formatted = formatLookup(lookup);
     const lookuptypeId = lookup.lookuptypeId?._id || lookup.lookuptypeId;
+
+    const deletedPayload = isSimpleFormat(req)
+      ? await buildSimpleLookupRecord(lookup, Lookup, LOOKUP_QUERY_POPULATE)
+      : formatLookup(lookup);
 
     await Lookup.deleteOne({ _id: req.body.id });
 
     res.status(200).json({
       acknowledged: true,
       deletedCount: 1,
-      data: formatted,
+      data: deletedPayload,
     });
 
     await invalidateLookupCaches(req.body.id, lookuptypeId);
@@ -469,12 +676,20 @@ const bulkUpdateOfficer = async (req, res, next) => {
       })
     );
 
+    const lookupsPayload = isSimpleFormat(req)
+      ? await buildSimpleLookupsList(
+          updatedLookups,
+          Lookup,
+          LOOKUP_QUERY_POPULATE
+        )
+      : updatedLookups.map(formatLookup);
+
     return res.status(200).json({
       status: "success",
       data: {
         matchedCount: result.matchedCount ?? result.n ?? 0,
         modifiedCount: result.modifiedCount ?? result.nModified ?? 0,
-        lookups: updatedLookups.map(formatLookup),
+        lookups: lookupsPayload,
       },
     });
   } catch (error) {
@@ -491,6 +706,8 @@ const bulkUpdateOfficer = async (req, res, next) => {
 const getLookupHierarchy = async (req, res, next) => {
   try {
     const { id } = req.params;
+    const simple = isSimpleFormat(req);
+    const lean = isLeanQuery(req);
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return next(AppError.badRequest("Invalid lookup ID"));
@@ -503,11 +720,7 @@ const getLookupHierarchy = async (req, res, next) => {
       const formattedLookup = formatLookup(lookup);
       const hierarchy = await buildAncestryHierarchy(lookup.Parentlookupid);
 
-      return {
-        requestedLookup: formattedLookup,
-        hierarchy,
-        ...hierarchyConvenienceFields(hierarchy),
-      };
+      return buildSingleHierarchyResponse(formattedLookup, hierarchy, false);
     });
 
     if (!response) {
@@ -517,7 +730,24 @@ const getLookupHierarchy = async (req, res, next) => {
       });
     }
 
-    res.status(200).json(response);
+    if (simple) {
+      return res.status(200).json(
+        buildSimpleLocationTreeFromFormatted(
+          response.requestedLookup,
+          response.hierarchy
+        )
+      );
+    }
+
+    res.status(200).json(
+      lean
+        ? buildSingleHierarchyResponse(
+            response.requestedLookup,
+            response.hierarchy,
+            true
+          )
+        : response
+    );
   } catch (error) {
     console.error("Error fetching lookup hierarchy:", error);
     return next(
@@ -532,6 +762,8 @@ const getLookupHierarchy = async (req, res, next) => {
 const getLookupsByTypeWithHierarchy = async (req, res, next) => {
   try {
     const { lookuptypeId } = req.params;
+    const simple = isSimpleFormat(req);
+    const lean = isLeanQuery(req);
 
     if (!mongoose.Types.ObjectId.isValid(lookuptypeId)) {
       return next(AppError.badRequest("Invalid lookup type ID"));
@@ -602,7 +834,7 @@ const getLookupsByTypeWithHierarchy = async (req, res, next) => {
         }
 
         const results = lookups.map((lookup) => {
-          const hierarchy = [];
+          const ancestors = [];
           const seen = new Set();
           let currentParentId =
             lookup.Parentlookupid?._id || lookup.Parentlookupid;
@@ -613,19 +845,19 @@ const getLookupsByTypeWithHierarchy = async (req, res, next) => {
             const parent = parentMap.get(parentKey);
             if (!parent) break;
 
-            hierarchy.push(formatLookup(parent));
+            ancestors.push(parent);
 
             currentParentId =
               parent.Parentlookupid?._id || parent.Parentlookupid;
           }
 
-          hierarchy.reverse();
+          ancestors.reverse();
 
-          return {
-            lookup: formatLookup(lookup),
-            hierarchy,
-            ...hierarchyConvenienceFields(hierarchy),
-          };
+          return buildHierarchyResultItem(
+            formatLookup(lookup),
+            ancestors.map((ancestor) => formatLookup(ancestor)),
+            false
+          );
         });
 
         return {
@@ -636,7 +868,19 @@ const getLookupsByTypeWithHierarchy = async (req, res, next) => {
       }
     );
 
-    res.status(200).json(response);
+    if (simple) {
+      return res.status(200).json({
+        lookuptype: response.lookuptype
+          ? buildSimpleLookupTypeMeta(response.lookuptype)
+          : null,
+        totalCount: response.totalCount ?? response.results?.length ?? 0,
+        results: (response.results || []).map(({ lookup, hierarchy }) =>
+          buildSimpleLocationTreeFromFormatted(lookup, hierarchy)
+        ),
+      });
+    }
+
+    res.status(200).json(applyLeanToByTypeResponse(response, lean));
   } catch (error) {
     console.error("Error fetching lookups by type with hierarchy:", error);
     return next(
@@ -655,4 +899,10 @@ module.exports = {
   getLookupHierarchy,
   getLookupsByTypeWithHierarchy,
   formatLookup,
+  hierarchyConvenienceFields,
+  isLeanQuery,
+  isSimpleFormat,
+  buildSimpleLocationTree,
+  buildSimpleLocationTreeFromFormatted,
+  toSimpleNode,
 };
