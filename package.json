@@ -23,6 +23,9 @@
     "generate-pkce": "node scripts/generate-pkce.js",
     "seed-countries": "NODE_ENV=staging node scripts/seed-countries.js",
     "seed-countries:dev": "NODE_ENV=development node scripts/seed-countries.js",
+    "seed-tenant-shell-branding": "NODE_ENV=staging node scripts/seed-tenant-shell-branding.js",
+    "seed-tenant-branding-assets": "NODE_ENV=staging node scripts/seed-tenant-default-branding-assets.js",
+    "seed-tenant-shell-branding:dev": "NODE_ENV=development node scripts/seed-tenant-shell-branding.js",
     "verify-countries": "./verify-countries.sh",
     "test-me": "./test-me-endpoint.sh",
     "test-me-integration": "jest tests/me-endpoint-integration.test.js"

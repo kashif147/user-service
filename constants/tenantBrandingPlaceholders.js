@@ -1,10 +1,21 @@
-/** Stable placeholder branding URLs when tenant has no uploaded assets yet. */
+/**
+ * Default branding asset paths (match frontend public/branding SVGs).
+ * Set BRANDING_ASSETS_BASE_URL for absolute URLs in emails (e.g. https://your-portal.com).
+ */
+const ASSET_BASE = (process.env.BRANDING_ASSETS_BASE_URL || "").replace(
+  /\/$/,
+  ""
+);
+
+const asset = (file) =>
+  ASSET_BASE ? `${ASSET_BASE}/branding/${file}` : `/branding/${file}`;
+
 const PLACEHOLDER_LOGOS = {
-  logoUrl: "https://picsum.photos/seed/projectshell-logo/240/80",
-  logoDarkUrl: "https://picsum.photos/seed/projectshell-logo-dark/240/80",
-  faviconUrl: "https://picsum.photos/seed/projectshell-favicon/64/64",
-  letterHeaderUrl: "https://picsum.photos/seed/projectshell-letter-header/800/120",
-  letterFooterUrl: "https://picsum.photos/seed/projectshell-letter-footer/800/80",
+  logoUrl: asset("logo.svg"),
+  logoDarkUrl: asset("logo-dark.svg"),
+  faviconUrl: asset("favicon.svg"),
+  letterHeaderUrl: asset("letter-header.svg"),
+  letterFooterUrl: asset("letter-footer.svg"),
 };
 
 const applyBrandingPlaceholders = (branding = {}) => ({
@@ -20,4 +31,5 @@ const applyBrandingPlaceholders = (branding = {}) => ({
 module.exports = {
   PLACEHOLDER_LOGOS,
   applyBrandingPlaceholders,
+  asset,
 };
