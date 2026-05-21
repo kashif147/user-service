@@ -1,6 +1,8 @@
 const express = require("express");
 const router = express.Router();
 const TenantController = require("../controllers/tenant.controller");
+const TenantBrandingController = require("../controllers/tenantBranding.controller");
+const { brandingAssetUploadMw } = require("../middlewares/upload.mw");
 const { authenticate } = require("../middlewares/auth");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter.js");
 
@@ -18,6 +20,12 @@ router.get(
   "/tenants",
   defaultPolicyAdapter.middleware("tenant", "read"),
   TenantController.getAllTenants
+);
+
+router.get(
+  "/tenants/branding/placeholders",
+  defaultPolicyAdapter.middleware("tenant", "read"),
+  TenantBrandingController.getBrandingPlaceholders
 );
 
 router.get(
@@ -61,6 +69,31 @@ router.put(
   "/tenants/:id/status",
   defaultPolicyAdapter.middleware("tenant", "update"),
   TenantController.updateTenantStatus
+);
+
+router.patch(
+  "/tenants/:id/organisation-profile",
+  defaultPolicyAdapter.middleware("tenant", "update"),
+  TenantController.updateOrganisationProfile
+);
+
+router.patch(
+  "/tenants/:id/branding",
+  defaultPolicyAdapter.middleware("tenant", "update"),
+  TenantController.updateBranding
+);
+
+router.patch(
+  "/tenants/:id/regional-settings",
+  defaultPolicyAdapter.middleware("tenant", "update"),
+  TenantController.updateRegionalSettings
+);
+
+router.post(
+  "/tenants/:id/branding/assets",
+  defaultPolicyAdapter.middleware("tenant", "update"),
+  brandingAssetUploadMw,
+  TenantBrandingController.uploadBrandingAsset
 );
 
 // Authentication Connection Management Routes

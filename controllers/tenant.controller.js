@@ -181,3 +181,45 @@ module.exports.getAuthenticationConnections = async (req, res) => {
     res.fail(error.message);
   }
 };
+
+module.exports.updateOrganisationProfile = async (req, res, next) => {
+  try {
+    const updatedBy = req.ctx?.userId || "system";
+    const tenant = await TenantHandler.updateOrganisationProfile(
+      req.params.id,
+      req.body,
+      updatedBy
+    );
+    res.status(200).json({ status: "success", data: tenant });
+  } catch (error) {
+    return next(AppError.internalServerError("Failed to update organisation profile"));
+  }
+};
+
+module.exports.updateBranding = async (req, res, next) => {
+  try {
+    const updatedBy = req.ctx?.userId || "system";
+    const tenant = await TenantHandler.updateBranding(
+      req.params.id,
+      req.body,
+      updatedBy
+    );
+    res.status(200).json({ status: "success", data: tenant });
+  } catch (error) {
+    return next(AppError.internalServerError("Failed to update branding"));
+  }
+};
+
+module.exports.updateRegionalSettings = async (req, res, next) => {
+  try {
+    const updatedBy = req.ctx?.userId || "system";
+    const tenant = await TenantHandler.updateRegionalSettings(
+      req.params.id,
+      req.body,
+      updatedBy
+    );
+    res.status(200).json({ status: "success", data: tenant });
+  } catch (error) {
+    return next(AppError.internalServerError("Failed to update regional settings"));
+  }
+};

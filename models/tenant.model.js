@@ -23,7 +23,6 @@ const TenantSchema = new mongoose.Schema({
   },
   contactEmail: {
     type: String,
-    required: true,
     lowercase: true,
   },
   contactPhone: {
@@ -36,6 +35,35 @@ const TenantSchema = new mongoose.Schema({
     state: { type: String },
     zipCode: { type: String },
     country: { type: String, default: "US" },
+  },
+  organisationProfile: {
+    legalName: { type: String, trim: true },
+    tradingName: { type: String, trim: true },
+    registrationNumber: { type: String, trim: true },
+    charityNumber: { type: String, trim: true },
+    vatNumber: { type: String, trim: true },
+    website: { type: String, trim: true, lowercase: true },
+    email: { type: String, trim: true, lowercase: true },
+    contactNumber: { type: String, trim: true },
+    sepaOriginatorIdentificationNumber: { type: String, trim: true },
+  },
+  branding: {
+    logoUrl: { type: String },
+    logoDarkUrl: { type: String },
+    faviconUrl: { type: String },
+    primaryColor: { type: String, default: "#1E40AF" },
+    secondaryColor: { type: String, default: "#64748B" },
+    accentColor: { type: String, default: "#0EA5E9" },
+    portalTitle: { type: String },
+    emailFooterText: { type: String },
+    letterHeaderUrl: { type: String },
+    letterFooterUrl: { type: String },
+  },
+  regionalSettings: {
+    timezone: { type: String, default: "Europe/Dublin" },
+    locale: { type: String, default: "en-IE" },
+    currency: { type: String, default: "EUR" },
+    dateFormat: { type: String, default: "DD/MM/YYYY" },
   },
   settings: {
     maxUsers: { type: Number, default: 100 },
