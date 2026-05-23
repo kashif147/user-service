@@ -2,6 +2,18 @@ const mongoose = require("mongoose");
 const Tenant = require("../models/tenant.model");
 const Role = require("../models/role.model");
 const User = require("../models/user.model");
+const {
+  normalizeOrganisationProfile,
+  mergeOrganisationProfile,
+} = require("../constants/tenantOrganisationDefaults");
+const {
+  mergeRegionalSettings,
+  normalizeRegionalSettings,
+  mergeSettings,
+  normalizeSettings,
+  mergeSubscription,
+  normalizeSubscription,
+} = require("../constants/tenantUpdateDefaults");
 
 const buildTenantQuery = (tenantId) => {
   if (mongoose.Types.ObjectId.isValid(tenantId)) {
@@ -15,16 +27,28 @@ const buildTenantQuery = (tenantId) => {
   return { "authenticationConnections.directoryId": tenantId };
 };
 
-const buildNestedSetPayload = (prefix, data) =>
-  Object.entries(data).reduce((acc, [key, value]) => {
-    if (value !== undefined) {
-      acc[`${prefix}.${key}`] = value;
+const flattenForMongoSet = (obj, prefix = "") => {
+  const result = {};
+  for (const [key, value] of Object.entries(obj || {})) {
+    if (value === undefined) continue;
+    const path = prefix ? `${prefix}.${key}` : key;
+    if (
+      value !== null &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      !(value instanceof Date) &&
+      !(value instanceof mongoose.Types.ObjectId)
+    ) {
+      Object.assign(result, flattenForMongoSet(value, path));
+    } else {
+      result[path] = value;
     }
-    return acc;
-  }, {});
+  }
+  return result;
+};
 
 const updateTenantSection = async (tenantId, prefix, sectionData, updatedBy) => {
-  const setPayload = buildNestedSetPayload(prefix, sectionData);
+  const setPayload = flattenForMongoSet(sectionData, prefix);
   if (Object.keys(setPayload).length === 0) {
     throw new Error("No valid fields provided for update");
   }
@@ -42,6 +66,70 @@ const updateTenantSection = async (tenantId, prefix, sectionData, updatedBy) => 
   return tenant;
 };
 
+const toPlainSubdocument = (value) =>
+  value?.toObject?.() ?? value ?? {};
+
+const applyOrganisationProfileUpdate = async (
+  tenantId,
+  profilePatch,
+  updatedBy
+) => {
+  const tenant = await Tenant.findOne(buildTenantQuery(tenantId));
+  if (!tenant) {
+    throw new Error("Tenant not found");
+  }
+
+  const merged = mergeOrganisationProfile(
+    toPlainSubdocument(tenant.organisationProfile),
+    profilePatch
+  );
+  const normalized = normalizeOrganisationProfile(merged);
+
+  return updateTenantSection(
+    tenantId,
+    "organisationProfile",
+    normalized,
+    updatedBy
+  );
+};
+
+const applyNestedTenantSections = (tenant, payload) => {
+  if (payload.organisationProfile !== undefined) {
+    payload.organisationProfile = normalizeOrganisationProfile(
+      mergeOrganisationProfile(
+        toPlainSubdocument(tenant.organisationProfile),
+        payload.organisationProfile
+      )
+    );
+  }
+
+  if (payload.regionalSettings !== undefined) {
+    payload.regionalSettings = normalizeRegionalSettings(
+      mergeRegionalSettings(
+        toPlainSubdocument(tenant.regionalSettings),
+        payload.regionalSettings
+      )
+    );
+  }
+
+  if (payload.settings !== undefined) {
+    payload.settings = normalizeSettings(
+      mergeSettings(toPlainSubdocument(tenant.settings), payload.settings)
+    );
+  }
+
+  if (payload.subscription !== undefined) {
+    payload.subscription = normalizeSubscription(
+      mergeSubscription(
+        toPlainSubdocument(tenant.subscription),
+        payload.subscription
+      )
+    );
+  }
+
+  return payload;
+};
+
 module.exports.createTenant = async (tenantData, createdBy) => {
   try {
     // Check if tenant code or domain already exists
@@ -53,10 +141,25 @@ module.exports.createTenant = async (tenantData, createdBy) => {
       throw new Error("Tenant code or domain already exists");
     }
 
-    const tenant = await Tenant.create({
-      ...tenantData,
-      createdBy,
-    });
+    const payload = { ...tenantData, createdBy };
+    if (payload.organisationProfile) {
+      payload.organisationProfile = normalizeOrganisationProfile(
+        payload.organisationProfile
+      );
+    }
+    if (payload.regionalSettings) {
+      payload.regionalSettings = normalizeRegionalSettings(
+        payload.regionalSettings
+      );
+    }
+    if (payload.settings) {
+      payload.settings = normalizeSettings(payload.settings);
+    }
+    if (payload.subscription) {
+      payload.subscription = normalizeSubscription(payload.subscription);
+    }
+
+    const tenant = await Tenant.create(payload);
 
     // Initialize default roles for the new tenant
     await initializeTenantRoles(tenant._id.toString());
@@ -123,17 +226,27 @@ module.exports.getTenantByDomain = async (domain) => {
 
 module.exports.updateTenant = async (tenantId, updateData, updatedBy) => {
   try {
-    const tenant = await Tenant.findOneAndUpdate(
-      buildTenantQuery(tenantId),
-      { ...updateData, updatedBy },
-      { new: true, runValidators: true }
-    );
-
+    const tenant = await Tenant.findOne(buildTenantQuery(tenantId));
     if (!tenant) {
       throw new Error("Tenant not found");
     }
 
-    return tenant;
+    const payload = {
+      ...applyNestedTenantSections(tenant, updateData),
+      updatedBy,
+    };
+
+    const updatedTenant = await Tenant.findOneAndUpdate(
+      buildTenantQuery(tenantId),
+      payload,
+      { new: true, runValidators: true }
+    );
+
+    if (!updatedTenant) {
+      throw new Error("Tenant not found");
+    }
+
+    return updatedTenant;
   } catch (error) {
     throw new Error(`Error updating tenant: ${error.message}`);
   }
@@ -351,9 +464,8 @@ module.exports.updateOrganisationProfile = async (
   updatedBy
 ) => {
   try {
-    return await updateTenantSection(
+    return await applyOrganisationProfileUpdate(
       tenantId,
-      "organisationProfile",
       profileData,
       updatedBy
     );
@@ -381,10 +493,22 @@ module.exports.updateRegionalSettings = async (
   updatedBy
 ) => {
   try {
+    const tenant = await Tenant.findOne(buildTenantQuery(tenantId));
+    if (!tenant) {
+      throw new Error("Tenant not found");
+    }
+
+    const normalized = normalizeRegionalSettings(
+      mergeRegionalSettings(
+        toPlainSubdocument(tenant.regionalSettings),
+        regionalData
+      )
+    );
+
     return await updateTenantSection(
       tenantId,
       "regionalSettings",
-      regionalData,
+      normalized,
       updatedBy
     );
   } catch (error) {

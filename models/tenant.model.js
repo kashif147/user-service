@@ -45,6 +45,17 @@ const TenantSchema = new mongoose.Schema({
     website: { type: String, trim: true, lowercase: true },
     email: { type: String, trim: true, lowercase: true },
     contactNumber: { type: String, trim: true },
+    bankName: { type: String, trim: true },
+    bankAddress: {
+      buildingOrHouse: { type: String, default: "" },
+      streetOrRoad: { type: String, default: "" },
+      areaOrTown: { type: String, default: "" },
+      countyCityOrPostCode: { type: String, default: "" },
+      eircode: { type: String, default: "" },
+      country: { type: String, default: "Ireland" },
+    },
+    iban: { type: String, trim: true },
+    bic: { type: String, trim: true },
     sepaOriginatorIdentificationNumber: { type: String, trim: true },
   },
   branding: {

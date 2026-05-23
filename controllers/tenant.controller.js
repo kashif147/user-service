@@ -1,5 +1,11 @@
 const TenantHandler = require("../handlers/tenant.handler");
 const { AppError } = require("../errors/AppError");
+const {
+  pickOrganisationProfilePayload,
+} = require("../constants/tenantOrganisationDefaults");
+const {
+  pickRegionalSettingsPayload,
+} = require("../constants/tenantUpdateDefaults");
 
 // Create tenant
 module.exports.createTenant = async (req, res, next) => {
@@ -184,14 +190,24 @@ module.exports.getAuthenticationConnections = async (req, res) => {
 
 module.exports.updateOrganisationProfile = async (req, res, next) => {
   try {
+    const profileData = pickOrganisationProfilePayload(req.body);
+    if (Object.keys(profileData).length === 0) {
+      return next(
+        AppError.badRequest("No valid organisation profile fields provided")
+      );
+    }
+
     const updatedBy = req.ctx?.userId || "system";
     const tenant = await TenantHandler.updateOrganisationProfile(
       req.params.id,
-      req.body,
+      profileData,
       updatedBy
     );
     res.status(200).json({ status: "success", data: tenant });
   } catch (error) {
+    if (error.message === "Tenant not found") {
+      return next(AppError.notFound("Tenant not found"));
+    }
     return next(AppError.internalServerError("Failed to update organisation profile"));
   }
 };
@@ -212,14 +228,24 @@ module.exports.updateBranding = async (req, res, next) => {
 
 module.exports.updateRegionalSettings = async (req, res, next) => {
   try {
+    const regionalData = pickRegionalSettingsPayload(req.body);
+    if (Object.keys(regionalData).length === 0) {
+      return next(
+        AppError.badRequest("No valid regional settings fields provided")
+      );
+    }
+
     const updatedBy = req.ctx?.userId || "system";
     const tenant = await TenantHandler.updateRegionalSettings(
       req.params.id,
-      req.body,
+      regionalData,
       updatedBy
     );
     res.status(200).json({ status: "success", data: tenant });
   } catch (error) {
+    if (error.message === "Tenant not found") {
+      return next(AppError.notFound("Tenant not found"));
+    }
     return next(AppError.internalServerError("Failed to update regional settings"));
   }
 };
