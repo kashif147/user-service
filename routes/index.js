@@ -16,6 +16,7 @@ router.use("/api", require("./role.routes"));
 router.use("/api", require("./tenant.routes"));
 router.use("/api", require("./tenantOffice.routes"));
 router.use("/api", require("./tenantDepartment.routes"));
+router.use("/api", require("./tenantContact.routes"));
 
 // Permission management API routes
 router.use("/api", require("./permission.routes"));
