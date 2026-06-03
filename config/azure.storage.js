@@ -1,6 +1,8 @@
 const {
   BlobServiceClient,
   StorageSharedKeyCredential,
+  generateBlobSASQueryParameters,
+  BlobSASPermissions,
 } = require("@azure/storage-blob");
 
 const connectionString = (process.env.AZURE_STORAGE_CONNECTION_STRING || "")
@@ -47,4 +49,6 @@ module.exports = {
   containerName,
   accountName: resolvedAccountName,
   isConfigured,
+  generateBlobSASQueryParameters,
+  BlobSASPermissions,
 };
