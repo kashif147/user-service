@@ -75,6 +75,7 @@ const formatLookup = (lookup) => {
     lookuptypeName: lookupType?.lookuptype ?? null,
     officer: doc.officer || null,
     worklocationAddress: doc.worklocationAddress || null,
+    processSalaryDeduction: !!doc.processSalaryDeduction,
     userid: doc.userid ?? null,
     isactive: doc.isactive,
     isdeleted: doc.isdeleted,
@@ -437,6 +438,7 @@ const createNewLookup = async (req, res, next) => {
       userid,
       officer,
       worklocationAddress,
+      processSalaryDeduction,
     } = req.body;
 
     if (!code || !lookupname || !userid) {
@@ -470,6 +472,7 @@ const createNewLookup = async (req, res, next) => {
       userid,
       officer: officer || null,
       worklocationAddress: worklocationAddress || null,
+      processSalaryDeduction: !!processSalaryDeduction,
     });
 
     const populated = await findPopulatedLookup({ _id: lookup._id });
@@ -511,6 +514,7 @@ const updateLookup = async (req, res, next) => {
       userid,
       officer,
       worklocationAddress,
+      processSalaryDeduction,
     } = req.body;
 
     if (!id) {
@@ -552,6 +556,9 @@ const updateLookup = async (req, res, next) => {
     if (typeof officer !== "undefined") lookup.officer = officer;
     if (typeof worklocationAddress !== "undefined") {
       lookup.worklocationAddress = worklocationAddress;
+    }
+    if (typeof processSalaryDeduction !== "undefined") {
+      lookup.processSalaryDeduction = !!processSalaryDeduction;
     }
 
     await lookup.save();

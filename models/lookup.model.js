@@ -63,6 +63,10 @@ const lookupSchema = new mongoose.Schema(
       required: false,
       default: null,
     },
+    processSalaryDeduction: {
+      type: Boolean,
+      default: false,
+    },
   },
   { timestamps: true }
 );

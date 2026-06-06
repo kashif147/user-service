@@ -44,6 +44,7 @@ const attachLookupMeta = (simple, lookup) => {
     userid: doc.userid ?? null,
     officer: doc.officer || null,
     worklocationAddress: doc.worklocationAddress || null,
+    processSalaryDeduction: !!doc.processSalaryDeduction,
     createdAt: doc.createdAt ?? null,
     updatedAt: doc.updatedAt ?? null,
   };
