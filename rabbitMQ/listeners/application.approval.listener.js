@@ -49,22 +49,35 @@ function getEmailFromEffective(effective) {
  * Find portal user: try userId first (from payload), then email lookup
  */
 async function findPortalUser({ userId, email, tenantId }) {
+  const tid = tenantId != null ? String(tenantId) : null;
+
   if (userId && mongoose.Types.ObjectId.isValid(userId)) {
+    const oid = new mongoose.Types.ObjectId(userId);
+    if (tid) {
+      const byIdAndTenant = await User.findOne({
+        _id: oid,
+        tenantId: tid,
+        userType: "PORTAL",
+        isActive: true,
+      });
+      if (byIdAndTenant) return byIdAndTenant;
+    }
     const byId = await User.findOne({
-      _id: new mongoose.Types.ObjectId(userId),
-      tenantId,
+      _id: oid,
       userType: "PORTAL",
       isActive: true,
     });
     if (byId) return byId;
   }
 
+  if (!tid) return null;
+
   const normalizedEmail = normalizeEmail(email);
   if (!normalizedEmail) return null;
 
   return User.findOne({
     userEmail: { $regex: new RegExp(`^${escapeRegex(normalizedEmail)}$`, "i") },
-    tenantId,
+    tenantId: tid,
     userType: "PORTAL",
     isActive: true,
   });
@@ -74,7 +87,12 @@ async function findPortalUser({ userId, email, tenantId }) {
 async function handleApplicationApproved(payload) {
   try {
     const data = payload.data || payload;
-    const { effective, applicationId, userId: payloadUserId } = data;
+    const {
+      effective,
+      applicationId,
+      userId: payloadUserId,
+      userEmail: payloadUserEmail,
+    } = data;
     const tenantIdRaw = data.tenantId ?? payload.tenantId;
     const tenantId = tenantIdRaw != null ? String(tenantIdRaw) : null;
 
@@ -85,7 +103,9 @@ async function handleApplicationApproved(payload) {
       return;
     }
 
-    const email = effective ? getEmailFromEffective(effective) : null;
+    const email =
+      payloadUserEmail ||
+      (effective ? getEmailFromEffective(effective) : null);
     if (!email && !payloadUserId) {
       console.warn(
         "[APPLICATION_APPROVAL_LISTENER] No userId or email in payload, skipping role update:",

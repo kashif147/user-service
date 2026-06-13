@@ -1,5 +1,7 @@
 /**
  * Upgrades portal users from NON-MEMBER → MEMBER when:
+ * - Application is approved (applications.review.approved.v1) — handled in application.approval.listener
+ * - A new active subscription is set current (members.subscription.current.updated.v1)
  * - Subscription resignation is undone (members.subscription.resignation.undone.v1)
  * - Subscription cancellation is undone (members.subscription.cancellation.undone.v1)
  */
@@ -8,6 +10,8 @@ const mongoose = require("mongoose");
 const User = require("../../models/user.model");
 const { assignMemberRole } = require("../../helpers/roleAssignment");
 
+const SUBSCRIPTION_CURRENT_UPDATED =
+  "members.subscription.current.updated.v1";
 const SUBSCRIPTION_RESIGNATION_UNDONE =
   "members.subscription.resignation.undone.v1";
 const SUBSCRIPTION_CANCELLATION_UNDONE =
@@ -132,6 +136,7 @@ async function handlePortalMemberPromotion(payload, context) {
 }
 
 module.exports = {
+  SUBSCRIPTION_CURRENT_UPDATED,
   SUBSCRIPTION_RESIGNATION_UNDONE,
   SUBSCRIPTION_CANCELLATION_UNDONE,
   handlePortalMemberPromotion,
