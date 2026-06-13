@@ -3,6 +3,9 @@ const ProductType = require("../models/productType.model");
 const Pricing = require("../models/pricing.model");
 const { AppError } = require("../errors/AppError");
 const {
+  shouldExposeMembershipCategoryToRequest,
+} = require("../helpers/membershipCategoryPortal.helper");
+const {
   publishProductCreated,
   publishProductUpdated,
   publishProductDeleted,
@@ -152,6 +155,11 @@ const getProductsByType = async (req, res, next) => {
       updatedAt: product.updatedAt,
     }));
 
+    const productsForCaller = formattedProducts.filter((product) =>
+      shouldExposeMembershipCategoryToRequest(req, product.name) &&
+      shouldExposeMembershipCategoryToRequest(req, product.code),
+    );
+
     res.status(200).json({
       success: true,
       data: {
@@ -161,8 +169,8 @@ const getProductsByType = async (req, res, next) => {
           code: productType.code,
           description: productType.description,
         },
-        products: formattedProducts,
-        count: formattedProducts.length,
+        products: productsForCaller,
+        count: productsForCaller.length,
       },
     });
   } catch (error) {

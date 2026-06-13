@@ -9,6 +9,11 @@ const {
   buildSimpleLookupsList,
   buildSimpleLookupRecord,
 } = require("../helpers/lookupResponseFormat");
+const {
+  isHonoraryMembershipCategoryLabel,
+  isMembershipCategoryLookupRecord,
+  isPortalUserRequest,
+} = require("../helpers/membershipCategoryPortal.helper");
 
 const LOOKUP_TYPE_SELECT = "code lookuptype displayname ParentlookuptypeId";
 const LOOKUP_TYPE_POPULATE = {
@@ -365,6 +370,18 @@ const buildAncestryHierarchy = async (parentLookupId) => {
     .filter(Boolean);
 };
 
+const filterPortalMembershipCategoryLookups = (lookups, req) => {
+  if (!isPortalUserRequest(req) || !Array.isArray(lookups)) {
+    return lookups;
+  }
+
+  return lookups.filter((lookup) => {
+    if (!isMembershipCategoryLookupRecord(lookup)) return true;
+    const label = lookup.lookupname || lookup.DisplayName || lookup.name || "";
+    return !isHonoraryMembershipCategoryLabel(label);
+  });
+};
+
 const getAllLookup = async (req, res, next) => {
   try {
     const lookups = await lookupCacheService.getAllLookups(async () =>
@@ -375,16 +392,18 @@ const getAllLookup = async (req, res, next) => {
       return res.status(200).json([]);
     }
 
+    const lookupsForCaller = filterPortalMembershipCategoryLookups(lookups, req);
+
     if (isSimpleFormat(req)) {
       const simpleLookups = await buildSimpleLookupsList(
-        lookups,
+        lookupsForCaller,
         Lookup,
         LOOKUP_QUERY_POPULATE
       );
       return res.status(200).json(simpleLookups);
     }
 
-    res.status(200).json(lookups.map(formatLookup));
+    res.status(200).json(lookupsForCaller.map(formatLookup));
   } catch (error) {
     console.error("Error fetching lookups:", error);
     return next(AppError.internalServerError("Failed to retrieve lookups"));
