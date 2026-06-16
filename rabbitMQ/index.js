@@ -113,9 +113,9 @@ async function publishDomainEvent(eventType, data, metadata = {}) {
   }
 }
 
-// Import application approval listener
+// Import application processed listener
 const {
-  APPLICATION_REVIEW_APPROVED,
+  APPLICATION_REVIEW_PROCESSED,
   handleApplicationApproved,
 } = require("./listeners/application.approval.listener.js");
 const {
@@ -141,12 +141,12 @@ async function setupConsumers() {
       return;
     }
 
-    // Application approval events queue - upgrade Non-Member to Member when application is approved
+    // Application processed events queue - upgrade Non-Member to Member when application is processed
     const APPLICATION_QUEUE = "users.application.events";
     console.log("🔧 [SETUP] Creating application events queue...");
     console.log("   Queue:", APPLICATION_QUEUE);
     console.log("   Exchange: application.events");
-    console.log("   Routing Key:", APPLICATION_REVIEW_APPROVED);
+    console.log("   Routing Key:", APPLICATION_REVIEW_PROCESSED);
 
     await consumer.createQueue(APPLICATION_QUEUE, {
       durable: true,
@@ -154,15 +154,15 @@ async function setupConsumers() {
     });
 
     await consumer.bindQueue(APPLICATION_QUEUE, "application.events", [
-      APPLICATION_REVIEW_APPROVED,
+      APPLICATION_REVIEW_PROCESSED,
     ]);
 
-    consumer.registerHandler(APPLICATION_REVIEW_APPROVED, async (payload) => {
+    consumer.registerHandler(APPLICATION_REVIEW_PROCESSED, async (payload) => {
       await handleApplicationApproved(payload);
     });
 
     await consumer.consume(APPLICATION_QUEUE, { prefetch: 10 });
-    console.log("✅ Application approval consumer ready:", APPLICATION_QUEUE);
+    console.log("✅ Application processed consumer ready:", APPLICATION_QUEUE);
 
     const MEMBERSHIP_DEMOTION_QUEUE = "users.membership.demotion.events";
     console.log("🔧 [SETUP] Creating membership demotion queue...");
@@ -267,4 +267,3 @@ module.exports = {
   setupConsumers,
   shutdownEventSystem,
 };
-

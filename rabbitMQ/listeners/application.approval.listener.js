@@ -1,21 +1,21 @@
 /**
  * Application Approval Listener
  *
- * When an application is approved in the profile service, this listener updates
+ * When an application is processed in the profile service, this listener updates
  * the user's role in User Service from Non-Member to Member.
  *
  * Flow:
  * - CRM user creates application for someone, or portal user creates their own application
  * - User logs in with portal → gets NON-MEMBER role (limited access)
- * - When application is approved → profile is created/updated in profile service
-* - This listener receives the approval event and upgrades the user's role to MEMBER
+ * - When application is processed → profile is created/updated in profile service
+ * - This listener receives the processed event and upgrades the user's role to MEMBER
  */
 
 const mongoose = require("mongoose");
 const User = require("../../models/user.model");
 const Role = require("../../models/role.model");
 
-const APPLICATION_REVIEW_APPROVED = "applications.review.approved.v1";
+const APPLICATION_REVIEW_PROCESSED = "applications.review.processed.v1";
 
 /**
  * Normalize email for lookup (lowercase, trim)
@@ -122,7 +122,7 @@ async function handleApplicationApproved(payload) {
 
     if (!user) {
       console.log(
-        "[APPLICATION_APPROVAL_LISTENER] No portal user found for approved application:",
+        "[APPLICATION_APPROVAL_LISTENER] No portal user found for processed application:",
         { userId: payloadUserId, email: email || "(none)", tenantId, applicationId }
       );
       return;
@@ -167,7 +167,7 @@ async function handleApplicationApproved(payload) {
     );
   } catch (error) {
     console.error(
-      "❌ [APPLICATION_APPROVAL_LISTENER] Error upgrading user role on application approval:",
+      "❌ [APPLICATION_APPROVAL_LISTENER] Error upgrading user role on application processing:",
       {
         error: error.message,
         stack: error.stack,
@@ -178,6 +178,6 @@ async function handleApplicationApproved(payload) {
 }
 
 module.exports = {
-  APPLICATION_REVIEW_APPROVED,
+  APPLICATION_REVIEW_PROCESSED,
   handleApplicationApproved,
 };

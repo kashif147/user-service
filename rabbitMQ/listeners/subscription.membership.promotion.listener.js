@@ -1,6 +1,6 @@
 /**
  * Upgrades portal users from NON-MEMBER → MEMBER when:
- * - Application is approved (applications.review.approved.v1) — handled in application.approval.listener
+ * - Application is processed (applications.review.processed.v1) — handled in application.approval.listener
  * - A new active subscription is set current (members.subscription.current.updated.v1)
  * - Subscription resignation is undone (members.subscription.resignation.undone.v1)
  * - Subscription cancellation is undone (members.subscription.cancellation.undone.v1)
