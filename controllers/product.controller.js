@@ -10,6 +10,10 @@ const {
   publishProductUpdated,
   publishProductDeleted,
 } = require("../rabbitMQ/publishers/product.publisher");
+const mongoose = require("mongoose");
+
+const escapeRegex = (value) =>
+  String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const getAllProducts = async (req, res, next) => {
   try {
@@ -183,9 +187,19 @@ const getProduct = async (req, res, next) => {
   try {
     const { id } = req.params;
     const { tenantId } = req.ctx;
+    const decodedId = decodeURIComponent(String(id || "")).trim();
+    const escaped = escapeRegex(decodedId);
+    const productLookup = mongoose.Types.ObjectId.isValid(decodedId)
+      ? { _id: decodedId }
+      : {
+          $or: [
+            { name: { $regex: new RegExp(`^${escaped}$`, "i") } },
+            { code: { $regex: new RegExp(`^${escaped}$`, "i") } },
+          ],
+        };
 
     const product = await Product.findOne({
-      _id: id,
+      ...productLookup,
       tenantId,
       isDeleted: false,
     })
