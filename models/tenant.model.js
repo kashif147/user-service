@@ -88,6 +88,43 @@ const TenantSchema = new mongoose.Schema({
       requireNumbers: { type: Boolean, default: true },
       requireSpecialChars: { type: Boolean, default: true },
     },
+    lifecycleBatches: {
+      reminder: {
+        generateMode: {
+          type: String,
+          enum: ["manual", "automatic"],
+          default: "manual",
+        },
+        executeMode: {
+          type: String,
+          enum: ["manual", "automatic"],
+          default: "manual",
+        },
+      },
+      cancellation: {
+        generateMode: {
+          type: String,
+          enum: ["manual", "automatic"],
+          default: "manual",
+        },
+        executeMode: {
+          type: String,
+          enum: ["manual", "automatic"],
+          default: "manual",
+        },
+      },
+      schedule: {
+        dayMode: {
+          type: String,
+          enum: ["FIRST_DAY", "FIRST_WORKING_DAY"],
+          default: "FIRST_WORKING_DAY",
+        },
+      },
+      notificationRecipientRoleCodes: {
+        type: [String],
+        default: ["MO"],
+      },
+    },
   },
   status: {
     type: String,

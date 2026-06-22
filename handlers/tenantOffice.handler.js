@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const TenantOffice = require("../models/tenantOffice.model");
+const TenantPublicHoliday = require("../models/tenantPublicHoliday.model");
 const {
   defaultAddress,
   normalizeOpeningHours,
@@ -8,6 +9,31 @@ const {
 } = require("../constants/tenantOfficeDefaults");
 
 const OFFICE_TYPES = ["HEAD_OFFICE", "BRANCH", "REGIONAL_OFFICE"];
+
+const decorateOfficeWithEffectiveNonWorkingDays = (office, publicHolidays) => {
+  const obj = office?.toObject?.() ?? office;
+  if (!obj) return obj;
+  const tenantDays = (publicHolidays || []).map((holiday) => ({
+    ...(holiday?.toObject?.() ?? holiday),
+    source: "TENANT_PUBLIC_HOLIDAY",
+  }));
+  const officeDays = (obj.nonWorkingDays || []).map((day) => ({
+    ...(day?.toObject?.() ?? day),
+    source: "OFFICE",
+  }));
+  return {
+    ...obj,
+    publicHolidays: tenantDays,
+    effectiveNonWorkingDays: [...tenantDays, ...officeDays].sort(
+      (a, b) => new Date(a.startDate) - new Date(b.startDate)
+    ),
+  };
+};
+
+const listActivePublicHolidays = (tenantId) =>
+  TenantPublicHoliday.find({ tenantId, isActive: true })
+    .sort({ startDate: 1, name: 1 })
+    .lean();
 
 const normalizeAddress = (address = {}) => ({
   ...defaultAddress(),
@@ -37,10 +63,27 @@ const listByTenant = async (tenantId, { includeInactive = false } = {}) => {
   if (!includeInactive) {
     query.isActive = true;
   }
-  return TenantOffice.find(query).sort({ isPrimary: -1, name: 1 });
+  const [offices, publicHolidays] = await Promise.all([
+    TenantOffice.find(query).sort({ isPrimary: -1, name: 1 }),
+    listActivePublicHolidays(tenantId),
+  ]);
+  return offices.map((office) =>
+    decorateOfficeWithEffectiveNonWorkingDays(office, publicHolidays)
+  );
 };
 
 const getById = async (tenantId, officeId) => {
+  if (!mongoose.Types.ObjectId.isValid(officeId)) {
+    return null;
+  }
+  const [office, publicHolidays] = await Promise.all([
+    TenantOffice.findOne({ _id: officeId, tenantId }),
+    listActivePublicHolidays(tenantId),
+  ]);
+  return decorateOfficeWithEffectiveNonWorkingDays(office, publicHolidays);
+};
+
+const getRawById = async (tenantId, officeId) => {
   if (!mongoose.Types.ObjectId.isValid(officeId)) {
     return null;
   }
@@ -101,11 +144,13 @@ const createOffice = async (tenantId, payload, userId) => {
     }
   }
 
-  return TenantOffice.findById(office._id);
+  const created = await TenantOffice.findById(office._id);
+  const publicHolidays = await listActivePublicHolidays(tenantId);
+  return decorateOfficeWithEffectiveNonWorkingDays(created, publicHolidays);
 };
 
 const updateOffice = async (tenantId, officeId, payload, userId) => {
-  const office = await getById(tenantId, officeId);
+  const office = await getRawById(tenantId, officeId);
   if (!office) {
     const err = new Error("Office not found");
     err.statusCode = 404;
@@ -166,11 +211,13 @@ const updateOffice = async (tenantId, officeId, payload, userId) => {
     await ensureSinglePrimary(tenantId, office._id, true);
   }
 
-  return TenantOffice.findById(office._id);
+  const updated = await TenantOffice.findById(office._id);
+  const publicHolidays = await listActivePublicHolidays(tenantId);
+  return decorateOfficeWithEffectiveNonWorkingDays(updated, publicHolidays);
 };
 
 const setPrimaryOffice = async (tenantId, officeId, userId) => {
-  const office = await getById(tenantId, officeId);
+  const office = await getRawById(tenantId, officeId);
   if (!office) {
     const err = new Error("Office not found");
     err.statusCode = 404;
@@ -182,11 +229,13 @@ const setPrimaryOffice = async (tenantId, officeId, userId) => {
   office.updatedBy = userId || office.updatedBy;
   await office.save();
   await ensureSinglePrimary(tenantId, office._id, true);
-  return TenantOffice.findById(office._id);
+  const updated = await TenantOffice.findById(office._id);
+  const publicHolidays = await listActivePublicHolidays(tenantId);
+  return decorateOfficeWithEffectiveNonWorkingDays(updated, publicHolidays);
 };
 
 const deactivateOffice = async (tenantId, officeId, userId) => {
-  const office = await getById(tenantId, officeId);
+  const office = await getRawById(tenantId, officeId);
   if (!office) {
     const err = new Error("Office not found");
     err.statusCode = 404;
@@ -210,7 +259,8 @@ const deactivateOffice = async (tenantId, officeId, userId) => {
     }
   }
 
-  return office;
+  const publicHolidays = await listActivePublicHolidays(tenantId);
+  return decorateOfficeWithEffectiveNonWorkingDays(office, publicHolidays);
 };
 
 module.exports = {
