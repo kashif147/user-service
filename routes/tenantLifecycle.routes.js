@@ -2,21 +2,25 @@ const express = require("express");
 const router = express.Router();
 const TenantLifecycleController = require("../controllers/tenantLifecycle.controller");
 
-router.use(TenantLifecycleController.requireInternal);
+/** Scope internal auth to /api/internal/* only (not all /api/* mounts). */
+const internalRouter = express.Router();
+internalRouter.use(TenantLifecycleController.requireInternal);
 
-router.get(
-  "/internal/tenant-lifecycle-configs",
+internalRouter.get(
+  "/tenant-lifecycle-configs",
   TenantLifecycleController.getAllLifecycleConfigs
 );
 
-router.get(
-  "/internal/tenants/:tenantId/lifecycle-config",
+internalRouter.get(
+  "/tenants/:tenantId/lifecycle-config",
   TenantLifecycleController.getLifecycleConfig
 );
 
-router.get(
-  "/internal/tenants/:tenantId/notification-recipients",
+internalRouter.get(
+  "/tenants/:tenantId/notification-recipients",
   TenantLifecycleController.getNotificationRecipients
 );
+
+router.use("/internal", internalRouter);
 
 module.exports = router;
