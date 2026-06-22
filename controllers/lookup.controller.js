@@ -41,6 +41,50 @@ const LOOKUP_QUERY_POPULATE = [
   },
 ];
 
+const isWorkLocationLookupType = (lookupType) => {
+  const code = String(lookupType?.code || "").toUpperCase();
+  const name = String(lookupType?.lookuptype || "")
+    .trim()
+    .toLowerCase();
+  return code === "WORKLOC" || name === "work location";
+};
+
+const getLookupTypeForSalaryDeduction = async (lookuptypeId) => {
+  if (!lookuptypeId) return null;
+  return LookupType.findById(lookuptypeId).select("code lookuptype").lean();
+};
+
+const compareText = (a, b) =>
+  String(a || "").localeCompare(String(b || ""), undefined, {
+    sensitivity: "base",
+    numeric: true,
+  });
+
+const getLookupTypeSortLabel = (lookup) => {
+  const lookupType = lookup?.lookuptypeId;
+  if (lookupType && typeof lookupType === "object") {
+    return lookupType.lookuptype || lookupType.displayname || lookupType.code;
+  }
+  return lookup?.lookuptypeName || "";
+};
+
+const getLookupSortLabel = (lookup) =>
+  lookup?.lookupname || lookup?.DisplayName || lookup?.code || "";
+
+const sortLookupsForResponse = (lookups = []) =>
+  [...lookups].sort((a, b) => {
+    const typeCompare = compareText(
+      getLookupTypeSortLabel(a),
+      getLookupTypeSortLabel(b)
+    );
+    if (typeCompare !== 0) return typeCompare;
+
+    const nameCompare = compareText(getLookupSortLabel(a), getLookupSortLabel(b));
+    if (nameCompare !== 0) return nameCompare;
+
+    return compareText(a?._id, b?._id);
+  });
+
 const formatLookupType = (lookupType) => {
   if (!lookupType) return null;
   const doc =
@@ -392,7 +436,9 @@ const getAllLookup = async (req, res, next) => {
       return res.status(200).json([]);
     }
 
-    const lookupsForCaller = filterPortalMembershipCategoryLookups(lookups, req);
+    const lookupsForCaller = sortLookupsForResponse(
+      filterPortalMembershipCategoryLookups(lookups, req)
+    );
 
     if (isSimpleFormat(req)) {
       const simpleLookups = await buildSimpleLookupsList(
@@ -480,6 +526,12 @@ const createNewLookup = async (req, res, next) => {
       return next(err);
     }
 
+    const lookupTypeForFlags = await getLookupTypeForSalaryDeduction(
+      lookuptypeId
+    );
+    const canProcessSalaryDeduction =
+      isWorkLocationLookupType(lookupTypeForFlags);
+
     const lookup = await Lookup.create({
       code,
       lookupname,
@@ -491,7 +543,9 @@ const createNewLookup = async (req, res, next) => {
       userid,
       officer: officer || null,
       worklocationAddress: worklocationAddress || null,
-      processSalaryDeduction: !!processSalaryDeduction,
+      processSalaryDeduction: canProcessSalaryDeduction
+        ? !!processSalaryDeduction
+        : false,
     });
 
     const populated = await findPopulatedLookup({ _id: lookup._id });
@@ -576,8 +630,18 @@ const updateLookup = async (req, res, next) => {
     if (typeof worklocationAddress !== "undefined") {
       lookup.worklocationAddress = worklocationAddress;
     }
-    if (typeof processSalaryDeduction !== "undefined") {
+    const lookupTypeForFlags = await getLookupTypeForSalaryDeduction(
+      nextLookupTypeId
+    );
+    const canProcessSalaryDeduction =
+      isWorkLocationLookupType(lookupTypeForFlags);
+    if (
+      canProcessSalaryDeduction &&
+      typeof processSalaryDeduction !== "undefined"
+    ) {
       lookup.processSalaryDeduction = !!processSalaryDeduction;
+    } else if (!canProcessSalaryDeduction) {
+      lookup.processSalaryDeduction = false;
     }
 
     await lookup.save();
