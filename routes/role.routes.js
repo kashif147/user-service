@@ -107,6 +107,12 @@ router.get(
   RoleController.getAllUsers
 );
 
+router.get(
+  "/roles/users/by-role",
+  defaultPolicyAdapter.middleware("role", "read"),
+  RoleController.getUsersByRoles
+);
+
 // Get users by role (ASU can read users in their tenant)
 router.get(
   "/roles/:roleId/users",

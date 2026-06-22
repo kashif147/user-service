@@ -40,43 +40,55 @@ module.exports.getAllRoles = async (tenantId, category = null) => {
     
     console.log(`[getAllRoles] Found ${roles.length} roles for tenantId: ${tenantId}, category: ${category || 'all'}`);
 
-    // Transform permissions to include full details
-    const rolesWithPermissions = await Promise.all(
-      roles.map(async (role) => {
-        const transformedPermissions = await Promise.all(
-          role.permissions.map(async (perm) => {
-            // Check if permission is an ObjectId
-            if (mongoose.Types.ObjectId.isValid(perm) && perm.length === 24) {
-              const permDoc = await Permission.findById(perm).lean();
-              if (permDoc) {
-                return {
-                  _id: permDoc._id,
-                  name: permDoc.name,
-                  code: permDoc.code,
-                  description: permDoc.description,
-                };
-              }
-            }
-            // If it's a string code, try to find by code
-            const permByCode = await Permission.findOne({ code: perm }).lean();
-            if (permByCode) {
-              return {
-                _id: permByCode._id,
-                name: permByCode.name,
-                code: permByCode.code,
-                description: permByCode.description,
-              };
-            }
-            // Return as-is if not found
-            return { code: perm, name: perm };
-          })
-        );
-        return {
-          ...role,
-          permissions: transformedPermissions,
-        };
-      })
+    const permissionValues = [
+      ...new Set(roles.flatMap((role) => role.permissions || []).filter(Boolean)),
+    ];
+    const permissionObjectIds = permissionValues.filter(
+      (perm) => mongoose.Types.ObjectId.isValid(perm) && perm.length === 24
     );
+    const permissionCodes = permissionValues.filter(
+      (perm) => !(mongoose.Types.ObjectId.isValid(perm) && perm.length === 24)
+    );
+
+    const permissionDocs =
+      permissionValues.length > 0
+        ? await Permission.find({
+            $or: [
+              ...(permissionObjectIds.length
+                ? [{ _id: { $in: permissionObjectIds } }]
+                : []),
+              ...(permissionCodes.length ? [{ code: { $in: permissionCodes } }] : []),
+            ],
+          })
+            .select("name code description")
+            .lean()
+        : [];
+
+    const permissionsById = new Map(
+      permissionDocs.map((permission) => [permission._id.toString(), permission])
+    );
+    const permissionsByCode = new Map(
+      permissionDocs.map((permission) => [permission.code, permission])
+    );
+
+    const toPermissionPayload = (perm) => {
+      const permission =
+        permissionsById.get(String(perm)) || permissionsByCode.get(String(perm));
+      if (!permission) {
+        return { code: perm, name: perm };
+      }
+      return {
+        _id: permission._id,
+        name: permission.name,
+        code: permission.code,
+        description: permission.description,
+      };
+    };
+
+    const rolesWithPermissions = roles.map((role) => ({
+      ...role,
+      permissions: (role.permissions || []).map(toPermissionPayload),
+    }));
 
     console.log(`[getAllRoles] Returning ${rolesWithPermissions.length} roles with transformed permissions`);
     return rolesWithPermissions;
@@ -501,9 +513,47 @@ module.exports.getUserRoles = async (userId, tenantId) => {
 
 module.exports.getUsersByRole = async (roleId, tenantId) => {
   try {
-    return await User.find({ roles: roleId, tenantId }).populate("roles");
+    return await User.find({ roles: roleId, tenantId })
+      .select("_id userEmail userFirstName userLastName userFullName roles isActive")
+      .lean();
   } catch (error) {
     throw new Error(`Error fetching users by role: ${error.message}`);
+  }
+};
+
+module.exports.getUsersByRoleIds = async (roleIds, tenantId) => {
+  try {
+    const uniqueRoleIds = [
+      ...new Set((Array.isArray(roleIds) ? roleIds : []).filter(Boolean)),
+    ];
+
+    uniqueRoleIds.forEach((roleId) => {
+      if (!mongoose.Types.ObjectId.isValid(roleId)) {
+        throw new Error(
+          `Invalid roleId format: ${roleId}. ObjectId must be a 24-character hex string.`
+        );
+      }
+    });
+
+    if (uniqueRoleIds.length === 0) {
+      return {};
+    }
+
+    const users = await User.find({
+      tenantId,
+      roles: { $in: uniqueRoleIds },
+    })
+      .select("_id userEmail userFirstName userLastName userFullName roles isActive")
+      .lean();
+
+    return uniqueRoleIds.reduce((acc, roleId) => {
+      acc[roleId] = users.filter((user) =>
+        (user.roles || []).some((userRoleId) => String(userRoleId) === String(roleId))
+      );
+      return acc;
+    }, {});
+  } catch (error) {
+    throw new Error(`Error fetching users by roles: ${error.message}`);
   }
 };
 

@@ -61,6 +61,7 @@ const UserSchema = new mongoose.Schema({
 UserSchema.index({ tenantId: 1, userEmail: 1 }, { unique: true }); // Unique email per tenant
 UserSchema.index({ tenantId: 1, userMicrosoftId: 1 }, { unique: true }); // Unique Microsoft ID per tenant
 UserSchema.index({ tenantId: 1, userSubject: 1 }, { unique: true }); // Unique subject per tenant
+UserSchema.index({ tenantId: 1, roles: 1, isActive: 1 }); // Fast role-assigned user lookups
 
 // Index for Azure B2C validation endpoint (cross-tenant duplicate check)
 UserSchema.index({ userEmail: 1, isActive: 1 }); // Fast lookup for validation endpoint

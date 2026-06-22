@@ -299,6 +299,23 @@ module.exports.getUsersByRole = async (req, res, next) => {
   }
 };
 
+module.exports.getUsersByRoles = async (req, res, next) => {
+  try {
+    const tenantId = req.ctx.tenantId;
+    const roleIds = String(req.query.roleIds || "")
+      .split(",")
+      .map((roleId) => roleId.trim())
+      .filter(Boolean);
+
+    const usersByRoleId = await RoleHandler.getUsersByRoleIds(roleIds, tenantId);
+    res.status(200).json({ status: "success", data: usersByRoleId });
+  } catch (error) {
+    return next(
+      AppError.internalServerError("Failed to retrieve users by roles")
+    );
+  }
+};
+
 module.exports.getAllUsers = async (req, res, next) => {
   try {
     const tenantId = req.ctx.tenantId;

@@ -151,10 +151,10 @@ const validateParentLookup = async (lookuptypeId, parentLookupId) => {
 };
 
 const findPopulatedLookup = (filter) =>
-  Lookup.findOne(filter).populate(LOOKUP_QUERY_POPULATE);
+  Lookup.findOne(filter).populate(LOOKUP_QUERY_POPULATE).lean();
 
 const findPopulatedLookups = (filter) =>
-  Lookup.find(filter).populate(LOOKUP_QUERY_POPULATE);
+  Lookup.find(filter).populate(LOOKUP_QUERY_POPULATE).lean();
 
 const invalidateLookupCaches = async (lookupId = null, lookuptypeId = null) => {
   await lookupCacheService.invalidateLookupCache();
