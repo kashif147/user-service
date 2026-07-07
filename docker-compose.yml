@@ -17,6 +17,8 @@ services:
       - "5001:5001"
     volumes:
       - ../../logs:/var/log/projectshell
+    environment:
+      LOG_ROOT: /var/log/projectshell
     env_file:
       - ${ENV_COMMON_PATH:-../../config/.env.common}
       - .env.staging
