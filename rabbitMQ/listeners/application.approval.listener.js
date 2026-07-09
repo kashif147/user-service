@@ -13,7 +13,7 @@
 
 const mongoose = require("mongoose");
 const User = require("../../models/user.model");
-const Role = require("../../models/role.model");
+const { assignMemberRole } = require("../../helpers/roleAssignment");
 
 const APPLICATION_REVIEW_PROCESSED = "applications.review.processed.v1";
 
@@ -46,13 +46,17 @@ function getEmailFromEffective(effective) {
 }
 
 /**
- * Find portal user: try userId first (from payload), then email lookup
+ * Find portal user: try userId first (from payload), then email lookup.
+ * userId normally carries the user-service document id, but older payloads can
+ * carry an identity-provider id, so keep those fallbacks tenant-scoped.
  */
 async function findPortalUser({ userId, email, tenantId }) {
   const tid = tenantId != null ? String(tenantId) : null;
+  const normalizedUserId =
+    userId != null && String(userId).trim() ? String(userId).trim() : null;
 
-  if (userId && mongoose.Types.ObjectId.isValid(userId)) {
-    const oid = new mongoose.Types.ObjectId(userId);
+  if (normalizedUserId && mongoose.Types.ObjectId.isValid(normalizedUserId)) {
+    const oid = new mongoose.Types.ObjectId(normalizedUserId);
     if (tid) {
       const byIdAndTenant = await User.findOne({
         _id: oid,
@@ -61,16 +65,30 @@ async function findPortalUser({ userId, email, tenantId }) {
         isActive: true,
       });
       if (byIdAndTenant) return byIdAndTenant;
+    } else {
+      const byId = await User.findOne({
+        _id: oid,
+        userType: "PORTAL",
+        isActive: true,
+      });
+      if (byId) return byId;
     }
-    const byId = await User.findOne({
-      _id: oid,
-      userType: "PORTAL",
-      isActive: true,
-    });
-    if (byId) return byId;
   }
 
   if (!tid) return null;
+
+  if (normalizedUserId) {
+    const byExternalIdentity = await User.findOne({
+      tenantId: tid,
+      userType: "PORTAL",
+      isActive: true,
+      $or: [
+        { userMicrosoftId: normalizedUserId },
+        { userSubject: normalizedUserId },
+      ],
+    });
+    if (byExternalIdentity) return byExternalIdentity;
+  }
 
   const normalizedEmail = normalizeEmail(email);
   if (!normalizedEmail) return null;
@@ -128,30 +146,26 @@ async function handleApplicationApproved(payload) {
       return;
     }
 
-    const memberRole = await Role.findOne({ tenantId, code: "MEMBER", isActive: true });
-    if (!memberRole) {
+    const tenantForRole =
+      user.tenantId != null && String(user.tenantId).trim()
+        ? String(user.tenantId)
+        : tenantId;
+    if (!tenantForRole) {
       console.warn(
-        "[APPLICATION_APPROVAL_LISTENER] MEMBER role not found for tenant:",
-        tenantId
+        "[APPLICATION_APPROVAL_LISTENER] Cannot resolve tenant for role assignment, skipping"
       );
       return;
     }
 
-    const nonMemberRole = await Role.findOne({ tenantId, code: "NON-MEMBER", isActive: true });
-
-    // Always add MEMBER and remove NON-MEMBER (work directly on the user document)
-    let roles = Array.isArray(user.roles) ? user.roles.slice() : [];
-
-    if (nonMemberRole) {
-      roles = roles.filter((r) => !r.equals(nonMemberRole._id));
+    const ok = await assignMemberRole(user, tenantForRole);
+    if (!ok) {
+      console.warn(
+        "[APPLICATION_APPROVAL_LISTENER] assignMemberRole failed:",
+        user._id.toString()
+      );
+      return;
     }
 
-    const hasMember = roles.some((r) => r.equals(memberRole._id));
-    if (!hasMember) {
-      roles.push(memberRole._id);
-    }
-
-    user.roles = roles;
     user.updatedAt = new Date();
     await user.save();
 
@@ -160,9 +174,8 @@ async function handleApplicationApproved(payload) {
       {
         userId: user._id.toString(),
         email: user.userEmail,
-        tenantId,
+        tenantId: tenantForRole,
         applicationId,
-        removedNonMember: !!nonMemberRole,
       }
     );
   } catch (error) {
