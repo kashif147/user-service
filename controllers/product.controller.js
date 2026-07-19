@@ -282,7 +282,7 @@ const getProduct = async (req, res, next) => {
 
 const createProduct = async (req, res, next) => {
   try {
-    const { name, code, description, productTypeId, status } = req.body;
+    const { name, code, description, productTypeId, status, incomeAccountCode } = req.body;
     const { userId, tenantId } = req.ctx;
 
     if (!name || !code || !productTypeId) {
@@ -320,6 +320,7 @@ const createProduct = async (req, res, next) => {
       productTypeId,
       status: status || "Active",
       isActive: status === "Active",
+      incomeAccountCode: incomeAccountCode || null,
       createdBy: userId,
       tenantId,
     });
@@ -372,7 +373,7 @@ const createProduct = async (req, res, next) => {
 const updateProduct = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { name, code, description, productTypeId, status } = req.body;
+    const { name, code, description, productTypeId, status, incomeAccountCode } = req.body;
     const { userId, tenantId } = req.ctx;
 
     const product = await Product.findOne({
@@ -421,6 +422,7 @@ const updateProduct = async (req, res, next) => {
       product.status = status;
       product.isActive = status === "Active";
     }
+    if (incomeAccountCode !== undefined) product.incomeAccountCode = incomeAccountCode;
     product.updatedBy = userId;
 
     await product.save();

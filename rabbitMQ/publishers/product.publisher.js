@@ -46,6 +46,7 @@ function buildProductPayload(product) {
     isActive: product.isActive,
     isDeleted: product.isDeleted,
     tenantId: product.tenantId,
+    incomeAccountCode: product.incomeAccountCode ?? null,
     createdBy: toRefIdString(product.createdBy) ?? null,
     updatedBy: toRefIdString(product.updatedBy) ?? null,
     createdAt: product.createdAt,

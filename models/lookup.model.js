@@ -63,6 +63,14 @@ const lookupSchema = new mongoose.Schema(
       required: false,
       default: null,
     },
+    // Address for Venue lookups - kept as its own field (not worklocationAddress,
+    // which is legacy/specific to Work Location & Study Location) so Venue
+    // records read clearly regardless of the shared addressSchema underneath.
+    venueAddress: {
+      type: addressSchema,
+      required: false,
+      default: null,
+    },
     processSalaryDeduction: {
       type: Boolean,
       default: false,
@@ -71,32 +79,35 @@ const lookupSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+const ADDRESS_FIELDS = ["worklocationAddress", "venueAddress"];
+
+function deriveFullAddress(addr) {
+  const parts = [];
+  if (addr.buildingOrHouse?.trim()) parts.push(addr.buildingOrHouse.trim());
+  if (addr.streetOrRoad?.trim()) parts.push(addr.streetOrRoad.trim());
+  if (addr.areaOrTown?.trim()) parts.push(addr.areaOrTown.trim());
+  if (addr.countyCityOrPostCode?.trim()) parts.push(addr.countyCityOrPostCode.trim());
+  if (addr.country?.trim()) parts.push(addr.country.trim());
+  return parts.join(", ");
+}
+
 lookupSchema.pre("save", function (next) {
-  if (this.worklocationAddress && this.isModified("worklocationAddress")) {
-    const addr = this.worklocationAddress;
-    const parts = [];
-    if (addr.buildingOrHouse?.trim()) parts.push(addr.buildingOrHouse.trim());
-    if (addr.streetOrRoad?.trim()) parts.push(addr.streetOrRoad.trim());
-    if (addr.areaOrTown?.trim()) parts.push(addr.areaOrTown.trim());
-    if (addr.countyCityOrPostCode?.trim()) parts.push(addr.countyCityOrPostCode.trim());
-    if (addr.country?.trim()) parts.push(addr.country.trim());
-    this.worklocationAddress.fullAddress = parts.join(", ");
-  }
+  ADDRESS_FIELDS.forEach((field) => {
+    if (this[field] && this.isModified(field)) {
+      this[field].fullAddress = deriveFullAddress(this[field]);
+    }
+  });
   next();
 });
 
 lookupSchema.pre("findOneAndUpdate", function (next) {
   const update = this.getUpdate();
-  const addr = update?.worklocationAddress || update?.$set?.worklocationAddress;
-  if (addr && addr.fullAddress === undefined) {
-    const parts = [];
-    if (addr.buildingOrHouse?.trim()) parts.push(addr.buildingOrHouse.trim());
-    if (addr.streetOrRoad?.trim()) parts.push(addr.streetOrRoad.trim());
-    if (addr.areaOrTown?.trim()) parts.push(addr.areaOrTown.trim());
-    if (addr.countyCityOrPostCode?.trim()) parts.push(addr.countyCityOrPostCode.trim());
-    if (addr.country?.trim()) parts.push(addr.country.trim());
-    addr.fullAddress = parts.join(", ");
-  }
+  ADDRESS_FIELDS.forEach((field) => {
+    const addr = update?.[field] || update?.$set?.[field];
+    if (addr && addr.fullAddress === undefined) {
+      addr.fullAddress = deriveFullAddress(addr);
+    }
+  });
   next();
 });
 

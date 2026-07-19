@@ -30,6 +30,14 @@ const productSchema = new mongoose.Schema(
       enum: ["Active", "Inactive"],
       default: "Active",
     },
+    // CoA income code to credit when this product is sold (e.g. events/courses
+    // registration products). Optional - membership fee products resolve their
+    // income code from category instead (see account-service getIncomeCodeForCategory).
+    incomeAccountCode: {
+      type: String,
+      trim: true,
+      default: null,
+    },
     isActive: {
       type: Boolean,
       default: true,

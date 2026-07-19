@@ -41,6 +41,21 @@ const LOOKUP_QUERY_POPULATE = [
   },
 ];
 
+const ADDRESS_REQUIRED_FIELDS = ["buildingOrHouse", "countyCityOrPostCode", "country"];
+
+// The addressSchema sub-fields above are `required: true`, which Mongoose
+// enforces even for empty strings. Callers (e.g. drawers that don't carry a
+// real address) can send `{ buildingOrHouse: "", ... }` instead of omitting
+// the field entirely - normalize that down to null instead of letting it hit
+// subdocument validation as a 400.
+const normalizeAddressForStorage = (address) => {
+  if (!address || typeof address !== "object") return null;
+  const hasAllRequired = ADDRESS_REQUIRED_FIELDS.every(
+    (key) => address[key] != null && String(address[key]).trim() !== "",
+  );
+  return hasAllRequired ? address : null;
+};
+
 const isWorkLocationLookupType = (lookupType) => {
   const code = String(lookupType?.code || "").toUpperCase();
   const name = String(lookupType?.lookuptype || "")
@@ -503,6 +518,7 @@ const createNewLookup = async (req, res, next) => {
       userid,
       officer,
       worklocationAddress,
+      venueAddress,
       processSalaryDeduction,
     } = req.body;
 
@@ -542,7 +558,8 @@ const createNewLookup = async (req, res, next) => {
       isactive: isactive !== false,
       userid,
       officer: officer || null,
-      worklocationAddress: worklocationAddress || null,
+      worklocationAddress: normalizeAddressForStorage(worklocationAddress),
+      venueAddress: normalizeAddressForStorage(venueAddress),
       processSalaryDeduction: canProcessSalaryDeduction
         ? !!processSalaryDeduction
         : false,
@@ -587,6 +604,7 @@ const updateLookup = async (req, res, next) => {
       userid,
       officer,
       worklocationAddress,
+      venueAddress,
       processSalaryDeduction,
     } = req.body;
 
@@ -628,7 +646,10 @@ const updateLookup = async (req, res, next) => {
     if (userid) lookup.userid = userid;
     if (typeof officer !== "undefined") lookup.officer = officer;
     if (typeof worklocationAddress !== "undefined") {
-      lookup.worklocationAddress = worklocationAddress;
+      lookup.worklocationAddress = normalizeAddressForStorage(worklocationAddress);
+    }
+    if (typeof venueAddress !== "undefined") {
+      lookup.venueAddress = normalizeAddressForStorage(venueAddress);
     }
     const lookupTypeForFlags = await getLookupTypeForSalaryDeduction(
       nextLookupTypeId
