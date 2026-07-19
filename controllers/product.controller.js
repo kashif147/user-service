@@ -18,7 +18,7 @@ const escapeRegex = (value) =>
 const getAllProducts = async (req, res, next) => {
   try {
     const { tenantId } = req.ctx;
-    const { productTypeId } = req.query;
+    const { productTypeId, code } = req.query;
 
     let query = {
       tenantId,
@@ -28,6 +28,11 @@ const getAllProducts = async (req, res, next) => {
     // Filter by product type if provided
     if (productTypeId) {
       query.productTypeId = productTypeId;
+    }
+    // Exact code lookup - lets callers check for an existing product before
+    // creating one (codes are unique per tenant).
+    if (code) {
+      query.code = String(code).toUpperCase();
     }
 
     const products = await Product.find(query)

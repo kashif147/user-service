@@ -406,7 +406,9 @@ const getAllProductTypesWithProducts = async (req, res, next) => {
         const productsWithPricing = await Promise.all(
           products.map(async (product) => {
             const currentDate = new Date();
-            const currentPricing = await Pricing.findOne({
+            const pricingSelect =
+              "price memberPrice nonMemberPrice currency effectiveFrom effectiveTo productType status";
+            let currentPricing = await Pricing.findOne({
               productId: product._id,
               tenantId,
               isActive: true,
@@ -417,10 +419,24 @@ const getAllProductTypesWithProducts = async (req, res, next) => {
                 { effectiveTo: null },
               ],
             })
-              .select(
-                "price memberPrice nonMemberPrice currency effectiveFrom effectiveTo productType status"
-              )
+              .select(pricingSelect)
               .sort({ effectiveFrom: -1 });
+
+            // Products whose only pricing is dated in the future (e.g. an
+            // event registration product priced ahead of the event date)
+            // have no row matching the "active today" window above - fall
+            // back to the most recent active pricing so the price/dates
+            // still show instead of "-".
+            if (!currentPricing) {
+              currentPricing = await Pricing.findOne({
+                productId: product._id,
+                tenantId,
+                isActive: true,
+                isDeleted: false,
+              })
+                .select(pricingSelect)
+                .sort({ effectiveFrom: -1 });
+            }
 
             const pricingHistory = await Pricing.find({
               productId: product._id,
