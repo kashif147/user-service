@@ -139,6 +139,7 @@ const formatLookup = (lookup) => {
     lookuptypeName: lookupType?.lookuptype ?? null,
     officer: doc.officer || null,
     worklocationAddress: doc.worklocationAddress || null,
+    venueAddress: doc.venueAddress || null,
     processSalaryDeduction: !!doc.processSalaryDeduction,
     userid: doc.userid ?? null,
     isactive: doc.isactive,
