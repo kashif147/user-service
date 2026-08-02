@@ -174,6 +174,16 @@ const TEAM_ROLE_CODES = {
   dataprotection: [], // GAP: no Data Protection Officer / DP team role exists in the seeded catalog
 };
 
+// Senior Management Team (SMT) — General Secretary and Deputy General Secretary
+// (confirmed live role names: "General Secretary" / "Deputy General Secretary"), top
+// organisational leadership rather than IR caseworkers, so kept separate from
+// TEAM_ROLE_CODES.ir above. Per explicit user decision, granted full read+write across
+// every team resource (Complaints/FTP/IR/DataProtection) plus the base issues/
+// issues-templates resources — bypassing the category:"CRM" base-grant branch's known
+// mislabeling bug the same way TEAM_ROLE_CODES.ir already does, by matching on role code
+// directly rather than the unreliable `category` field.
+const SMT_FULL_ACCESS_ROLE_CODES = ["GS", "DGS"];
+
 async function ensurePermission(doc) {
   const full = {
     name: doc.name,
@@ -303,13 +313,36 @@ async function main() {
     "Data Protection Officer / DP team",
   );
 
+  // --- SMT (General Secretary / Deputy General Secretary): full read+write across every
+  // team resource, per explicit decision (not a default assumption) — see the header
+  // comment above SMT_FULL_ACCESS_ROLE_CODES. ---
+  const smtResult = await attachToRoleCodes(
+    SMT_FULL_ACCESS_ROLE_CODES,
+    [
+      byCode.ISSUES_READ,
+      byCode.ISSUES_WRITE,
+      byCode.ISSUES_TEMPLATES_READ,
+      byCode.ISSUES_TEMPLATES_WRITE,
+      byCode.ISSUES_COMPLAINTS_READ,
+      byCode.ISSUES_COMPLAINTS_WRITE,
+      byCode.ISSUES_FTP_READ,
+      byCode.ISSUES_FTP_WRITE,
+      byCode.ISSUES_IR_READ,
+      byCode.ISSUES_IR_WRITE,
+      byCode.ISSUES_DATAPROTECTION_READ,
+      byCode.ISSUES_DATAPROTECTION_WRITE,
+    ],
+    "SMT (General Secretary / Deputy General Secretary) — full access",
+  );
+
   console.log(
     `\n✅ Done.` +
       ` Base: ${baseResult.updated} updated / ${baseResult.skipped} skipped.` +
       ` Complaints: ${complaintsResult.updated} updated / ${complaintsResult.skipped} skipped.` +
       ` FTP: ${ftpResult.updated} updated / ${ftpResult.skipped} skipped.` +
       ` IR+Information: ${irResult.updated} updated / ${irResult.skipped} skipped.` +
-      ` Data Protection: ${dpResult.updated} updated / ${dpResult.skipped} skipped.`,
+      ` Data Protection: ${dpResult.updated} updated / ${dpResult.skipped} skipped.` +
+      ` SMT full access: ${smtResult.updated} updated / ${smtResult.skipped} skipped.`,
   );
 
   await mongoose.disconnect();
