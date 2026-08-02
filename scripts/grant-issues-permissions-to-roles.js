@@ -38,7 +38,10 @@
  * specific role CODES (not category) identified by inspecting the live role catalog —
  * see TEAM_ROLE_CODES below and the task report for which roles exist vs. which are gaps.
  * A code that doesn't exist in a given environment is skipped with a warning (idempotent
- * no-op), never invented.
+ * no-op), never invented. Complaints and FTP remain confirmed gaps (no matching role
+ * exists yet); Data Protection was filled by scripts/create-dpo-role.js (run that first,
+ * or this script's DP grant will just skip with a "not found" warning, same as any other
+ * missing code).
  *
  * MongoDB connection: user-service .env.staging (MONGO_URI).
  *
@@ -171,7 +174,8 @@ const TEAM_ROLE_CODES = {
   ftp: [], // GAP: no "Fitness to Practice" team role exists in the seeded catalog
   // Industrial Relations team (all IR-titled roles) + Information department
   ir: ["IRO", "IRE", "DIR", "ADIR", "IO"],
-  dataprotection: [], // GAP: no Data Protection Officer / DP team role exists in the seeded catalog
+  // Data Protection Officer - role created by scripts/create-dpo-role.js (run that first).
+  dataprotection: ["DPO"],
 };
 
 // Senior Management Team (SMT) — General Secretary and Deputy General Secretary
