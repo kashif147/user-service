@@ -299,6 +299,23 @@ module.exports.getUsersByRole = async (req, res, next) => {
   }
 };
 
+module.exports.getUsersByPermission = async (req, res, next) => {
+  try {
+    const tenantId = req.ctx.tenantId;
+    const { resource, action, q, limit } = req.query;
+    if (!resource || !action) {
+      return next(AppError.badRequest("resource and action query params are required"));
+    }
+    const users = await RoleHandler.getUsersByPermission(resource, action, tenantId, {
+      q,
+      limit,
+    });
+    res.status(200).json({ status: "success", data: users });
+  } catch (error) {
+    return next(AppError.internalServerError("Failed to retrieve users by permission"));
+  }
+};
+
 module.exports.getUsersByRoles = async (req, res, next) => {
   try {
     const tenantId = req.ctx.tenantId;

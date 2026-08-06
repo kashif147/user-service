@@ -113,6 +113,14 @@ router.get(
   RoleController.getUsersByRoles
 );
 
+// Users holding a given resource:action permission (e.g. Owner/Resolved By pickers scoped
+// to a specific issue-management team - see role.handler.js's getUsersByPermission).
+router.get(
+  "/roles/users/by-permission",
+  defaultPolicyAdapter.middleware("user", "read"),
+  RoleController.getUsersByPermission
+);
+
 // Get users by role (ASU can read users in their tenant)
 router.get(
   "/roles/:roleId/users",

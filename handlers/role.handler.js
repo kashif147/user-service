@@ -557,6 +557,58 @@ module.exports.getUsersByRoleIds = async (roleIds, tenantId) => {
   }
 };
 
+/**
+ * Users who hold a given resource:action permission, via whichever of their tenant's roles
+ * grants it - for issue-service's Owner/Resolved By pickers, scoped per issueType to
+ * "issues-<team>:write" (see backend/issue-service/services/issue.service.js's
+ * TEAM_RESOURCE_BY_ISSUE_TYPE / hasTeamWritePermission for the resource-per-team mapping this
+ * feeds). Mirrors getAllRoles' mixed ObjectId/code role.permissions resolution above, just
+ * inverted (permission -> roles -> users instead of role -> permissions).
+ */
+module.exports.getUsersByPermission = async (
+  resource,
+  action,
+  tenantId,
+  { q, limit = 20 } = {},
+) => {
+  try {
+    const permission = await Permission.findOne({ resource, action }).lean();
+    if (!permission) return [];
+
+    const roles = await Role.find({
+      tenantId,
+      isActive: true,
+      $or: [
+        { permissions: String(permission._id) },
+        { permissions: permission.code },
+      ],
+    })
+      .select("_id")
+      .lean();
+    const roleIds = roles.map((role) => role._id);
+    if (roleIds.length === 0) return [];
+
+    const query = { tenantId, isActive: true, roles: { $in: roleIds } };
+    if (q && q.trim()) {
+      const escaped = q.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      query.$or = [
+        { userEmail: { $regex: escaped, $options: "i" } },
+        { userFirstName: { $regex: escaped, $options: "i" } },
+        { userLastName: { $regex: escaped, $options: "i" } },
+        { userFullName: { $regex: escaped, $options: "i" } },
+      ];
+    }
+
+    return await User.find(query)
+      .select("_id userEmail userFirstName userLastName userFullName")
+      .sort({ userFullName: 1 })
+      .limit(Math.min(Number(limit) || 20, 50))
+      .lean();
+  } catch (error) {
+    throw new Error(`Error fetching users by permission: ${error.message}`);
+  }
+};
+
 module.exports.hasRole = async (userId, roleCode, tenantId) => {
   try {
     const user = await User.findOne({ _id: userId, tenantId }).populate(
