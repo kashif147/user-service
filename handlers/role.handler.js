@@ -475,20 +475,38 @@ module.exports.getUserPermissions = async (userId, tenantId) => {
         (p) => typeof p === "string" && !p.match(/^[0-9a-fA-F]{24}$/)
       );
 
-      // Get permission codes from ObjectId permissions
+      // Resolve every permission (whether stored as an ObjectId or a CODE string
+      // like "ISSUES_COMPLAINTS_READ") against the Permission collection and emit
+      // the canonical `${resource}:${action}` form using its actual resource/action
+      // fields. A regex like s/_/:/g on the CODE string can't recover the correct
+      // resource/action boundary for multi-word resources or actions (e.g.
+      // "ISSUES_COMPLAINTS_READ" -> resource "issues-complaints", action "read", vs
+      // "USER_MANAGE_ROLES" -> resource "user", action "manage_roles" - the same
+      // regex can't produce both correctly), so downstream consumers (policy
+      // checks in every service, jwt.js's token permissions) must receive the
+      // resolved form, not a heuristic guess.
+      const permissionDocs = [];
       if (objectIdPermissions.length > 0) {
-        const permissionDocs = await Permission.find({
-          _id: { $in: objectIdPermissions },
-        });
-        permissionDocs.forEach((perm) => {
-          permissions.add(perm.code);
-        });
+        permissionDocs.push(
+          ...(await Permission.find({ _id: { $in: objectIdPermissions } }))
+        );
       }
-
-      // Add string permissions directly (for backward compatibility)
-      stringPermissions.forEach((perm) => {
-        permissions.add(perm);
+      if (stringPermissions.length > 0) {
+        permissionDocs.push(
+          ...(await Permission.find({ code: { $in: stringPermissions } }))
+        );
+      }
+      permissionDocs.forEach((perm) => {
+        permissions.add(`${perm.resource}:${perm.action}`.toLowerCase());
       });
+
+      // A string permission that doesn't match any known Permission code is
+      // assumed to already be a literal `resource:action` string (legacy data
+      // predating the CODE convention) - pass it through unchanged.
+      const resolvedCodes = new Set(permissionDocs.map((p) => p.code));
+      stringPermissions
+        .filter((p) => !resolvedCodes.has(p))
+        .forEach((perm) => permissions.add(perm.toLowerCase()));
     }
 
     return Array.from(permissions);
