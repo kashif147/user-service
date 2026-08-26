@@ -38,10 +38,11 @@
  * specific role CODES (not category) identified by inspecting the live role catalog —
  * see TEAM_ROLE_CODES below and the task report for which roles exist vs. which are gaps.
  * A code that doesn't exist in a given environment is skipped with a warning (idempotent
- * no-op), never invented. Complaints and FTP remain confirmed gaps (no matching role
- * exists yet); Data Protection was filled by scripts/create-dpo-role.js (run that first,
- * or this script's DP grant will just skip with a "not found" warning, same as any other
- * missing code).
+ * no-op), never invented. Complaints and FTP were previously confirmed gaps (no matching
+ * role existed) — per explicit user decision, Complaints is now granted to IRO/IO/MO/AMO/SU
+ * and FTP to IRO/IRE/DIR/ADIR. Data Protection was filled by scripts/create-dpo-role.js (run
+ * that first, or this script's DP grant will just skip with a "not found" warning, same as
+ * any other missing code).
  *
  * MongoDB connection: user-service .env.staging (MONGO_URI).
  *
@@ -170,8 +171,12 @@ const PERMISSIONS = [
 // the full mapping, including gaps where no role exists). Empty array = confirmed gap,
 // not an oversight — do not fill in a guess here.
 const TEAM_ROLE_CODES = {
-  complaints: [], // GAP: no "Complaints" team role exists in the seeded catalog
-  ftp: [], // GAP: no "Fitness to Practice" team role exists in the seeded catalog
+  // Per explicit user decision (no dedicated "Complaints" role exists in the seeded
+  // catalog, so these caseworker/officer roles were designated instead).
+  complaints: ["IRO", "IO", "MO", "AMO", "SU"],
+  // Per explicit user decision (no dedicated "Fitness to Practice" role exists in the
+  // seeded catalog, so these IR-titled roles were designated instead).
+  ftp: ["IRO", "IRE", "DIR", "ADIR"],
   // Industrial Relations team (all IR-titled roles) + Information department
   ir: ["IRO", "IRE", "DIR", "ADIR", "IO"],
   // Data Protection Officer - role created by scripts/create-dpo-role.js (run that first).
