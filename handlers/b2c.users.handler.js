@@ -1,4 +1,5 @@
 const axios = require("axios");
+const { jwtVerify, createRemoteJWKSet } = require("jose");
 const B2CUser = require("../models/user.model");
 const Tenant = require("../models/tenant.model");
 const {
@@ -9,7 +10,35 @@ const {
   publishPortalUserUpdated,
 } = require("../rabbitMQ/publishers/user.portal.publisher");
 const { buildUserTokensSubdocument } = require("../helpers/oauthTokenStorage");
-const { b2cTokenEndpoint } = require("../helpers/b2cPolicy");
+const {
+  b2cTokenEndpoint,
+  b2cJwksUrl,
+  b2cExpectedIssuer,
+  getAllowedPolicies,
+} = require("../helpers/b2cPolicy");
+
+// One remote JWKS set per B2C policy (Azure AD B2C publishes signing keys per policy),
+// reused across requests: createRemoteJWKSet caches fetched keys and handles kid-based
+// key selection internally.
+const jwksByPolicy = new Map();
+function getJwksForPolicy(policyName) {
+  if (!jwksByPolicy.has(policyName)) {
+    jwksByPolicy.set(
+      policyName,
+      createRemoteJWKSet(new URL(b2cJwksUrl(policyName))),
+    );
+  }
+  return jwksByPolicy.get(policyName);
+}
+/** Exposed for tests only, so a forged-signature test can inject a JWKS pointed at a
+ * throwaway keypair instead of a real Microsoft tenant. */
+function _resetJwksForTests(policyName, jwks) {
+  if (jwks) {
+    jwksByPolicy.set(policyName, jwks);
+  } else {
+    jwksByPolicy.delete(policyName);
+  }
+}
 
 /**
  * Find Tenant document by Azure B2C directory ID
@@ -107,84 +136,77 @@ class B2CUsersHandler {
     }
   }
 
-  static async decodeIdToken(idToken) {
-    console.log("=== B2C decodeIdToken Debug ===");
-    const payload = JSON.parse(
-      Buffer.from(idToken.split(".")[1], "base64").toString("utf8"),
-    );
+  /**
+   * @param {string} idToken
+   * @param {string} policyName - the B2C policy this server used for the authorize/token
+   *   exchange that produced this token (server-side, trusted for this login transaction -
+   *   see helpers/pkceStateStore.js's state->policy mapping). Signing keys and the JWKS
+   *   discovery URL are policy-specific in Azure AD B2C, and the token's own policy claim
+   *   must match it exactly - not just be "some" allowed policy - or a token issued for a
+   *   different flow (e.g. password-reset) could be replayed as a sign-in token.
+   * @param {string} expectedNonce - value this server generated and stored server-side
+   *   for the authorize request that produced this token. Mandatory: without it, a
+   *   captured/replayed ID token could be reused against a fresh session.
+   */
+  static async decodeIdToken(idToken, policyName, expectedNonce) {
+    if (!expectedNonce) {
+      throw new Error("B2C login rejected: missing expected nonce");
+    }
 
-    console.log("=== FULL B2C ID TOKEN PAYLOAD FROM MICROSOFT ===");
-    console.log(JSON.stringify(payload, null, 2));
-    console.log("=== TENANT/DIRECTORY ID FIELDS FROM MICROSOFT ===");
-    console.log({
-      tenantId: payload.tenantId,
-      extension_tenantId: payload.extension_tenantId,
-      tid: payload.tid,
-      iss: payload.iss,
-      aud: payload.aud,
+    // policyName reaches this function from server-side state (pkceStateStore), not
+    // directly from the request body - but validate it against the allow-list anyway
+    // before using it to pick a JWKS URL, as defense in depth against any future caller
+    // that passes it through less carefully.
+    if (!getAllowedPolicies().has(policyName)) {
+      throw new Error("B2C policy not allowed");
+    }
+
+    if (!process.env.MS_B2C_DIRECTORY_ID) {
+      // b2cExpectedIssuer() below already throws on this, but fail here too with an
+      // unambiguous message before any network/JWKS work happens.
+      throw new Error("MS_B2C_DIRECTORY_ID is not configured");
+    }
+
+    // Signature/issuer/audience/algorithm/exp/nbf verification against Microsoft's real
+    // JWKS for the single configured B2C tenant/policy. jwtVerify throws before returning
+    // a payload if any of these checks fail, so nothing below this line runs on an
+    // unverified/forged/tampered/expired/wrong-issuer/wrong-audience token. Deliberately
+    // does not log the token or its decoded payload: both carry PII/identity claims and a
+    // captured log line would be as good as a captured token for anyone who can read logs.
+    const { payload } = await jwtVerify(idToken, getJwksForPolicy(policyName), {
+      issuer: b2cExpectedIssuer(),
+      audience: CLIENT_ID,
+      algorithms: ["RS256"],
     });
-    console.log("=== ALL PAYLOAD KEYS ===");
-    console.log(Object.keys(payload));
 
-    // Extract Microsoft directory ID from B2C token
-    // B2C may have it in tid, extension_tenantId, or embedded in iss URL
-    let extractedDirectoryId =
-      payload.tid || payload.extension_tenantId || payload.tenantId || null;
-
-    // If not in token fields, extract from issuer URL
-    // Format: https://tenantname.b2clogin.com/{directoryId}/v2.0/
-    if (!extractedDirectoryId && payload.iss) {
-      const issMatch = payload.iss.match(/b2clogin\.com\/([a-f0-9-]+)\/v2\.0/);
-      if (issMatch) {
-        extractedDirectoryId = issMatch[1];
-        console.log(
-          "✅ Extracted directory ID from issuer URL:",
-          extractedDirectoryId,
-        );
-      }
+    // B2C tokens carry the policy as `tfp`; some configurations/token versions surface it
+    // as `acr` instead. Require an exact match against the specific policy this
+    // transaction used - not merely "is in the allowed set" - so a token issued under a
+    // different flow can't be substituted.
+    const verifiedPolicy = payload.tfp || payload.acr;
+    if (verifiedPolicy !== policyName) {
+      throw new Error("B2C token policy does not match the login transaction");
     }
 
-    if (!extractedDirectoryId) {
-      console.error("❌ ERROR: Could not extract directory ID from B2C token");
-      throw new Error(
-        "Directory ID not found in B2C token (checked tid, extension_tenantId, tenantId, and issuer URL)",
-      );
+    if (payload.nonce !== expectedNonce) {
+      throw new Error("B2C token nonce mismatch");
     }
 
-    console.log("Extracted Microsoft directory ID:", extractedDirectoryId);
+    // The issuer check above already pins this to the single configured B2C directory, so
+    // use that fixed, trusted value for the tenant lookup below rather than deriving a
+    // directory ID from token claims (tid/extension_tenantId/tenantId/iss) - single-tenant
+    // by design, no per-customer B2C directory discovery here.
+    const extractedDirectoryId = process.env.MS_B2C_DIRECTORY_ID;
 
     // Look up Tenant document by directory ID
     const tenant = await findTenantByB2CDirectoryId(extractedDirectoryId);
 
     if (!tenant) {
-      console.error(
-        "❌ ERROR: No Tenant found for directory ID:",
-        extractedDirectoryId,
-      );
-      console.error(
-        "Please ensure Tenant document exists with matching authenticationConnections",
-      );
+      console.error("B2C login: no Tenant found for directory ID", extractedDirectoryId);
       throw new Error(
         `Tenant not found for Azure B2C directory: ${extractedDirectoryId}`,
       );
     }
-
-    console.log("\n");
-    console.log(
-      "╔════════════════════════════════════════════════════════════════╗",
-    );
-    console.log(
-      "║   ✅ TENANT MAPPING RESULT (B2C)                               ║",
-    );
-    console.log(
-      "╚════════════════════════════════════════════════════════════════╝",
-    );
-    console.log("Microsoft Directory ID:", extractedDirectoryId);
-    console.log("Tenant Document _id:", tenant._id.toString());
-    console.log(
-      "📌 Using Tenant._id as tenantId in user document and JWT token",
-    );
-    console.log("");
 
     return {
       userEmail: payload.emails?.[0] || null,
@@ -340,16 +362,26 @@ class B2CUsersHandler {
     }
   }
 
-  static async handleB2CAuth(code, codeVerifier, policyName) {
+  /**
+   * @param {string} code
+   * @param {string} codeVerifier
+   * @param {string} policyName
+   * @param {string} expectedNonce - required; see decodeIdToken's jsdoc.
+   */
+  static async handleB2CAuth(code, codeVerifier, policyName, expectedNonce) {
     const tokens = await this.exchangeCodeForTokens(
       code,
       codeVerifier,
       policyName,
     );
-    const profile = await this.decodeIdToken(tokens.id_token);
+    const profile = await this.decodeIdToken(tokens.id_token, policyName, expectedNonce);
     const user = await this.findOrCreateUser(profile, tokens);
     return { user, tokens };
   }
 }
+
+// Test-only hook: lets a forged-signature test inject a JWKS pointed at a throwaway
+// keypair instead of the real Microsoft tenant, per policy.
+B2CUsersHandler._resetJwksForTests = _resetJwksForTests;
 
 module.exports = B2CUsersHandler;

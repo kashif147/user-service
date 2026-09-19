@@ -109,10 +109,10 @@ function b2cTokenEndpoint(policyName) {
 
 /**
  * @param {string} policyName
- * @param {{ state: string, codeChallenge: string }} opts
+ * @param {{ state: string, codeChallenge: string, nonce?: string }} opts
  */
 function b2cAuthorizationUrl(policyName, opts) {
-  const { state, codeChallenge } = opts;
+  const { state, codeChallenge, nonce } = opts;
   const tenant = process.env.MS_TENANT_NAME || "projectshellAB2C";
   const clientId =
     process.env.MS_CLIENT_ID || "e3688a2f-3956-42f9-8c98-6fea7a60a5b4";
@@ -128,7 +128,42 @@ function b2cAuthorizationUrl(policyName, opts) {
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
   });
+  if (nonce) {
+    q.set("nonce", nonce);
+  }
   return `${base}?${q.toString()}`;
+}
+
+/**
+ * JWKS discovery URL for a given B2C custom policy. Azure AD B2C publishes signing keys
+ * per policy, so the JWKS used to verify a token must match the policy that issued it.
+ * @param {string} policyName
+ * @returns {string}
+ */
+function b2cJwksUrl(policyName) {
+  const tenant = process.env.MS_TENANT_NAME || "projectshellAB2C";
+  return `https://${tenant}.b2clogin.com/${tenant}.onmicrosoft.com/${policyName}/discovery/v2.0/keys`;
+}
+
+/**
+ * Expected `iss` claim for the current single-tenant B2C setup.
+ *
+ * Deliberately built from a fixed, admin-configured directory GUID (MS_B2C_DIRECTORY_ID),
+ * never from a claim inside the token being verified: using an unverified token's own
+ * claims to decide which issuer to trust would make signature verification circular.
+ * Multi-tenant / per-customer B2C issuer resolution is out of scope for this remediation.
+ *
+ * @returns {string}
+ */
+function b2cExpectedIssuer() {
+  const tenant = process.env.MS_TENANT_NAME || "projectshellAB2C";
+  const directoryId = process.env.MS_B2C_DIRECTORY_ID;
+  if (!directoryId) {
+    throw new Error(
+      "MS_B2C_DIRECTORY_ID is not configured. Set it to the Azure AD B2C tenant's directory GUID so the live B2C login flow can validate the ID token issuer.",
+    );
+  }
+  return `https://${tenant}.b2clogin.com/${directoryId}/v2.0/`;
 }
 
 module.exports = {
@@ -141,4 +176,6 @@ module.exports = {
   resolveB2CPolicy,
   b2cTokenEndpoint,
   b2cAuthorizationUrl,
+  b2cJwksUrl,
+  b2cExpectedIssuer,
 };

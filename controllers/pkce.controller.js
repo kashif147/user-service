@@ -1,6 +1,9 @@
 const crypto = require("crypto");
 const { AppError } = require("../errors/AppError");
-const { rememberStatePolicy } = require("../helpers/pkceStateStore");
+const {
+  rememberStatePolicy,
+  rememberNonceForState,
+} = require("../helpers/pkceStateStore");
 const {
   resolveB2CPolicy,
   b2cAuthorizationUrl,
@@ -12,18 +15,24 @@ const {
 } = require("../helpers/b2cPolicy");
 
 /**
- * One OAuth `state` per distinct B2C policy, registered for POST /auth/azure-portal lookup.
- * Same `code_verifier` / `code_challenge` for all; each authorize URL must use the state
- * for its policy or B2C will return a code this server cannot map without `flow` in body.
+ * One OAuth `state` (+ its own `nonce`) per distinct B2C policy, registered for
+ * POST /auth/azure-portal lookup. Same `code_verifier` / `code_challenge` for all; each
+ * authorize URL must use the state for its policy or B2C will return a code this server
+ * cannot map without `flow` in body. The nonce is stored alongside the state so the live
+ * callback handler can verify the ID token's `nonce` claim instead of trusting an
+ * unverified token blindly.
  */
 function createStateForPolicies() {
   const byPolicy = new Map();
   return (policy) => {
     if (byPolicy.has(policy)) return byPolicy.get(policy);
     const s = crypto.randomBytes(12).toString("base64url");
-    byPolicy.set(policy, s);
+    const nonce = crypto.randomBytes(16).toString("base64url");
     rememberStatePolicy(s, policy);
-    return s;
+    rememberNonceForState(s, nonce);
+    const result = { state: s, nonce };
+    byPolicy.set(policy, result);
+    return result;
   };
 }
 
@@ -60,7 +69,11 @@ module.exports.generatePKCE = async (req, res, next) => {
       process.env.AZURE_AD_REDIRECT_URI ||
       "http://localhost:3000/auth/azure-crm";
     const scope = "openid profile email offline_access";
-    const azureADState = Math.random().toString(36).substring(7);
+    // crypto.randomBytes, not Math.random(): this state doubles as the lookup key for the
+    // nonce below, so it needs to be unguessable, not just unique.
+    const azureADState = crypto.randomBytes(12).toString("base64url");
+    const azureADNonce = crypto.randomBytes(16).toString("base64url");
+    rememberNonceForState(azureADState, azureADNonce);
 
     const azureADAuthUrl =
       `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?` +
@@ -69,6 +82,7 @@ module.exports.generatePKCE = async (req, res, next) => {
       `redirect_uri=${encodeURIComponent(redirectUri)}&` +
       `scope=${encodeURIComponent(scope)}&` +
       `state=${azureADState}&` +
+      `nonce=${azureADNonce}&` +
       `code_challenge=${codeChallenge}&` +
       `code_challenge_method=S256`;
 
@@ -87,22 +101,31 @@ module.exports.generatePKCE = async (req, res, next) => {
     const b2cSignUp = getSignUpPolicy();
     const passwordResetPolicy = getPasswordResetPolicy();
 
+    const selectedStateNonce = stateForPolicy(selectedPolicy);
+    const signInStateNonce = stateForPolicy(b2cSignIn);
+    const signUpStateNonce = stateForPolicy(b2cSignUp);
+    const passwordResetStateNonce = stateForPolicy(passwordResetPolicy);
+
     const b2cAuthUrl = b2cAuthorizationUrl(selectedPolicy, {
-      state: stateForPolicy(selectedPolicy),
+      state: selectedStateNonce.state,
       codeChallenge,
+      nonce: selectedStateNonce.nonce,
     });
     const b2cAuthUrlSignIn = b2cAuthorizationUrl(b2cSignIn, {
-      state: stateForPolicy(b2cSignIn),
+      state: signInStateNonce.state,
       codeChallenge,
+      nonce: signInStateNonce.nonce,
     });
     const b2cAuthUrlSignUp = b2cAuthorizationUrl(b2cSignUp, {
-      state: stateForPolicy(b2cSignUp),
+      state: signUpStateNonce.state,
       codeChallenge,
+      nonce: signUpStateNonce.nonce,
     });
-    const b2cAuthUrlPasswordReset = b2cAuthorizationUrl(
-      passwordResetPolicy,
-      { state: stateForPolicy(passwordResetPolicy), codeChallenge },
-    );
+    const b2cAuthUrlPasswordReset = b2cAuthorizationUrl(passwordResetPolicy, {
+      state: passwordResetStateNonce.state,
+      codeChallenge,
+      nonce: passwordResetStateNonce.nonce,
+    });
 
     const b2cPolicies = {
       default: getDefaultPolicy(),
@@ -121,14 +144,21 @@ module.exports.generatePKCE = async (req, res, next) => {
 
     if (process.env.MS_POLICY_GMAIL_COMBINED) {
       const gmailPolicy = getGmailCombinedPolicy();
+      const gmailStateNonce = stateForPolicy(gmailPolicy);
       b2cPolicies.gmailCombined = gmailPolicy;
       authorizationUrls.azureB2CGmailCombined = b2cAuthorizationUrl(
         gmailPolicy,
-        { state: stateForPolicy(gmailPolicy), codeChallenge },
+        {
+          state: gmailStateNonce.state,
+          codeChallenge,
+          nonce: gmailStateNonce.nonce,
+        },
       );
     }
 
-    const primaryB2CState = stateForPolicy(selectedPolicy);
+    // Only the state is returned to the client; the nonce stays server-side and is
+    // recovered from the state on callback (see takeNonceForState in the auth handlers).
+    const primaryB2CState = selectedStateNonce.state;
 
     res.json({
       success: true,

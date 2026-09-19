@@ -2,8 +2,10 @@ const B2CUsersHandler = require("../handlers/b2c.users.handler");
 const jwtHelper = require("../helpers/jwt");
 const { encryptToken } = require("../helpers/tokenEncryption");
 const { AppError } = require("../errors/AppError");
-const { resolveB2CPolicy } = require("../helpers/b2cPolicy");
-const { takePolicyForState } = require("../helpers/pkceStateStore");
+const {
+  takePolicyForState,
+  takeNonceForState,
+} = require("../helpers/pkceStateStore");
 
 function getFrontendBaseUrl() {
   if (!process.env.MS_REDIRECT_URI) {
@@ -77,7 +79,7 @@ module.exports.handleMicrosoftRedirect = async (req, res, next) => {
  */
 module.exports.handleMicrosoftCallback = async (req, res, next) => {
   try {
-    const { code, codeVerifier } = req.body;
+    const { code, codeVerifier, state } = req.body;
 
     if (!code || !codeVerifier) {
       return next(
@@ -85,39 +87,51 @@ module.exports.handleMicrosoftCallback = async (req, res, next) => {
       );
     }
 
-    let policyName;
-    try {
-      if (req.body.policy != null && String(req.body.policy).trim() !== "") {
-        policyName = resolveB2CPolicy({
-          policy: req.body.policy,
-          flow: undefined,
-        });
-      } else {
-        const fromState = takePolicyForState(req.body.state);
-        if (fromState) {
-          policyName = fromState;
-        } else {
-          policyName = resolveB2CPolicy({
-            flow: req.body.flow,
-            policy: undefined,
-          });
-        }
-      }
-    } catch (e) {
-      return next(AppError.badRequest(e.message));
+    // `state` must be the value returned by GET /pkce/generate for the authorize URL that
+    // was actually used, so the nonce generated for that request can be recovered and
+    // checked against the ID token's `nonce` claim. Required, not optional: without it
+    // there is no way to detect a replayed ID token.
+    if (!state) {
+      return next(AppError.badRequest("state is required"));
+    }
+    const expectedNonce = takeNonceForState(state);
+    if (!expectedNonce) {
+      return next(
+        AppError.badRequest("Unknown or expired state; restart the login flow")
+      );
+    }
+
+    // `state` is mandatory (checked above) and pkce.controller.js always records the
+    // policy it used for every state it issues, alongside that state's nonce. The
+    // state->policy mapping is the SOLE authoritative source for policyName - no
+    // client-supplied `policy`/`flow` field is consulted here. A client-supplied override
+    // previously took priority over this state binding, which meant a caller's own
+    // `req.body.policy` could flow into decodeIdToken's JWKS selection and `tfp`/`acr`
+    // comparison instead of the policy this server actually used to build the authorize
+    // URL and nonce. decodeIdToken's exact-match check against the token's real policy
+    // claim already failed closed on a mismatch, so this was not an active bypass - but it
+    // contradicted the trust model. If the state entry is missing/expired/consumed, fail
+    // closed and require the login flow to restart rather than falling back to anything
+    // client-supplied.
+    const policyName = takePolicyForState(state);
+    if (!policyName) {
+      return next(
+        AppError.badRequest(
+          "Unknown or expired authentication state; restart the login flow",
+        ),
+      );
     }
 
     console.log("B2C /auth/azure-portal", {
       resolvedPolicy: policyName,
-      flow: req.body.flow,
-      bodyPolicy: req.body.policy,
-      usedStateBinding: Boolean(req.body.state),
+      usedStateBinding: true,
     });
 
     const { user, tokens } = await B2CUsersHandler.handleB2CAuth(
       code,
       codeVerifier,
       policyName,
+      expectedNonce,
     );
 
     const tokenData = await jwtHelper.generateToken(user);
@@ -167,6 +181,25 @@ module.exports.handleMicrosoftCallback = async (req, res, next) => {
         ),
       );
     }
+    // ID token failed cryptographic/claim verification (bad signature, wrong issuer,
+    // wrong audience, wrong policy, nonce mismatch, expired, not-yet-valid, unsupported
+    // algorithm - anything jose's jwtVerify or the explicit tfp/nonce checks reject).
+    // Surface as 401, not 500: this is an authentication failure, not a server error.
+    const isTokenVerificationFailure =
+      error.message.includes("nonce") ||
+      error.message.includes("policy") ||
+      error.message.includes("directory") ||
+      error.message.includes("missing expected nonce") ||
+      error.code === "ERR_JWT_CLAIM_VALIDATION_FAILED" ||
+      error.code === "ERR_JWS_SIGNATURE_VERIFICATION_FAILED" ||
+      error.code === "ERR_JWT_EXPIRED" ||
+      error.code === "ERR_JOSE_ALG_NOT_ALLOWED" ||
+      error.code === "ERR_JWKS_NO_MATCHING_KEY";
+    if (isTokenVerificationFailure) {
+      console.error("B2C ID token verification failed:", error.code || error.message);
+      return next(AppError.unauthorized("Microsoft authentication failed"));
+    }
+
     const devExtras =
       process.env.NODE_ENV !== "production"
         ? {

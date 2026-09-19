@@ -2,6 +2,7 @@ const AzureADHandler = require("../handlers/azure.ad.handler");
 const jwtHelper = require("../helpers/jwt");
 const { encryptToken } = require("../helpers/tokenEncryption");
 const { AppError } = require("../errors/AppError");
+const { takeNonceForState } = require("../helpers/pkceStateStore");
 
 // Handle GET request from Azure redirect
 module.exports.handleAzureADRedirect = async (req, res, next) => {
@@ -30,11 +31,25 @@ module.exports.handleAzureADRedirect = async (req, res, next) => {
 
 module.exports.handleAzureADCallback = async (req, res, next) => {
   try {
-    const { code, codeVerifier, redirectUri } = req.body;
+    const { code, codeVerifier, redirectUri, state } = req.body;
 
     if (!code || !codeVerifier) {
       return next(
         AppError.badRequest("Authorization code and codeVerifier are required")
+      );
+    }
+
+    // `state` must be the value returned by GET /pkce (authorizationUrls.azureAD's own
+    // `state` param) so the nonce this server generated for that authorize request can be
+    // recovered and checked against the ID token's `nonce` claim. Required, not optional:
+    // without it there is no way to detect a replayed ID token.
+    if (!state) {
+      return next(AppError.badRequest("state is required"));
+    }
+    const expectedNonce = takeNonceForState(state);
+    if (!expectedNonce) {
+      return next(
+        AppError.badRequest("Unknown or expired state; restart the login flow")
       );
     }
 
@@ -60,7 +75,8 @@ module.exports.handleAzureADCallback = async (req, res, next) => {
     const { user } = await AzureADHandler.handleAzureADAuth(
       code,
       codeVerifier,
-      finalRedirectUri
+      finalRedirectUri,
+      expectedNonce
     );
 
     const issuedAtReadable = user.userIssuedAt
@@ -150,6 +166,24 @@ module.exports.handleAzureADCallback = async (req, res, next) => {
       error.message.includes("Tenant ID not found")
     ) {
       return next(AppError.badRequest(error.message));
+    }
+
+    // ID token failed cryptographic/claim verification (bad signature, wrong issuer,
+    // wrong audience, wrong tenant, nonce mismatch, expired, not-yet-valid, unsupported
+    // algorithm - anything jose's jwtVerify or the explicit tid/nonce checks reject).
+    // Surface as 401, not 500: this is an authentication failure, not a server error.
+    const isTokenVerificationFailure =
+      error.message.includes("nonce") ||
+      error.message.includes("tenant mismatch") ||
+      error.message.includes("missing expected nonce") ||
+      error.code === "ERR_JWT_CLAIM_VALIDATION_FAILED" ||
+      error.code === "ERR_JWS_SIGNATURE_VERIFICATION_FAILED" ||
+      error.code === "ERR_JWT_EXPIRED" ||
+      error.code === "ERR_JOSE_ALG_NOT_ALLOWED" ||
+      error.code === "ERR_JWKS_NO_MATCHING_KEY";
+    if (isTokenVerificationFailure) {
+      console.error("Azure AD ID token verification failed:", error.code || error.message);
+      return next(AppError.unauthorized("Azure AD authentication failed"));
     }
 
     // Log full error for debugging

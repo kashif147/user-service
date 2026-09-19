@@ -1,4 +1,5 @@
 const axios = require("axios");
+const { jwtVerify, createRemoteJWKSet } = require("jose");
 const User = require("../models/user.model");
 const { buildUserTokensSubdocument } = require("../helpers/oauthTokenStorage");
 const Role = require("../models/role.model");
@@ -20,6 +21,23 @@ const REDIRECT_URI =
 
 const TOKEN_ENDPOINT = `https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/token`;
 const GRAPH_ME_ENDPOINT = "https://graph.microsoft.com/v1.0/me";
+
+// Single-tenant, fixed JWKS (never derived from the token being verified). Reused across
+// requests: createRemoteJWKSet caches fetched keys and handles kid-based key selection.
+let jwksSingleton = null;
+function getJwks() {
+  if (!jwksSingleton) {
+    jwksSingleton = createRemoteJWKSet(
+      new URL(`https://login.microsoftonline.com/${TENANT_ID}/discovery/v2.0/keys`),
+    );
+  }
+  return jwksSingleton;
+}
+/** Exposed for tests only, so a forged-signature test can point verification at a
+ * throwaway keypair's JWKS instead of the real Microsoft tenant. */
+function _resetJwksForTests(jwks) {
+  jwksSingleton = jwks || null;
+}
 
 /**
  * Find Tenant document by Azure AD directory ID
@@ -139,65 +157,50 @@ class AzureADHandler {
     }
   }
 
-  static async decodeIdToken(idToken) {
-    console.log("\n");
-    console.log("╔════════════════════════════════════════════════════════════════╗");
-    console.log("║   🔍 WHAT MICROSOFT SENDS WHEN USER LOGS IN (AZURE AD)        ║");
-    console.log("╚════════════════════════════════════════════════════════════════╝");
-    console.log("\n");
-    console.log("=== Azure AD decodeIdToken Debug ===");
-    console.log(
-      "ID Token (first 100 chars):",
-      idToken.substring(0, 100) + "..."
-    );
+  /**
+   * @param {string} idToken
+   * @param {string} expectedNonce - value this server generated and stored server-side
+   *   for the authorize request that produced this token (see helpers/pkceStateStore.js).
+   *   Mandatory: without it, a captured/replayed ID token could be reused against a fresh
+   *   session, so a missing nonce fails the login rather than proceeding without it.
+   */
+  static async decodeIdToken(idToken, expectedNonce) {
+    if (!expectedNonce) {
+      throw new Error("Azure AD login rejected: missing expected nonce");
+    }
 
-    const payload = JSON.parse(
-      Buffer.from(idToken.split(".")[1], "base64").toString("utf8")
-    );
-
-    console.log("\n");
-    console.log("╔════════════════════════════════════════════════════════════════╗");
-    console.log("║   📋 FULL AZURE AD TOKEN PAYLOAD FROM MICROSOFT               ║");
-    console.log("╚════════════════════════════════════════════════════════════════╝");
-    console.log(JSON.stringify(payload, null, 2));
-    console.log("\n");
-    console.log("╔════════════════════════════════════════════════════════════════╗");
-    console.log("║   🔑 KEY FIELDS FROM MICROSOFT                                ║");
-    console.log("╚════════════════════════════════════════════════════════════════╝");
-    console.log({
-      "Directory ID (tid)": payload.tid,
-      "Tenant ID": payload.tenantId,
-      "User ID (oid)": payload.oid,
-      "Email": payload.email || payload.preferred_username,
-      "Name": payload.name || payload.given_name,
-      "Issuer": payload.iss,
-      "Audience": payload.aud,
+    // Signature/issuer/audience/algorithm/exp/nbf verification against Microsoft's real
+    // JWKS for the single configured tenant. jwtVerify throws before returning a payload
+    // if any of these checks fail, so nothing below this line runs on an
+    // unverified/forged/tampered/expired/wrong-issuer/wrong-audience token. Deliberately
+    // does not log the token or its decoded payload: both carry PII/identity claims and a
+    // captured log line would be as good as a captured token for anyone who can read logs.
+    const { payload } = await jwtVerify(idToken, getJwks(), {
+      issuer: `https://login.microsoftonline.com/${TENANT_ID}/v2.0`,
+      audience: CLIENT_ID,
+      algorithms: ["RS256"],
     });
-    console.log("\n=== ALL PAYLOAD KEYS ===");
-    console.log(Object.keys(payload));
 
-    const extractedDirectoryId =
-      payload.tid || payload.tenantId || payload.tenant_id || TENANT_ID;
-    console.log("Extracted Microsoft directory ID:", extractedDirectoryId);
-    console.log("Using fallback directory ID:", TENANT_ID);
+    // Defense in depth: the issuer check above already pins the tenant, but require the
+    // claim explicitly rather than relying solely on string-matching the issuer URL, and
+    // reject outright if it's absent rather than silently falling back to TENANT_ID.
+    if (payload.tid !== TENANT_ID) {
+      throw new Error("Azure AD token tenant mismatch");
+    }
+
+    if (payload.nonce !== expectedNonce) {
+      throw new Error("Azure AD token nonce mismatch");
+    }
+
+    const extractedDirectoryId = payload.tid;
 
     // Look up Tenant document by directory ID
     const tenant = await findTenantByAzureADDirectoryId(extractedDirectoryId);
-    
+
     if (!tenant) {
-      console.error("❌ ERROR: No Tenant found for directory ID:", extractedDirectoryId);
-      console.error("Please ensure Tenant document exists with matching authenticationConnections");
+      console.error("Azure AD login: no Tenant found for directory ID", extractedDirectoryId);
       throw new Error(`Tenant not found for Azure AD directory: ${extractedDirectoryId}`);
     }
-
-    console.log("\n");
-    console.log("╔════════════════════════════════════════════════════════════════╗");
-    console.log("║   ✅ TENANT MAPPING RESULT (CRM)                               ║");
-    console.log("╚════════════════════════════════════════════════════════════════╝");
-    console.log("Microsoft Directory ID:", extractedDirectoryId);
-    console.log("Tenant Document _id:", tenant._id.toString());
-    console.log("📌 Using Tenant._id as tenantId in user document and JWT token");
-    console.log("");
 
     const tokenFirstName = payload.given_name || payload.givenName || null;
     const tokenLastName = payload.family_name || payload.surname || null;
@@ -227,8 +230,7 @@ class AzureADHandler {
       microsoftDirectoryId: extractedDirectoryId,
     };
 
-    console.log("Final profile with Tenant._id:", JSON.stringify(profile, null, 2));
-    console.log("=== End Azure AD decodeIdToken Debug ===");
+    console.log(`Azure AD login verified: tenant=${tenant._id.toString()}`);
 
     return profile;
   }
@@ -390,7 +392,13 @@ class AzureADHandler {
     }
   }
 
-  static async handleAzureADAuth(code, codeVerifier, redirectUri = null) {
+  /**
+   * @param {string} code
+   * @param {string} codeVerifier
+   * @param {string|null} redirectUri
+   * @param {string} expectedNonce - required; see decodeIdToken's jsdoc.
+   */
+  static async handleAzureADAuth(code, codeVerifier, redirectUri = null, expectedNonce) {
     try {
       console.log("=== Azure AD Handler: Starting Authentication ===");
       console.log("Code present:", !!code);
@@ -405,15 +413,9 @@ class AzureADHandler {
       );
       console.log("Token exchange successful");
 
-      console.log("Step 2: Decoding ID token...");
-      console.log("ID token present:", !!tokens.id_token);
-      console.log(
-        "ID token (first 100 chars):",
-        tokens.id_token ? tokens.id_token.substring(0, 100) + "..." : "MISSING"
-      );
-    const baseProfile = await this.decodeIdToken(tokens.id_token);
-      console.log("ID token decoded, email:", baseProfile.userEmail);
-      console.log("ID token decoded, tenantId:", baseProfile.tenantId);
+      console.log("Step 2: Verifying ID token...");
+      const baseProfile = await this.decodeIdToken(tokens.id_token, expectedNonce);
+      console.log("ID token verified, tenantId:", baseProfile.tenantId);
 
       console.log("Step 3: Fetching user info from Graph API...");
       const graphProfile = await this.getUserInfoFromGraph(tokens.access_token);
@@ -465,5 +467,9 @@ class AzureADHandler {
     }
   }
 }
+
+// Test-only hook: lets a forged-signature test inject a JWKS pointed at a throwaway
+// keypair instead of the real Microsoft tenant.
+AzureADHandler._resetJwksForTests = _resetJwksForTests;
 
 module.exports = AzureADHandler;

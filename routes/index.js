@@ -16,6 +16,7 @@ router.use("/api", require("./role.routes"));
 router.use("/api", require("./tenant.routes"));
 router.use("/api", require("./tenantLifecycle.routes"));
 router.use("/api", require("./internalRoleAccess.routes"));
+router.use("/api", require("./internalMsTokenVerification.routes"));
 router.use("/api", require("./tenantOffice.routes"));
 router.use("/api", require("./tenantPublicHoliday.routes"));
 router.use("/api", require("./tenantDepartment.routes"));
