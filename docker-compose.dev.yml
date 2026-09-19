@@ -1,48 +1,81 @@
-version: "3.8"
+name: dev-user-service
 
 services:
   user-service:
     build: .
-    ports:
-      - "3000:3000"
-    environment:
-      - NODE_ENV=development
-    volumes:
-      - .:/app
-      - /app/node_modules
-    depends_on:
-      - mongodb
-      - redis
-      - rabbitmq
+    container_name: dev-user-service
 
-  mongodb:
-    image: mongo:7
-    ports:
-      - "27017:27017"
-    environment:
-      - MONGO_INITDB_DATABASE=user-service-dev
-    volumes:
-      - mongodb_data:/data/db
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # RabbitMQ dependency: Since rabbitmq is in a separate compose file,
+    # we use a wait script in the Dockerfile to wait for RabbitMQ to be ready.
+    # The wait script checks if RabbitMQ is accessible before starting the service.
+    #
+    # To use depends_on, combine both compose files:
+    # docker-compose -f ../rabbitmq-middleware/docker-compose.yml -f docker-compose.yml up
+    expose:
+      - "5001"
 
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
     volumes:
-      - redis_data:/data
+      - ../../logs:/var/log/projectshell
 
-  rabbitmq:
-    image: rabbitmq:3-management
-    ports:
-      - "5672:5672"
-      - "15672:15672"
-    environment:
-      - RABBITMQ_DEFAULT_USER=guest
-      - RABBITMQ_DEFAULT_PASS=guest
-    volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
+    env_file:
+      - ${ENV_COMMON_PATH:-../../config/.env.common}
+      - .env.staging
 
-volumes:
-  mongodb_data:
-  redis_data:
-  rabbitmq_data:
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+    restart: always
+
+    networks:
+      - gateway_dev-net
+
+networks:
+  gateway_dev-net:
+    external: true
+    # volumes:
+    #   - .:/app
+    #   - /app/node_modules
+    # depends_on:
+    #   - mongodb
+    # - redis
+    # - rabbitmq
+
+  # mongodb:
+  #   image: mongo:7
+  #   ports:
+  #     - "27017:27017"
+  #   environment:
+  #     - MONGO_INITDB_DATABASE=user-service-dev
+  #   volumes:
+  #     - mongodb_data:/data/db
+
+  # redis:
+  #   image: redis:7-alpine
+  #   ports:
+  #     - "6379:6379"
+  #   volumes:
+  #     - redis_data:/data
+
+  # rabbitmq:
+  #   image: rabbitmq:3-management
+  #   ports:
+  #     - "5672:5672"
+  #     - "15672:15672"
+  #   environment:
+  #     - RABBITMQ_DEFAULT_USER=guest
+  #     - RABBITMQ_DEFAULT_PASS=guest
+  #   volumes:
+  #     - rabbitmq_data:/var/lib/rabbitmq
+# volumes:
+#   mongodb_data:
+# redis_data:
+# rabbitmq_data:
