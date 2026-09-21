@@ -1,6 +1,5 @@
 const AzureADHandler = require("../handlers/azure.ad.handler");
 const jwtHelper = require("../helpers/jwt");
-const { encryptToken } = require("../helpers/tokenEncryption");
 const { AppError } = require("../errors/AppError");
 const { takeNonceForState } = require("../helpers/pkceStateStore");
 
@@ -119,14 +118,16 @@ module.exports.handleAzureADCallback = async (req, res, next) => {
 
     console.log(`Azure AD authentication successful for: ${user.userEmail}`);
 
-    // Encrypt the token before sending to frontend
-    const encryptedToken = encryptToken(tokenData.token);
-
+    // Returned as the signed JWT itself. It used to be AES-encrypted with a key derived from
+    // JWT_SECRET, which forced the CRM to ship JWT_SECRET (REACT_APP_JWT_SECRET) in its public
+    // bundle to decrypt it - that leaked the secret the gateway verifies tokens with. TLS
+    // protects the token in transit. (The portal's /azure-portal in b2c.users.controller.js
+    // still encrypts, until the portal client is updated.)
     return res.status(200).json({
       success: true,
       message: "Azure AD authentication successful",
       user: userResponse,
-      accessToken: encryptedToken, // Encrypted token sent to frontend
+      accessToken: tokenData.token,
     });
   } catch (error) {
     console.error("=== Azure AD Authentication Error ===");

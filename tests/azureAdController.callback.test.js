@@ -8,9 +8,6 @@ jest.mock("../handlers/azure.ad.handler");
 jest.mock("../helpers/jwt", () => ({
   generateToken: jest.fn().mockResolvedValue({ token: "signed.jwt.token" }),
 }));
-jest.mock("../helpers/tokenEncryption", () => ({
-  encryptToken: jest.fn().mockReturnValue("encrypted-token"),
-}));
 
 const AzureADHandler = require("../handlers/azure.ad.handler");
 const { handleAzureADCallback } = require("../controllers/azure.ad.controller");
@@ -81,6 +78,11 @@ describe("handleAzureADCallback", () => {
     );
     expect(res.status).toHaveBeenCalledWith(200);
     expect(next).not.toHaveBeenCalled();
+    // The CRM gets the signed JWT itself - not an encrypted "iv:tag:data" blob it would
+    // need JWT_SECRET in the browser to open.
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ success: true, accessToken: "signed.jwt.token" }),
+    );
   });
 
   test("CRM login rejects an invalid Microsoft ID token with 401, not 500", async () => {
