@@ -1,6 +1,5 @@
 const RefreshTokenHelper = require("../helpers/refreshToken");
 const UserHandler = require("../handlers/user.handler");
-const { encryptToken } = require("../helpers/tokenEncryption");
 const { AppError } = require("../errors/AppError");
 
 /**
@@ -27,18 +26,18 @@ class AuthController {
 
       console.log("✅ Token refresh successful for user:", result.user.email);
 
-      // Encrypt the tokens before sending to frontend
-      const encryptedAccessToken = encryptToken(result.accessToken);
-      const encryptedRefreshToken = result.refreshToken 
-        ? encryptToken(result.refreshToken) 
-        : undefined;
-
+      // accessToken is the signed JWT itself, not AES-encrypted - see
+      // azure.ad.controller.js's handleAzureADCallback for why encrypting it was actually
+      // harmful (it forced clients to ship JWT_SECRET in their public bundle). refreshToken
+      // is Microsoft's own opaque refresh_token, matched verbatim against
+      // User.tokens.refresh_token in helpers/refreshToken.js - it was never a JWT and
+      // carries no claims to protect either.
       return res.status(200).json({
         success: true,
         message: "Token refreshed successfully",
         data: {
-          accessToken: encryptedAccessToken,
-          refreshToken: encryptedRefreshToken,
+          accessToken: result.accessToken,
+          refreshToken: result.refreshToken,
           user: result.user,
           expiresIn: result.expiresIn,
         },

@@ -9,9 +9,6 @@ jest.mock("../handlers/b2c.users.handler");
 jest.mock("../helpers/jwt", () => ({
   generateToken: jest.fn().mockResolvedValue({ token: "signed.jwt.token" }),
 }));
-jest.mock("../helpers/tokenEncryption", () => ({
-  encryptToken: jest.fn().mockReturnValue("encrypted-token"),
-}));
 
 const B2CUsersHandler = require("../handlers/b2c.users.handler");
 const { handleMicrosoftCallback } = require("../controllers/b2c.users.controller");
@@ -101,6 +98,11 @@ describe("handleMicrosoftCallback", () => {
     );
     expect(res.status).toHaveBeenCalledWith(200);
     expect(next).not.toHaveBeenCalled();
+    // The portal gets the signed JWT itself - not an encrypted "iv:tag:data" blob it
+    // would need JWT_SECRET in the browser to open.
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ accessToken: "signed.jwt.token" }),
+    );
   });
 
   test("a client-supplied policy cannot override the trusted state-derived policy", async () => {

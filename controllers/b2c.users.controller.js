@@ -1,6 +1,5 @@
 const B2CUsersHandler = require("../handlers/b2c.users.handler");
 const jwtHelper = require("../helpers/jwt");
-const { encryptToken } = require("../helpers/tokenEncryption");
 const { AppError } = require("../errors/AppError");
 const {
   takePolicyForState,
@@ -135,8 +134,11 @@ module.exports.handleMicrosoftCallback = async (req, res, next) => {
     );
 
     const tokenData = await jwtHelper.generateToken(user);
-    const encryptedToken = encryptToken(tokenData.token);
 
+    // Returned as the signed JWT itself, not AES-encrypted - see
+    // azure.ad.controller.js's handleAzureADCallback for why: encrypting it forced the
+    // portal to ship JWT_SECRET in its public bundle to decrypt it, which also handed out
+    // the key the gateway uses to verify token signatures. TLS protects it in transit.
     return res.status(200).json({
       success: true,
       message: "Microsoft authentication successful",
@@ -153,7 +155,7 @@ module.exports.handleMicrosoftCallback = async (req, res, next) => {
         userType: user.userType,
         userLastLogin: user.userLastLogin,
       },
-      accessToken: encryptedToken,
+      accessToken: tokenData.token,
       refreshToken: tokens.refresh_token,
     });
   } catch (error) {
