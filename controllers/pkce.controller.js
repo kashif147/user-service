@@ -7,6 +7,7 @@ const {
 const {
   resolveB2CPolicy,
   b2cAuthorizationUrl,
+  b2cLogoutUrl,
   getDefaultPolicy,
   getSignInPolicy,
   getSignUpPolicy,
@@ -84,7 +85,11 @@ module.exports.generatePKCE = async (req, res, next) => {
       `state=${azureADState}&` +
       `nonce=${azureADNonce}&` +
       `code_challenge=${codeChallenge}&` +
-      `code_challenge_method=S256`;
+      `code_challenge_method=S256&` +
+      // Without this, Azure AD silently re-authenticates from its own session cookie -
+      // logging our own token out never touches that cookie - so a user who just logged
+      // out gets signed straight back in on the next click with no credential prompt.
+      `prompt=login`;
 
     let selectedPolicy;
     try {
@@ -182,6 +187,48 @@ module.exports.generatePKCE = async (req, res, next) => {
     console.error("PKCE generation error:", error);
     return next(
       AppError.internalServerError("Failed to generate PKCE parameters"),
+    );
+  }
+};
+
+/**
+ * Front-channel logout URLs for both flows. Clearing this app's own token/localStorage on
+ * logout never touches Microsoft's own session cookie (login.microsoftonline.com /
+ * *.b2clogin.com) - only navigating the browser to Microsoft's logout endpoint does. No
+ * auth required: these URLs contain nothing sensitive, they're meant to be navigated to.
+ *
+ * post_logout_redirect_uri reuses each flow's existing login redirect_uri, since that's
+ * necessarily already registered with Microsoft for this app; landing back there with no
+ * `code` query param is a harmless no-op on the login page. Depending on the app
+ * registration / B2C user flow configuration, Microsoft may also require
+ * post_logout_redirect_uri to be listed explicitly as a "front-channel logout URL" - if
+ * the redirect-back doesn't happen, that's the first thing to check (the session-clearing
+ * part still succeeds either way; only the redirect-back is affected).
+ */
+module.exports.getLogoutUrls = async (req, res, next) => {
+  try {
+    const azureADTenantId =
+      process.env.AZURE_AD_TENANT_ID || "39866a06-30bc-4a89-80c6-9dd9357dd453";
+    const azureADRedirectUri =
+      process.env.AZURE_AD_REDIRECT_URI ||
+      "http://localhost:3000/auth/azure-crm";
+    const azureADLogoutUrl =
+      `https://login.microsoftonline.com/${azureADTenantId}/oauth2/v2.0/logout?` +
+      `post_logout_redirect_uri=${encodeURIComponent(azureADRedirectUri)}`;
+
+    const b2cRedirectUri =
+      process.env.MS_REDIRECT_URI || "http://localhost:3000";
+    const b2cLogoutUrlValue = b2cLogoutUrl(getSignInPolicy(), b2cRedirectUri);
+
+    return res.json({
+      success: true,
+      azureADLogoutUrl,
+      b2cLogoutUrl: b2cLogoutUrlValue,
+    });
+  } catch (error) {
+    console.error("Logout URL generation error:", error);
+    return next(
+      AppError.internalServerError("Failed to generate logout URLs"),
     );
   }
 };

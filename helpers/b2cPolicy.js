@@ -138,10 +138,34 @@ function b2cAuthorizationUrl(policyName, opts) {
     state,
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
+    // Without this, B2C silently re-authenticates from its own session cookie
+    // (login.microsoftonline.com/*.b2clogin.com is a separate session from this app's -
+    // clearing our own token/localStorage on logout never touches it), so a user who just
+    // logged out gets signed straight back in on the next click with no credential prompt.
+    prompt: "login",
   });
   if (nonce) {
     q.set("nonce", nonce);
   }
+  return `${base}?${q.toString()}`;
+}
+
+/**
+ * B2C logout endpoint for a given policy - ends that policy's session cookie in the
+ * browser. Distinct per policy, like the authorize/token/JWKS endpoints.
+ * `postLogoutRedirectUri` should be a value already registered for this app (the existing
+ * login redirect_uri is a safe choice - it's necessarily already registered, and landing
+ * back on the login page with no `code` param is a harmless no-op there).
+ * @param {string} policyName
+ * @param {string} postLogoutRedirectUri
+ * @returns {string}
+ */
+function b2cLogoutUrl(policyName, postLogoutRedirectUri) {
+  const tenant = getTenantName();
+  const base = `https://${tenant}.b2clogin.com/${tenant}.onmicrosoft.com/${policyName}/oauth2/v2.0/logout`;
+  const q = new URLSearchParams({
+    post_logout_redirect_uri: postLogoutRedirectUri,
+  });
   return `${base}?${q.toString()}`;
 }
 
@@ -187,6 +211,7 @@ module.exports = {
   resolveB2CPolicy,
   b2cTokenEndpoint,
   b2cAuthorizationUrl,
+  b2cLogoutUrl,
   b2cJwksUrl,
   b2cExpectedIssuer,
 };
