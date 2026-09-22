@@ -4,10 +4,18 @@
  * JWKS (tests/helpers/testJwt.js) instead of a real Microsoft B2C tenant.
  */
 process.env.MS_B2C_DIRECTORY_ID = "test-b2c-directory-id";
-const TEST_TENANT_NAME = "projectshellAB2C"; // this repo's own b2cPolicy.js fallback default
+// b2cPolicy.js's fallback default - deliberately mixed-case here to match how it's
+// actually spelled in code/config, distinct from ISSUER_TENANT_HOST below.
+const TEST_TENANT_NAME = "projectshellAB2C";
+// Azure B2C always normalizes the b2clogin.com tenant subdomain to lowercase in the
+// `iss` claim it issues, regardless of MS_TENANT_NAME's casing - a real token's iss looks
+// like this, never like TEST_TENANT_NAME's own casing. getTenantName() in b2cPolicy.js
+// lowercases for exactly this reason; these tests build tokens the way Microsoft actually
+// does, not the way the tenant name happens to be spelled.
+const ISSUER_TENANT_HOST = TEST_TENANT_NAME.toLowerCase();
 const TEST_CLIENT_ID = "e3688a2f-3956-42f9-8c98-6fea7a60a5b4"; // this file's own fallback default
 const TEST_POLICY = "B2C_1_projectshell_signin"; // getDefaultPolicy()'s fallback default
-const EXPECTED_ISSUER = `https://${TEST_TENANT_NAME}.b2clogin.com/${process.env.MS_B2C_DIRECTORY_ID}/v2.0/`;
+const EXPECTED_ISSUER = `https://${ISSUER_TENANT_HOST}.b2clogin.com/${process.env.MS_B2C_DIRECTORY_ID}/v2.0/`;
 
 jest.mock("../models/tenant.model", () => ({
   findOne: jest.fn(),
@@ -121,13 +129,37 @@ describe("B2CUsersHandler.decodeIdToken", () => {
       privateKey,
       baseClaims({
         nonce: expectedNonce,
-        iss: `https://${TEST_TENANT_NAME}.b2clogin.com/some-other-directory-id/v2.0/`,
+        iss: `https://${ISSUER_TENANT_HOST}.b2clogin.com/some-other-directory-id/v2.0/`,
       }),
     );
 
     await expect(
       B2CUsersHandler.decodeIdToken(token, TEST_POLICY, expectedNonce),
     ).rejects.toThrow();
+  });
+
+  // Regression test for the real production failure: MS_TENANT_NAME (or its unset
+  // fallback, "projectshellAB2C") is mixed-case, but Azure B2C always issues `iss` with
+  // the tenant subdomain lowercased - a real login was rejected with
+  // ERR_JWT_CLAIM_VALIDATION_FAILED on `iss` until getTenantName() started lowercasing.
+  test("real B2C tokens (lowercased issuer host) validate against a mixed-case configured tenant name", async () => {
+    expect(TEST_TENANT_NAME).not.toBe(ISSUER_TENANT_HOST); // sanity: the two truly differ in casing
+    Tenant.findOne.mockResolvedValueOnce({
+      _id: { toString: () => "tenant-mongo-id-b2c" },
+      name: "Test Tenant",
+      code: "TT",
+    });
+
+    const token = await signTestJwt(
+      privateKey,
+      baseClaims({
+        nonce: expectedNonce,
+        iss: `https://${ISSUER_TENANT_HOST}.b2clogin.com/${process.env.MS_B2C_DIRECTORY_ID}/v2.0/`,
+      }),
+    );
+
+    const profile = await B2CUsersHandler.decodeIdToken(token, TEST_POLICY, expectedNonce);
+    expect(profile.tenantId).toBe("tenant-mongo-id-b2c");
   });
 
   test("wrong audience fails", async () => {

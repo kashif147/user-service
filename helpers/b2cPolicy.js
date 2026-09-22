@@ -31,6 +31,17 @@ function getGmailCombinedPolicy() {
   return process.env.MS_POLICY_GMAIL_COMBINED || getDefaultPolicy();
 }
 
+/**
+ * Azure B2C always normalizes the `b2clogin.com` tenant subdomain to lowercase in the
+ * `iss` claim it issues, regardless of how MS_TENANT_NAME is cased here - so every
+ * hostname built from this must be lowercased too, or b2cExpectedIssuer()'s exact-string
+ * comparison against jose's issuer check never matches (jwtVerify has no case-insensitive
+ * mode for `issuer`), failing every login with ERR_JWT_CLAIM_VALIDATION_FAILED on `iss`.
+ */
+function getTenantName() {
+  return (process.env.MS_TENANT_NAME || "projectshellAB2C").toLowerCase();
+}
+
 function getAllowedPolicies() {
   const set = new Set();
   const add = (p) => {
@@ -103,7 +114,7 @@ function resolveB2CPolicy(input = {}) {
 }
 
 function b2cTokenEndpoint(policyName) {
-  const tenant = process.env.MS_TENANT_NAME || "projectshellAB2C";
+  const tenant = getTenantName();
   return `https://${tenant}.b2clogin.com/${tenant}.onmicrosoft.com/${policyName}/oauth2/v2.0/token`;
 }
 
@@ -113,7 +124,7 @@ function b2cTokenEndpoint(policyName) {
  */
 function b2cAuthorizationUrl(policyName, opts) {
   const { state, codeChallenge, nonce } = opts;
-  const tenant = process.env.MS_TENANT_NAME || "projectshellAB2C";
+  const tenant = getTenantName();
   const clientId =
     process.env.MS_CLIENT_ID || "e3688a2f-3956-42f9-8c98-6fea7a60a5b4";
   const redirectUri =
@@ -141,7 +152,7 @@ function b2cAuthorizationUrl(policyName, opts) {
  * @returns {string}
  */
 function b2cJwksUrl(policyName) {
-  const tenant = process.env.MS_TENANT_NAME || "projectshellAB2C";
+  const tenant = getTenantName();
   return `https://${tenant}.b2clogin.com/${tenant}.onmicrosoft.com/${policyName}/discovery/v2.0/keys`;
 }
 
@@ -156,7 +167,7 @@ function b2cJwksUrl(policyName) {
  * @returns {string}
  */
 function b2cExpectedIssuer() {
-  const tenant = process.env.MS_TENANT_NAME || "projectshellAB2C";
+  const tenant = getTenantName();
   const directoryId = process.env.MS_B2C_DIRECTORY_ID;
   if (!directoryId) {
     throw new Error(
