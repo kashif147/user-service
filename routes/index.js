@@ -9,14 +9,25 @@ router.use("/sessions", require("./sessions.routes"));
 // Centralized RBAC Policy Evaluation API
 router.use("/policy", require("./policy.routes"));
 
+// =====================================================
+// Internal service-to-service APIs
+// IMPORTANT: keep these before generic /api routers
+// that apply authenticate globally.
+// =====================================================
+
+router.use("/api", require("./tenantLifecycle.routes"));
+router.use("/api", require("./internalRoleAccess.routes"));
+router.use("/api", require("./internalMsTokenVerification.routes"));
+
+// =====================================================
+// Standard authenticated APIs
+// =====================================================
+
 // Role management API routes (for ProjectShell-1 to consume)
 router.use("/api", require("./role.routes"));
 
 // Tenant management API routes
 router.use("/api", require("./tenant.routes"));
-router.use("/api", require("./tenantLifecycle.routes"));
-router.use("/api", require("./internalRoleAccess.routes"));
-router.use("/api", require("./internalMsTokenVerification.routes"));
 router.use("/api", require("./tenantOffice.routes"));
 router.use("/api", require("./tenantPublicHoliday.routes"));
 router.use("/api", require("./tenantDepartment.routes"));
