@@ -1,6 +1,10 @@
 const express = require("express");
 const router = express.Router();
-const { authenticate, requireTenant } = require("../middlewares/auth");
+const {
+  authenticate,
+  requireTenant,
+  tenantContextWarn,
+} = require("../middlewares/auth");
 const { meRateLimit } = require("../middlewares/security.mw");
 const { getMeProfile } = require("../controllers/me.controller");
 
@@ -30,6 +34,7 @@ router.get(
   "/api/me",
   meRateLimit, // Rate limiting for /me endpoint
   authenticate, // JWT authentication
+  tenantContextWarn, // Phase 1A canonical tenant-context guard (warn only)
   requireTenant, // Tenant context validation
   getMeProfile // Get user profile
 );

@@ -1,11 +1,11 @@
 const express = require("express");
 const router = express.Router();
 const CacheController = require("../controllers/cache.controller");
-const { authenticate } = require("../middlewares/auth");
+const { authenticate, tenantContextWarn } = require("../middlewares/auth");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter.js");
 
 // Apply authentication to all routes
-router.use(authenticate);
+router.use(authenticate, tenantContextWarn);
 
 // Cache management routes (Super User only)
 router.post(

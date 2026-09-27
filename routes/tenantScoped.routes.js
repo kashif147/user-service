@@ -4,11 +4,12 @@ const TenantScopedController = require("../controllers/tenantScoped.controller")
 const {
   authenticate,
   requireTenant,
+  tenantContextWarn,
 } = require("../middlewares/auth");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter.js");
 
 // Apply authentication and tenant enforcement to all routes
-router.use(authenticate);
+router.use(authenticate, tenantContextWarn);
 router.use(requireTenant);
 
 // Tenant-scoped role assignment (ASU only)

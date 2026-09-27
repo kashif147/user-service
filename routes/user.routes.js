@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const UserController = require("../controllers/user.controller");
-const { authenticate, requireTenant } = require("../middlewares/auth");
+const { authenticate, requireTenant, tenantContextWarn } = require("../middlewares/auth");
 const { defaultPolicyMiddleware } = require("../middlewares/policy.middleware");
 const { azureB2CBasicAuth } = require("../middlewares/basicAuth.middleware");
 
@@ -40,7 +40,7 @@ router.post(
 );
 
 // Protected user management endpoints (require authentication)
-router.use(authenticate);
+router.use(authenticate, tenantContextWarn);
 router.use(requireTenant);
 
 router.get(

@@ -3,11 +3,11 @@ const router = express.Router();
 const TenantController = require("../controllers/tenant.controller");
 const TenantBrandingController = require("../controllers/tenantBranding.controller");
 const { brandingAssetUploadMw } = require("../middlewares/upload.mw");
-const { authenticate } = require("../middlewares/auth");
+const { authenticate, tenantContextWarn } = require("../middlewares/auth");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter.js");
 
 // Apply authentication to all routes
-router.use(authenticate);
+router.use(authenticate, tenantContextWarn);
 
 // Tenant CRUD operations (Super User only for create/update/delete)
 router.post(

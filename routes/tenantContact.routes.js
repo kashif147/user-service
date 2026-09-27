@@ -1,10 +1,10 @@
 const express = require("express");
 const router = express.Router();
 const TenantContactController = require("../controllers/tenantContact.controller");
-const { authenticate, requireTenant } = require("../middlewares/auth");
+const { authenticate, requireTenant, tenantContextWarn } = require("../middlewares/auth");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter");
 
-router.use(authenticate);
+router.use(authenticate, tenantContextWarn);
 
 router.get(
   "/tenant/departments/:departmentId/contacts",

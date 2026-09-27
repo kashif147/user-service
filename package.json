@@ -36,7 +36,7 @@
   },
   "dependencies": {
     "@azure/storage-blob": "^12.31.0",
-    "@membership/policy-middleware": "git+https://github.com/kashif147/policy-middleware.git#gateway",
+    "@membership/policy-middleware": "github:kashif147/policy-middleware#257a297ecbf685bea3d51dcafa28597004d36bef",
     "@projectShell/logging-lib": "git+https://github.com/kashif147/logging-lib.git#main",
     "@projectShell/rabbitmq-middleware": "git+https://github.com/kashif147/rabbitmq-middleware.git#main",
     "amqplib": "^0.10.9",

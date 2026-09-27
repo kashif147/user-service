@@ -1,11 +1,11 @@
 const express = require("express");
 const router = express.Router();
 const RoleController = require("../controllers/role.controller");
-const { authenticate, requireTenant } = require("../middlewares/auth");
+const { authenticate, requireTenant, tenantContextWarn } = require("../middlewares/auth");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter.js");
 
 // Apply authentication and tenant enforcement to all routes
-router.use(authenticate);
+router.use(authenticate, tenantContextWarn);
 router.use(requireTenant);
 
 // Test endpoint for default role assignment (Super User only)

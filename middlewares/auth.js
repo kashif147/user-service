@@ -2,8 +2,24 @@ const jwt = require("jsonwebtoken");
 const { AppError } = require("../errors/AppError");
 const roleHierarchyService = require("../services/roleHierarchyService");
 // Import from main package - gatewaySecurity is exported from index
-const { gatewaySecurity } = require("@membership/policy-middleware");
+const {
+  gatewaySecurity,
+  tenantContextMiddleware,
+} = require("@membership/policy-middleware");
 const { validateGatewayRequest } = gatewaySecurity;
+
+/**
+ * Phase 1A canonical tenant-context guard — WARN MODE ONLY (first-consumer adoption).
+ *
+ * Mounted immediately AFTER `authenticate` on every authenticated route group, so the
+ * gateway-verified tenant is already on req.ctx/req.user/req.tenantId when it runs. In
+ * "warn" mode it re-pins req.tenantId to the trusted tenant and LOGS any caller-supplied
+ * (body/query/params) tenantId that disagrees, as a non-blocking TenantContextMismatch
+ * event — it never returns 403. Do NOT mount it on pre-auth routes (/pkce, /auth/azure-*,
+ * refresh/revoke) or the internal service-to-service routers (verify-ms-token,
+ * tenant-lifecycle, internal-role-access), which do not establish a trusted tenant.
+ */
+const tenantContextWarn = tenantContextMiddleware({ mode: "warn" });
 
 /**
  * AUTHENTICATION MIDDLEWARE ONLY
@@ -419,6 +435,10 @@ module.exports = {
   // Core authentication ONLY - no authorization logic here
   authenticate,
   requireTenant,
+
+  // Phase 1A canonical tenant-context guard (WARN MODE). Pair it with `authenticate`
+  // on authenticated route groups: router.use(authenticate, tenantContextWarn).
+  tenantContextWarn,
 
   // Utility functions (for backward compatibility, but prefer policy-middleware)
   hasRole,

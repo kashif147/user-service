@@ -1,11 +1,11 @@
 const express = require("express");
 const router = express.Router();
 const PermissionController = require("../controllers/permission.controller");
-const { authenticate } = require("../middlewares/auth");
+const { authenticate, tenantContextWarn } = require("../middlewares/auth");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter.js");
 
 // Apply authentication to all routes
-router.use(authenticate);
+router.use(authenticate, tenantContextWarn);
 
 // Permission CRUD operations (Super User only for create/update/delete)
 router.post(
