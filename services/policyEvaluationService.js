@@ -1,4 +1,5 @@
 const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
 const { AppError } = require("../errors/AppError");
 // Remove old hardcoded imports - now using database-driven services
 const axios = require("axios");
@@ -166,36 +167,23 @@ const evaluatePolicyInternal = async (request) => {
       };
     }
 
-    // Step 1: Check cache first (with tenant isolation)
-    const tokenHash = token.substring(0, 8);
-    const cacheKey = cache.generateKey(tokenHash, resource, action, context);
-    const cachedResult = await cache.get(cacheKey);
-
-    if (cachedResult) {
-      return {
-        ...cachedResult,
-        policyVersion: POLICY_VERSION,
-        cached: true,
-      };
-    }
-
-    // Step 2: Validate and decode JWT token
+    // Step 1 (Phase 1B SECURITY INVARIANT): cryptographically verify the token
+    // BEFORE any authorization cache access. No cached decision may be trusted
+    // for an unverified token, so validateToken() runs first and invalid/
+    // expired/wrong-alg tokens fail closed here — before any cache lookup or
+    // write. The cache key built later is derived only from the VERIFIED
+    // identity, never from an unverified token prefix. The gateway/header path
+    // (evaluatePolicyWithHeaders) is out of scope and unchanged.
     const tokenValidation = await validateToken(token);
     if (!tokenValidation.valid) {
-      const result = {
+      return {
         decision: "DENY",
         reason: "INVALID_TOKEN",
         error: tokenValidation.error,
         timestamp: new Date().toISOString(),
+        policyVersion: POLICY_VERSION,
+        correlationId: context.correlationId,
       };
-
-      // Cache negative results for shorter time (fire and forget)
-      cache
-        .set(cacheKey, result, 60)
-        .catch((err) =>
-          console.warn("Failed to cache negative result:", err.message)
-        );
-      return result;
     }
 
     const user = tokenValidation.user;
@@ -207,7 +195,7 @@ const evaluatePolicyInternal = async (request) => {
 
     // Validate user object exists and has required properties
     if (!user || !user.id) {
-      const result = {
+      return {
         decision: "DENY",
         reason: "INVALID_USER_DATA",
         error: "User data is missing or invalid",
@@ -215,13 +203,9 @@ const evaluatePolicyInternal = async (request) => {
         policyVersion: POLICY_VERSION,
         correlationId: context.correlationId,
       };
-      cache
-        .set(cacheKey, result, 60)
-        .catch((err) => console.warn("Failed to cache result:", err.message));
-      return result;
     }
 
-    // Step 3: Extract authorization context with tenant isolation
+    // Step 2: Extract authorization context with tenant isolation
     const authContext = {
       ...context,
       userId: user.id,
@@ -235,9 +219,9 @@ const evaluatePolicyInternal = async (request) => {
       correlationId: context.correlationId,
     };
 
-    // Step 4: Check if tenantId is available
+    // Step 3: Check if tenantId is available
     if (!user.tenantId) {
-      const result = {
+      return {
         decision: "DENY",
         reason: "MISSING_TENANT_ID",
         error: "User tenantId is missing from token",
@@ -245,19 +229,15 @@ const evaluatePolicyInternal = async (request) => {
         policyVersion: POLICY_VERSION,
         correlationId: context.correlationId,
       };
-      cache
-        .set(cacheKey, result, 60)
-        .catch((err) => console.warn("Failed to cache result:", err.message));
-      return result;
     }
 
-    // Step 5: Apply tenant isolation check (skip for tenant resource as it's handled in resource policy)
+    // Step 4: Apply tenant isolation check (skip for tenant resource as it's handled in resource policy)
     if (
       resource !== "tenant" &&
       context.tenantId &&
       context.tenantId !== user.tenantId
     ) {
-      const result = {
+      return {
         decision: "DENY",
         reason: "TENANT_MISMATCH",
         user: {
@@ -273,17 +253,54 @@ const evaluatePolicyInternal = async (request) => {
         policyVersion: POLICY_VERSION,
         correlationId: context.correlationId,
       };
-
-      // Cache negative results for shorter time (fire and forget)
-      cache
-        .set(cacheKey, result, 60)
-        .catch((err) =>
-          console.warn("Failed to cache negative result:", err.message)
-        );
-      return result;
     }
 
-    // Step 6: Apply policy rules
+    // Step 5: Build an identity-safe cache key from the VERIFIED identity plus
+    // the request target. This replaces the previous token.substring(0, 8)
+    // discriminator (constant "eyJhbGci" across all HS256 JWTs) so a forged or
+    // different token can never collide onto another identity's cached
+    // decision, and it is independent of the random correlationId so the SAME
+    // verified identity can still reuse the cache.
+    //
+    // INVARIANT: the authorization cache key must include EVERY verified
+    // identity attribute the PDP consumes for an allow/deny decision. Today
+    // applyPolicyRules decides on userType (category match), roles (SU
+    // short-circuit + role-level fallback) and permissions (canonical match),
+    // scoped by tenant — so all of those are in the digest below, with
+    // deterministic property ordering. If future PDP logic becomes
+    // context/ABAC dependent, this key MUST be updated to include those
+    // attributes before they can safely influence cached decisions. Never
+    // include the raw token, correlationId, email/PII, or unverified request
+    // data here.
+    const identityDigest = crypto
+      .createHash("sha256")
+      .update(
+        JSON.stringify({
+          id: user.id,
+          tenantId: user.tenantId,
+          userType: user.userType || null,
+          roles: user.roles || [],
+          permissions: user.permissions || [],
+        })
+      )
+      .digest("hex")
+      .slice(0, 16);
+    const cacheKey = cache.generateKey(identityDigest, resource, action, {
+      tenantId: context.tenantId || user.tenantId,
+    });
+
+    // Step 6: Cache lookup — reached only AFTER successful cryptographic
+    // verification of the token.
+    const cachedResult = await cache.get(cacheKey);
+    if (cachedResult) {
+      return {
+        ...cachedResult,
+        policyVersion: POLICY_VERSION,
+        cached: true,
+      };
+    }
+
+    // Step 7: Apply policy rules
     const policyDecision = await applyPolicyRules(authContext);
 
     const result = {
@@ -304,7 +321,7 @@ const evaluatePolicyInternal = async (request) => {
       correlationId: context.correlationId,
     };
 
-    // Step 7: Cache the result (fire and forget - don't wait)
+    // Step 8: Cache the result (fire and forget - don't wait)
     cache
       .set(cacheKey, result)
       .catch((err) =>
@@ -332,13 +349,48 @@ const evaluatePolicyInternal = async (request) => {
  */
 const validateToken = async (token) => {
   try {
-    const decoded = jwt.decode(token);
-    if (!decoded) {
-      return { valid: false, error: "Invalid token format" };
+    // Phase 1B (PDP chokepoint): the legacy token-fallback path must
+    // CRYPTOGRAPHICALLY verify ProjectShell HS256 tokens instead of trusting an
+    // unverified jwt.decode. Signature + expiry are enforced by jsonwebtoken and
+    // the algorithm is strictly allowlisted to HS256, so `alg:none` and HS/RS
+    // algorithm-confusion are rejected. RS256 (Entra/B2C) is verified upstream
+    // (gateway /_internal/verify-ms-token) and reaches the PDP via the
+    // gateway-header branch (evaluatePolicyWithHeaders), never here — so it is
+    // intentionally NOT accepted on this path. The jwt.decode in
+    // middlewares/auth.js and helpers/policyAdapter.js are separate parked
+    // follow-ups, not changed here.
+    const secret = process.env.JWT_SECRET;
+    if (!secret) {
+      // Fail closed: never fall back to decoding unverified claims.
+      console.warn("[PDP] Token verification failed: JWT_SECRET_MISSING");
+      return { valid: false, error: "JWT_SECRET_MISSING" };
     }
 
-    // NOTE: Token expiry is checked ONLY at the gateway.
-    // Do NOT re-check JWT exp here - trust gateway verification.
+    let decoded;
+    try {
+      decoded = jwt.verify(token, secret, {
+        algorithms: ["HS256"],
+        clockTolerance: 30,
+      });
+    } catch (err) {
+      // Map to a safe reason code; never log the token, its claims, or the secret.
+      let reason = "INVALID_SIGNATURE";
+      if (err && err.name === "TokenExpiredError") {
+        reason = "TOKEN_EXPIRED";
+      } else if (err && err.name === "NotBeforeError") {
+        reason = "TOKEN_NOT_ACTIVE";
+      } else if (err && err.name === "JsonWebTokenError") {
+        if (/invalid algorithm/i.test(err.message)) reason = "UNSUPPORTED_ALGORITHM";
+        else if (/malformed|invalid token|must be provided/i.test(err.message)) reason = "MALFORMED_TOKEN";
+        else reason = "INVALID_SIGNATURE";
+      }
+      console.warn(`[PDP] Token verification failed: ${reason}`);
+      return { valid: false, error: reason };
+    }
+
+    if (!decoded || typeof decoded !== "object") {
+      return { valid: false, error: "MALFORMED_TOKEN" };
+    }
 
     // Extract tenantId with fallback options - prioritize tenantId, then tid, then extension_tenantId
     const tenantId =
@@ -369,10 +421,12 @@ const validateToken = async (token) => {
         roles: normalizedRoles,
         permissions: decoded.permissions || [],
       },
-      expiresAt: new Date(decoded.exp * 1000).toISOString(),
+      expiresAt: decoded.exp ? new Date(decoded.exp * 1000).toISOString() : null,
     };
   } catch (error) {
-    return { valid: false, error: error.message };
+    // Fail closed; never leak the token or claims in logs.
+    console.warn("[PDP] Token verification failed: INVALID_TOKEN");
+    return { valid: false, error: "INVALID_TOKEN" };
   }
 };
 
