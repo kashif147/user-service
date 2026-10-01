@@ -22,6 +22,48 @@ const { validateGatewayRequest } = gatewaySecurity;
 const tenantContextWarn = tenantContextMiddleware({ mode: "warn" });
 
 /**
+ * Phase 1B — local ProjectShell token verifier for the NON-gateway paths.
+ *
+ * Cryptographically verifies HS256 ProjectShell JWTs before any claim is
+ * trusted, matching the PDP contract (services/policyEvaluationService.js):
+ * HS256 only (the algorithm allowlist is fixed — the token's own `alg` header
+ * is never trusted), expiry enforced, 30s clock tolerance, and FAIL CLOSED
+ * when JWT_SECRET is absent/empty. Returns { valid:true, payload } or
+ * { valid:false, reason } with a non-sensitive reason category only — never
+ * the raw jwt error message, token, claims, secret, or signature. RS256/JWKS
+ * is intentionally NOT handled here: Microsoft RS256 tokens are verified
+ * upstream at the gateway and arrive via the gateway-header path, never as a
+ * direct Bearer to these fallbacks.
+ */
+const verifyProjectShellToken = (token) => {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    return { valid: false, reason: "JWT_SECRET_MISSING" };
+  }
+  try {
+    const payload = jwt.verify(token, secret, {
+      algorithms: ["HS256"],
+      clockTolerance: 30,
+    });
+    if (!payload || typeof payload !== "object") {
+      return { valid: false, reason: "MALFORMED_TOKEN" };
+    }
+    return { valid: true, payload };
+  } catch (err) {
+    let reason = "INVALID_SIGNATURE";
+    if (err && err.name === "TokenExpiredError") reason = "TOKEN_EXPIRED";
+    else if (err && err.name === "NotBeforeError") reason = "TOKEN_NOT_ACTIVE";
+    else if (err && err.name === "JsonWebTokenError") {
+      if (/invalid algorithm/i.test(err.message)) reason = "UNSUPPORTED_ALGORITHM";
+      else if (/malformed|invalid token|jwt must be provided/i.test(err.message))
+        reason = "MALFORMED_TOKEN";
+      else reason = "INVALID_SIGNATURE";
+    }
+    return { valid: false, reason };
+  }
+};
+
+/**
  * AUTHENTICATION MIDDLEWARE ONLY
  * 
  * This middleware handles authentication (verifying user identity).
@@ -215,66 +257,17 @@ const authenticate = async (req, res, next) => {
       console.warn(
         `🚨 AUTH BYPASS TRIGGERED - NODE_ENV: ${process.env.NODE_ENV}`
       );
-      try {
-        const decoded = jwt.decode(token);
-
-        if (!decoded) {
-          const authError = AppError.badRequest("Invalid token format", {
-            tokenError: true,
-            invalidToken: true,
-          });
-          return res.status(authError.status).json({
-            error: {
-              message: authError.message,
-              code: authError.code,
-              status: authError.status,
-              tokenError: authError.tokenError,
-              invalidToken: authError.invalidToken,
-            },
-          });
-        }
-
-        const tenantId =
-          decoded.tenantId || decoded.tid || decoded.extension_tenantId;
-
-        if (!tenantId) {
-          const authError = AppError.badRequest(
-            "Invalid token: missing tenantId",
-            {
-              tokenError: true,
-              missingTenantId: true,
-            }
-          );
-          return res.status(authError.status).json({
-            error: {
-              message: authError.message,
-              code: authError.code,
-              status: authError.status,
-              tokenError: authError.tokenError,
-              missingTenantId: authError.missingTenantId,
-            },
-          });
-        }
-
-        req.ctx = {
-          tenantId: tenantId,
-          userId: decoded.sub || decoded.id,
-          roles: decoded.roles || [],
-          permissions: decoded.permissions || [],
-        };
-
-        req.user = decoded;
-        req.userId = decoded.sub || decoded.id;
-        req.tenantId = tenantId;
-        req.roles = decoded.roles || [];
-        req.permissions = decoded.permissions || [];
-
-        return next();
-      } catch (error) {
-        console.error("JWT Decode Error:", error.message);
-        const authError = AppError.badRequest("Invalid token", {
+      // AUTH-A (Phase 1B): bypass may skip AUTHORIZATION, but it must NEVER skip
+      // AUTHENTICATION. Cryptographically verify the token before trusting any
+      // claim — a forged/unsigned/expired token can no longer establish identity.
+      const bypassVerification = verifyProjectShellToken(token);
+      if (!bypassVerification.valid) {
+        console.warn(
+          `[AUTH] Bypass-path token verification failed: ${bypassVerification.reason}`
+        );
+        const authError = AppError.unauthorized("Invalid token", {
           tokenError: true,
-          jwtError: error.message,
+          invalidToken: true,
         });
         return res.status(authError.status).json({
           error: {
@@ -282,17 +275,61 @@ const authenticate = async (req, res, next) => {
             code: authError.code,
             status: authError.status,
             tokenError: authError.tokenError,
-            jwtError: authError.jwtError,
+            invalidToken: authError.invalidToken,
           },
         });
       }
+      const decoded = bypassVerification.payload;
+
+      const tenantId =
+        decoded.tenantId || decoded.tid || decoded.extension_tenantId;
+
+      if (!tenantId) {
+        const authError = AppError.badRequest(
+          "Invalid token: missing tenantId",
+          {
+            tokenError: true,
+            missingTenantId: true,
+          }
+        );
+        return res.status(authError.status).json({
+          error: {
+            message: authError.message,
+            code: authError.code,
+            status: authError.status,
+            tokenError: authError.tokenError,
+            missingTenantId: authError.missingTenantId,
+          },
+        });
+      }
+
+      req.ctx = {
+        tenantId: tenantId,
+        userId: decoded.sub || decoded.id,
+        roles: decoded.roles || [],
+        permissions: decoded.permissions || [],
+      };
+
+      req.user = decoded;
+      req.userId = decoded.sub || decoded.id;
+      req.tenantId = tenantId;
+      req.roles = decoded.roles || [];
+      req.permissions = decoded.permissions || [];
+
+      return next();
     }
 
-    // Normal JWT decode flow (verification removed)
-    const decoded = jwt.decode(token);
-
-    if (!decoded) {
-      const authError = AppError.badRequest("Invalid token format", {
+    // AUTH-B (Phase 1B): normal legacy-Bearer flow now cryptographically
+    // verifies the token (was an unverified jwt.decode). Fail closed on any
+    // verification failure; never establish trusted req.ctx from an unverified
+    // token. This also closes the forged-Bearer exposure on authenticate-only
+    // routes such as /api/me.
+    const verification = verifyProjectShellToken(token);
+    if (!verification.valid) {
+      console.warn(
+        `[AUTH] Bearer token verification failed: ${verification.reason}`
+      );
+      const authError = AppError.unauthorized("Invalid token", {
         tokenError: true,
         invalidToken: true,
       });
@@ -306,6 +343,7 @@ const authenticate = async (req, res, next) => {
         },
       });
     }
+    const decoded = verification.payload;
 
     const tenantId =
       decoded.tenantId || decoded.tid || decoded.extension_tenantId;
