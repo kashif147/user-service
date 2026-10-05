@@ -11,7 +11,6 @@ const productTypeSchema = new mongoose.Schema(
     code: {
       type: String,
       required: true,
-      unique: true,
       maxlength: 20,
       uppercase: true,
       trim: true,
