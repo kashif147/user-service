@@ -152,7 +152,8 @@ describe("M3 writes are SU-only", () => {
   });
 });
 
-describe("I read-only routes keep their existing behaviour (no SU guard added)", () => {
+describe("I permission-catalogue read routes keep their existing behaviour (no SU guard added)", () => {
+  // (Phase 1C-2H made the cache.routes.js admin:read GETs SU-only — see platformReads.suGuard.test.js)
   const READS = [
     ["/api/permissions", "policy:permission:admin"],
     ["/api/permissions/stats", "policy:permission:admin"],
@@ -160,12 +161,6 @@ describe("I read-only routes keep their existing behaviour (no SU guard added)",
     ["/api/permissions/code/X", "policy:permission:admin"],
     ["/api/permissions/resource/role", "policy:permission:admin"],
     ["/api/permissions/category/CRM", "policy:permission:admin"],
-    ["/api/cache/stats", "policy:admin:read"],
-    ["/api/cache/performance/test", "policy:admin:read"],
-    ["/api/role-hierarchy", "policy:admin:read"],
-    ["/api/permissions-map", "policy:admin:read"],
-    ["/api/role-permissions/GS", "policy:admin:read"],
-    ["/api/lookup/stats", "policy:admin:read"],
   ];
   test.each(READS)("GET %s — non-SU reaches the existing policy check (unchanged)", async (url, policy) => {
     const res = await call("GET", url, { roles: ["ASU"] });
@@ -181,7 +176,7 @@ test("route tables: every non-GET route in both routers is SU-guarded", () => {
     for (const l of router.stack.filter((x) => x.route)) {
       const methods = Object.keys(l.route.methods);
       const names = l.route.stack.map((s) => s.name);
-      if (methods.includes("get")) continue;
+      if (methods.includes("get") && file === "permission.routes") continue;
       expect(names.slice(0, 2)).toEqual(["requireTenant", expect.any(String)]);
       expect(names.length).toBeGreaterThanOrEqual(4); // requireTenant, requireSuperUser, policy, controller
     }

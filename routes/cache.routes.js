@@ -39,12 +39,16 @@ router.post(
 
 router.get(
   "/cache/stats",
+  requireTenant,
+  requireSuperUser, // Phase 1C-2H: platform-level read (SU only, trusted req.ctx roles)
   defaultPolicyAdapter.middleware("admin", "read"),
   CacheController.getCacheStats
 );
 
 router.get(
   "/cache/performance/test",
+  requireTenant,
+  requireSuperUser, // Phase 1C-2H: platform-level read (SU only, trusted req.ctx roles)
   defaultPolicyAdapter.middleware("admin", "read"),
   CacheController.testCachePerformance
 );
@@ -52,18 +56,24 @@ router.get(
 // Data access routes (Super User only)
 router.get(
   "/role-hierarchy",
+  requireTenant,
+  requireSuperUser, // Phase 1C-2H: platform-level read (SU only, trusted req.ctx roles)
   defaultPolicyAdapter.middleware("admin", "read"),
   CacheController.getRoleHierarchy
 );
 
 router.get(
   "/permissions-map",
+  requireTenant,
+  requireSuperUser, // Phase 1C-2H: platform-level read (SU only, trusted req.ctx roles)
   defaultPolicyAdapter.middleware("admin", "read"),
   CacheController.getPermissionsMap
 );
 
 router.get(
   "/role-permissions/:roleCode",
+  requireTenant,
+  requireSuperUser, // Phase 1C-2H: platform-level read (SU only, trusted req.ctx roles)
   defaultPolicyAdapter.middleware("admin", "read"),
   CacheController.getRolePermissions
 );
@@ -79,6 +89,8 @@ router.post(
 
 router.get(
   "/lookup/stats",
+  requireTenant,
+  requireSuperUser, // Phase 1C-2H: platform-level read (SU only, trusted req.ctx roles)
   defaultPolicyAdapter.middleware("admin", "read"),
   CacheController.getLookupCacheStats
 );
