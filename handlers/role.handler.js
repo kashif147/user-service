@@ -287,9 +287,56 @@ const assertRoleAssignmentAllowed = (actor, roleDocs) => {
   }
 };
 
+// Phase 1C-2C: role REMOVAL boundary — same protected-role model (isProtectedRole / isSuperUserActor
+// / RolePrivilegeError). Non-SU actors may not remove a role whose persisted, tenant-scoped document
+// is protected. Role docs are loaded with {_id: {$in}, tenantId} only (never _id alone, no isActive
+// filter so an inactive protected role is still protected).
+//  - requested removals (remove-role / remove-roles-batch): every requested id must resolve in the
+//    tenant (else "Roles not found" -> 400); any protected one -> 403.
+//  - implicit removals (sync-roles: held roles not in the new set): any protected one, or one that
+//    cannot be resolved in the tenant (unverifiable), -> 403 (fail closed).
+const loadTenantRoles = async (ids, tenantId) => {
+  for (const id of ids) {
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      throw new Error(`Invalid roleId format: ${id}. ObjectId must be a 24-character hex string.`);
+    }
+  }
+  return ids.length ? Role.find({ _id: { $in: ids }, tenantId }) : [];
+};
+
+const assertRequestedRoleRemovalAllowed = async (actor, tenantId, requestedIds) => {
+  if (!actor || !Array.isArray(actor.roles)) {
+    throw new RolePrivilegeError("Actor context required for role removal");
+  }
+  if (isSuperUserActor(actor)) return;
+  const ids = [...new Set((requestedIds || []).map(String))];
+  const docs = await loadTenantRoles(ids, tenantId);
+  const found = new Set(docs.map((d) => String(d._id)));
+  const missing = ids.filter((id) => !found.has(id));
+  if (missing.length) throw new Error(`Roles not found: ${missing.join(", ")}`);
+  if (docs.some(isProtectedRole)) {
+    throw new RolePrivilegeError("Only SU may remove platform or system roles");
+  }
+};
+
+const assertImplicitRoleRemovalAllowed = async (actor, tenantId, removedIds) => {
+  if (!actor || !Array.isArray(actor.roles)) {
+    throw new RolePrivilegeError("Actor context required for role removal");
+  }
+  if (isSuperUserActor(actor)) return;
+  const ids = [...new Set((removedIds || []).map(String))].filter((id) => mongoose.Types.ObjectId.isValid(id));
+  const docs = ids.length ? await Role.find({ _id: { $in: ids }, tenantId }) : [];
+  const unverifiable = docs.length !== ids.length || (removedIds || []).some((id) => !mongoose.Types.ObjectId.isValid(String(id)));
+  if (unverifiable || docs.some(isProtectedRole)) {
+    throw new RolePrivilegeError("Only SU may remove platform or system roles");
+  }
+};
+
 module.exports.RolePrivilegeError = RolePrivilegeError;
 module.exports.assertRoleChangeAllowed = assertRoleChangeAllowed;
 module.exports.assertRoleAssignmentAllowed = assertRoleAssignmentAllowed;
+module.exports.assertRequestedRoleRemovalAllowed = assertRequestedRoleRemovalAllowed;
+module.exports.assertImplicitRoleRemovalAllowed = assertImplicitRoleRemovalAllowed;
 module.exports.isProtectedRole = isProtectedRole;
 module.exports.isReservedPermission = isReservedPermission;
 
@@ -537,6 +584,12 @@ module.exports.syncRolesForUser = async (userId, roleIds, tenantId, actor) => {
       throw new Error("User not found");
     }
 
+    // Phase 1C-2C: roles the user holds that the new set drops are removals — a non-SU actor may not
+    // drop a protected (or unverifiable) role. Protected roles that stay assigned do not block.
+    const desired = new Set(ids.map(String));
+    const implicitlyRemoved = (user.roles || []).map(String).filter((r) => !desired.has(r));
+    await assertImplicitRoleRemovalAllowed(actor, tenantId, implicitlyRemoved);
+
     if (ids.length === 0) {
       user.roles = [];
       await user.save();
@@ -558,7 +611,10 @@ module.exports.syncRolesForUser = async (userId, roleIds, tenantId, actor) => {
     }
 
     // Phase 1C-2B: validate EVERY requested role (tenant-scoped persisted docs) before touching the user.
-    assertRoleAssignmentAllowed(actor, roles);
+    // Phase 1C-2C: only NEWLY added roles are assignments; protected roles the user already holds and
+    // keeps are not re-assigned, so they do not block the sync.
+    const heldRoleIds = new Set((user.roles || []).map(String));
+    assertRoleAssignmentAllowed(actor, roles.filter((r) => !heldRoleIds.has(String(r._id))));
 
     user.roles = ids.map((id) => new mongoose.Types.ObjectId(id));
     await user.save();
@@ -573,13 +629,16 @@ module.exports.syncRolesForUser = async (userId, roleIds, tenantId, actor) => {
   }
 };
 
-module.exports.removeRolesFromUser = async (userId, roleIds, tenantId) => {
+module.exports.removeRolesFromUser = async (userId, roleIds, tenantId, actor) => {
   try {
     const user = await User.findOne({ _id: userId, tenantId });
 
     if (!user) {
       throw new Error("User not found");
     }
+
+    // Phase 1C-2C: validate EVERY requested role (tenant-scoped, persisted) before touching the user.
+    await assertRequestedRoleRemovalAllowed(actor, tenantId, roleIds);
 
     // Check which roles user actually has
     const existingRoleIds = (user.roles || []).map((roleId) =>
@@ -615,22 +674,26 @@ module.exports.removeRolesFromUser = async (userId, roleIds, tenantId) => {
       notAssignedRoleIds: notAssignedRoleIds,
     };
   } catch (error) {
+    if (error instanceof RolePrivilegeError) throw error;
     throw new Error(`Error removing roles from user: ${error.message}`);
   }
 };
 
-module.exports.removeRoleFromUser = async (userId, roleId, tenantId) => {
+module.exports.removeRoleFromUser = async (userId, roleId, tenantId, actor) => {
   try {
     const user = await User.findOne({ _id: userId, tenantId });
     if (!user) {
       throw new Error("User not found");
     }
+    // Phase 1C-2C: validate the (tenant-scoped, persisted) role before touching the user.
+    await assertRequestedRoleRemovalAllowed(actor, tenantId, [roleId]);
 
     user.roles = user.roles.filter((role) => role.toString() !== roleId);
     await user.save();
 
     return await User.findOne({ _id: userId, tenantId }).populate("roles");
   } catch (error) {
+    if (error instanceof RolePrivilegeError) throw error;
     throw new Error(`Error removing role from user: ${error.message}`);
   }
 };

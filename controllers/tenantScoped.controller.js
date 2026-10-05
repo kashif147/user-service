@@ -41,9 +41,15 @@ module.exports.removeRoleFromUserInTenant = async (req, res) => {
       return res.fail("Role not found in your tenant");
     }
 
-    const user = await RoleHandler.removeRoleFromUser(userId, roleId, tenantId);
+    // Phase 1C-2C: same protected-role removal rule (actor from trusted req.ctx).
+    const user = await RoleHandler.removeRoleFromUser(userId, roleId, tenantId, {
+      roles: Array.isArray(req.ctx?.roles) ? req.ctx.roles : [],
+    });
     res.success(user);
   } catch (error) {
+    if (error instanceof RoleHandler.RolePrivilegeError) {
+      return res.status(403).json({ status: "fail", code: error.code, message: error.message });
+    }
     res.fail(error.message);
   }
 };

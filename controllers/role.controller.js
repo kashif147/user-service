@@ -245,7 +245,8 @@ module.exports.removeRolesFromUser = async (req, res, next) => {
     const result = await RoleHandler.removeRolesFromUser(
       userId,
       roleIds,
-      tenantId
+      tenantId,
+      roleActor(req)
     );
 
     res.status(200).json({
@@ -262,6 +263,12 @@ module.exports.removeRolesFromUser = async (req, res, next) => {
       },
     });
   } catch (error) {
+    if (error instanceof RoleHandler.RolePrivilegeError) {
+      return next(AppError.forbidden(error.message, { code: error.code }));
+    }
+    if (/Roles not found|Invalid roleId/.test(error.message || "")) {
+      return next(AppError.badRequest(error.message.replace(/^Error removing roles from user: /, "")));
+    }
     return next(
       AppError.internalServerError("Failed to remove roles from user")
     );
@@ -272,12 +279,18 @@ module.exports.removeRoleFromUser = async (req, res, next) => {
   try {
     const { userId, roleId } = req.body;
     const tenantId = req.ctx.tenantId;
-    const user = await RoleHandler.removeRoleFromUser(userId, roleId, tenantId);
+    const user = await RoleHandler.removeRoleFromUser(userId, roleId, tenantId, roleActor(req));
     if (!user) {
       return res.notFoundRecord("User or role not found");
     }
     res.status(200).json({ status: "success", data: user });
   } catch (error) {
+    if (error instanceof RoleHandler.RolePrivilegeError) {
+      return next(AppError.forbidden(error.message, { code: error.code }));
+    }
+    if (/Roles not found|Invalid roleId/.test(error.message || "")) {
+      return next(AppError.badRequest(error.message.replace(/^Error removing role from user: /, "")));
+    }
     return next(
       AppError.internalServerError("Failed to remove role from user")
     );
