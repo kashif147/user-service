@@ -14,9 +14,18 @@ module.exports.assignRoleToUserInTenant = async (req, res) => {
       return res.fail("Role not found in your tenant");
     }
 
+    // Phase 1C-2B: non-SU may not assign SU/ASU/system roles (checked on the tenant-loaded role doc).
+    RoleHandler.assertRoleAssignmentAllowed(
+      { roles: Array.isArray(req.ctx?.roles) ? req.ctx.roles : [] },
+      [role]
+    );
+
     const user = await RoleHandler.assignRoleToUser(userId, roleId, tenantId);
     res.success(user);
   } catch (error) {
+    if (error instanceof RoleHandler.RolePrivilegeError) {
+      return res.status(403).json({ status: "fail", code: error.code, message: error.message });
+    }
     res.fail(error.message);
   }
 };
@@ -63,11 +72,16 @@ module.exports.assignPermissionsToRoleInTenant = async (req, res) => {
       roleId,
       permissions,
       tenantId,
-      updatedBy
+      updatedBy,
+      { roles: Array.isArray(req.ctx?.roles) ? req.ctx.roles : [] }
     );
 
     res.success(updatedRole);
   } catch (error) {
+    // Phase 1C-2B: role privilege boundary violations are 403s.
+    if (error instanceof RoleHandler.RolePrivilegeError) {
+      return res.status(403).json({ status: "fail", code: error.code, message: error.message });
+    }
     res.fail(error.message);
   }
 };

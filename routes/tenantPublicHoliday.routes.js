@@ -1,7 +1,12 @@
 const express = require("express");
 const router = express.Router();
 const TenantPublicHolidayController = require("../controllers/tenantPublicHoliday.controller");
-const { authenticate, requireTenant, tenantContextWarn } = require("../middlewares/auth");
+const {
+  authenticate,
+  requireTenant,
+  requireTenantPathAccess,
+  tenantContextWarn,
+} = require("../middlewares/auth");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter");
 
 router.use(authenticate, tenantContextWarn);
@@ -36,24 +41,32 @@ router.delete(
 
 router.get(
   "/tenants/:tenantId/public-holidays",
+  requireTenant,
+  requireTenantPathAccess("tenantId"),
   defaultPolicyAdapter.middleware("tenant", "read"),
   TenantPublicHolidayController.getPublicHolidays
 );
 
 router.post(
   "/tenants/:tenantId/public-holidays",
+  requireTenant,
+  requireTenantPathAccess("tenantId"),
   defaultPolicyAdapter.middleware("tenant", "update"),
   TenantPublicHolidayController.createPublicHoliday
 );
 
 router.put(
   "/tenants/:tenantId/public-holidays/:id",
+  requireTenant,
+  requireTenantPathAccess("tenantId"),
   defaultPolicyAdapter.middleware("tenant", "update"),
   TenantPublicHolidayController.updatePublicHoliday
 );
 
 router.delete(
   "/tenants/:tenantId/public-holidays/:id",
+  requireTenant,
+  requireTenantPathAccess("tenantId"),
   defaultPolicyAdapter.middleware("tenant", "delete"),
   TenantPublicHolidayController.deactivatePublicHoliday
 );

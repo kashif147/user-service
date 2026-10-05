@@ -455,6 +455,79 @@ const requireTenant = (req, res, next) => {
 };
 
 /**
+ * Phase 1C-2B: path-tenant ownership guard for routes addressing a tenant by URL
+ * (e.g. /tenants/:tenantId/offices, /tenants/:id).
+ *
+ * The PDP's tenant rule compares the caller's tenant with itself on the gateway path, so it never
+ * sees the tenant named in the URL. This guard closes that gap: the named path parameter must equal
+ * the trusted req.ctx.tenantId, unless the trusted roles include SU (platform-wide access).
+ * Only the explicitly named path param is read — never body/query/header tenant hints. Fails
+ * closed (403) when there is no trusted tenant.
+ *
+ * Mount after authenticate (and requireTenant) and before policy/controller, per route, since
+ * router-level middleware runs before route params exist.
+ */
+const requireTenantPathAccess = (paramName) => {
+  if (!paramName || typeof paramName !== "string") {
+    throw new Error("requireTenantPathAccess requires an explicit path parameter name");
+  }
+  return (req, res, next) => {
+    const trusted = req.ctx?.tenantId != null ? String(req.ctx.tenantId).trim() : "";
+    const requested = req.params?.[paramName] != null ? String(req.params[paramName]).trim() : "";
+
+    const deny = (reason) => {
+      const authError = AppError.forbidden("Access to the requested tenant is not allowed", {
+        authError: true,
+        tenantScopeViolation: true,
+      });
+      console.warn("[AUTH] requireTenantPathAccess denied", {
+        reason,
+        param: paramName,
+        path: req.originalUrl,
+        correlationId: req.correlationId || req.headers?.["x-correlation-id"] || null,
+      });
+      return res.status(authError.status).json({
+        error: {
+          message: authError.message,
+          code: authError.code,
+          status: authError.status,
+          authError: authError.authError,
+          tenantScopeViolation: authError.tenantScopeViolation,
+        },
+      });
+    };
+
+    if (!trusted) return deny("MISSING_TRUSTED_TENANT");
+    if (hasRole(req.ctx.roles, "SU")) return next();
+    if (!requested || requested !== trusted) return deny("TENANT_PATH_MISMATCH");
+    return next();
+  };
+};
+
+/**
+ * Phase 1C-2B: platform-level actions (e.g. creating a tenant) are SU-only, decided from the
+ * trusted authenticated roles in req.ctx — never from body/query/header values and not solely from
+ * permission assignments in the database. 403 otherwise.
+ */
+const requireSuperUser = (req, res, next) => {
+  if (req.ctx?.tenantId && hasRole(req.ctx.roles, "SU")) return next();
+  const authError = AppError.forbidden("Super user required", { authError: true, superUserRequired: true });
+  console.warn("[AUTH] requireSuperUser denied", {
+    path: req.originalUrl,
+    correlationId: req.correlationId || req.headers?.["x-correlation-id"] || null,
+  });
+  return res.status(authError.status).json({
+    error: {
+      message: authError.message,
+      code: authError.code,
+      status: authError.status,
+      authError: authError.authError,
+      superUserRequired: authError.superUserRequired,
+    },
+  });
+};
+
+/**
  * Helper function to add tenantId to MongoDB queries
  */
 const withTenant = (tenantId) => {
@@ -477,6 +550,10 @@ module.exports = {
   // Phase 1A canonical tenant-context guard (WARN MODE). Pair it with `authenticate`
   // on authenticated route groups: router.use(authenticate, tenantContextWarn).
   tenantContextWarn,
+
+  // Phase 1C-2B: per-route guard — named path tenant must equal the trusted tenant (SU exempt).
+  requireTenantPathAccess,
+  requireSuperUser,
 
   // Utility functions (for backward compatibility, but prefer policy-middleware)
   hasRole,

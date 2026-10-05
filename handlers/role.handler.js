@@ -154,8 +154,148 @@ module.exports.getRoleById = async (roleId, tenantId) => {
   }
 };
 
-module.exports.createRole = async (roleData, tenantId, createdBy) => {
+// ---------------------------------------------------------------------------
+// Phase 1C-2B (M1): role privilege boundary.
+//
+// SU is identified purely by role code ("SU"), ASU by "ASU"; a "*" permission satisfies every PDP
+// permission check; and role levels are merged platform-wide by code (roleHierarchyService). So a
+// non-SU actor editing role definitions could otherwise mint platform-admin access. Rules for
+// non-SU actors (actor roles come from the trusted, authenticated req.ctx — never the body):
+//   - cannot create/rename a role to a reserved code (SU, ASU)
+//   - cannot modify an existing SU/ASU role or any role whose persisted isSystemRole is true
+//   - cannot create a role with isSystemRole: true
+//   - cannot set level >= ASU's level (platform-admin tier) or category SYSTEM
+//   - cannot ADD reserved permissions: "*", platform-catalogue / tenant-creation / admin-resource
+//     permissions, or any ":super_admin" action (permissions already on the role are untouched)
+// SU actors are exempt. tenantId/_id/Mongo operators stay non-editable for everyone.
+// ---------------------------------------------------------------------------
+const RESERVED_ROLE_CODES = ["SU", "ASU"];
+const PLATFORM_ADMIN_MIN_LEVEL = 95; // ASU level in roleHierarchyService's fallback hierarchy
+const RESERVED_CATEGORIES = ["SYSTEM"];
+const OBJECT_ID_RE = /^[0-9a-fA-F]{24}$/;
+
+const isReservedPermission = (canonical) => {
+  if (!canonical) return false;
+  if (canonical === "*") return true;
+  const [resource, action] = canonical.split(":");
+  if (action === "super_admin") return true;
+  if (resource === "admin") return true; // platform admin resource (e.g. global cache control)
+  if (resource === "permission" && action !== "read") return true; // global permission catalogue
+  if (resource === "tenant" && action === "create") return true; // new tenants
+  return false;
+};
+
+const toCanonicalPermission = (perm) => {
+  if (!perm || typeof perm !== "string") return null;
+  const p = perm.trim();
+  if (p === "*") return "*";
+  if (p.includes(":")) return p.toLowerCase();
+  return p.toLowerCase().replace(/_/g, ":"); // CODE_FORMAT -> resource:action (as helpers/jwt.js)
+};
+
+class RolePrivilegeError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "RolePrivilegeError";
+    this.status = 403;
+    this.code = "ROLE_PRIVILEGE_VIOLATION";
+  }
+}
+
+const isSuperUserActor = (actor) =>
+  Array.isArray(actor?.roles) &&
+  actor.roles.some((r) => (typeof r === "string" ? r : r?.code) === "SU");
+
+// Canonical form of permission entries the role does not already have (ObjectId entries resolved).
+const canonicalAddedPermissions = async (proposed, existing = []) => {
+  const resolve = async (entries) => {
+    const list = (Array.isArray(entries) ? entries : []).map((e) => String(e).trim());
+    const ids = list.filter((e) => OBJECT_ID_RE.test(e));
+    const byId = new Map();
+    if (ids.length) {
+      const docs = await Permission.find({ _id: { $in: ids } }).select("code resource action");
+      for (const d of docs) {
+        byId.set(
+          String(d._id),
+          d.resource && d.action ? `${d.resource}:${d.action}`.toLowerCase() : toCanonicalPermission(d.code)
+        );
+      }
+    }
+    return list.map((e) => (OBJECT_ID_RE.test(e) ? byId.get(e) || `unresolved:${e}` : toCanonicalPermission(e)));
+  };
+  const have = new Set(await resolve(existing));
+  return (await resolve(proposed)).filter((p) => !have.has(p));
+};
+
+/**
+ * Throws RolePrivilegeError when a non-SU actor's role change would cross the privilege boundary.
+ * persisted: the current role document (null on create). proposed: the fields being written.
+ */
+const assertRoleChangeAllowed = async (actor, persisted, proposed) => {
+  if (!actor || !Array.isArray(actor.roles)) {
+    throw new RolePrivilegeError("Actor context required for role changes");
+  }
+  if (isSuperUserActor(actor)) return;
+
+  const code = (v) => (v == null ? "" : String(v).trim().toUpperCase());
+  if (persisted) {
+    if (RESERVED_ROLE_CODES.includes(code(persisted.code))) {
+      throw new RolePrivilegeError(`Only SU may modify the ${code(persisted.code)} role`);
+    }
+    if (persisted.isSystemRole === true) {
+      throw new RolePrivilegeError("Only SU may modify a system role");
+    }
+  }
+  if (proposed.code !== undefined && RESERVED_ROLE_CODES.includes(code(proposed.code))) {
+    throw new RolePrivilegeError(`Role code ${code(proposed.code)} is reserved`);
+  }
+  if (proposed.isSystemRole === true) {
+    throw new RolePrivilegeError("Only SU may create a system role");
+  }
+  if (proposed.level !== undefined && Number(proposed.level) >= PLATFORM_ADMIN_MIN_LEVEL) {
+    throw new RolePrivilegeError(`Role level ${proposed.level} is reserved for platform roles`);
+  }
+  if (proposed.category !== undefined && RESERVED_CATEGORIES.includes(code(proposed.category))) {
+    throw new RolePrivilegeError(`Role category ${code(proposed.category)} is reserved`);
+  }
+  if (proposed.permissions !== undefined) {
+    const added = await canonicalAddedPermissions(proposed.permissions, persisted?.permissions || []);
+    const reserved = added.filter(isReservedPermission);
+    if (reserved.length) {
+      throw new RolePrivilegeError(`Only SU may grant platform permissions: ${reserved.join(", ")}`);
+    }
+  }
+};
+
+// Phase 1C-2B: role ASSIGNMENT boundary — same reserved codes / system flag / SU detection as the
+// role-definition rules above. A role is protected when its PERSISTED document has code SU/ASU
+// (case/whitespace-insensitive) or isSystemRole: true. Non-SU actors may not assign protected
+// roles to anyone (including themselves). Callers pass role documents loaded with the trusted
+// tenantId; nothing from the request body (ids or codes) is trusted. The error message is generic.
+const isProtectedRole = (role) =>
+  !!role &&
+  (RESERVED_ROLE_CODES.includes(String(role.code == null ? "" : role.code).trim().toUpperCase()) ||
+    role.isSystemRole === true);
+
+const assertRoleAssignmentAllowed = (actor, roleDocs) => {
+  if (!actor || !Array.isArray(actor.roles)) {
+    throw new RolePrivilegeError("Actor context required for role assignment");
+  }
+  if (isSuperUserActor(actor)) return;
+  if ((roleDocs || []).some(isProtectedRole)) {
+    throw new RolePrivilegeError("Only SU may assign platform or system roles");
+  }
+};
+
+module.exports.RolePrivilegeError = RolePrivilegeError;
+module.exports.assertRoleChangeAllowed = assertRoleChangeAllowed;
+module.exports.assertRoleAssignmentAllowed = assertRoleAssignmentAllowed;
+module.exports.isProtectedRole = isProtectedRole;
+module.exports.isReservedPermission = isReservedPermission;
+
+module.exports.createRole = async (roleData, tenantId, createdBy, actor) => {
   try {
+    await assertRoleChangeAllowed(actor, null, roleData || {});
     const role = new Role({
       ...roleData,
       tenantId,
@@ -164,15 +304,41 @@ module.exports.createRole = async (roleData, tenantId, createdBy) => {
     await role.save();
     return role;
   } catch (error) {
+    if (error instanceof RolePrivilegeError) throw error;
     throw new Error(`Error creating role: ${error.message}`);
   }
 };
 
-module.exports.updateRole = async (roleId, updateData, tenantId, updatedBy) => {
+// Phase 1C-2B: fields a role update may change. Everything else in the request body — notably
+// tenantId (would move the role to another tenant), _id, isSystemRole and audit fields — is ignored.
+const ROLE_UPDATABLE_FIELDS = [
+  "name",
+  "code",
+  "description",
+  "category",
+  "level",
+  "permissions",
+  "isActive",
+];
+
+module.exports.ROLE_UPDATABLE_FIELDS = ROLE_UPDATABLE_FIELDS;
+
+module.exports.updateRole = async (roleId, updateData, tenantId, updatedBy, actor) => {
   try {
+    const changes = {};
+    for (const field of ROLE_UPDATABLE_FIELDS) {
+      if (updateData && Object.prototype.hasOwnProperty.call(updateData, field)) {
+        changes[field] = updateData[field];
+      }
+    }
+    const persisted = await Role.findOne({ _id: roleId, tenantId });
+    if (!persisted) {
+      throw new Error("Role not found");
+    }
+    await assertRoleChangeAllowed(actor, persisted, changes);
     const role = await Role.findOneAndUpdate(
       { _id: roleId, tenantId },
-      { ...updateData, updatedAt: Date.now(), updatedBy },
+      { $set: { ...changes, updatedAt: Date.now(), updatedBy } },
       { new: true }
     );
 
@@ -181,6 +347,7 @@ module.exports.updateRole = async (roleId, updateData, tenantId, updatedBy) => {
     }
     return role;
   } catch (error) {
+    if (error instanceof RolePrivilegeError) throw error;
     throw new Error(`Error updating role: ${error.message}`);
   }
 };
@@ -213,7 +380,8 @@ module.exports.updateRolePermissions = async (
   roleId,
   permissions,
   tenantId,
-  updatedBy
+  updatedBy,
+  actor
 ) => {
   try {
     if (!mongoose.Types.ObjectId.isValid(roleId)) {
@@ -221,6 +389,14 @@ module.exports.updateRolePermissions = async (
         `Invalid roleId format: ${roleId}. ObjectId must be a 24-character hex string.`
       );
     }
+
+    const persisted = await Role.findOne({ _id: roleId, tenantId });
+    if (!persisted) {
+      throw new Error("Role not found");
+    }
+    await assertRoleChangeAllowed(actor, persisted, {
+      permissions: Array.isArray(permissions) ? permissions : [],
+    });
 
     const update = {
       $set: {
@@ -241,12 +417,14 @@ module.exports.updateRolePermissions = async (
     }
     return role;
   } catch (error) {
+    if (error instanceof RolePrivilegeError) throw error;
     throw new Error(`Error updating role permissions: ${error.message}`);
   }
 };
 
-module.exports.assignRolesToUser = async (userId, roleIds, tenantId) => {
+module.exports.assignRolesToUser = async (userId, roleIds, tenantId, actor) => {
   try {
+    assertRoleAssignmentAllowed(actor, []); // actor context required (fail closed)
     // Validate ObjectId formats
     if (!mongoose.Types.ObjectId.isValid(userId)) {
       throw new Error(
@@ -280,6 +458,9 @@ module.exports.assignRolesToUser = async (userId, roleIds, tenantId) => {
       const missingRoleIds = roleIds.filter((id) => !foundRoleIds.includes(id));
       throw new Error(`Roles not found: ${missingRoleIds.join(", ")}`);
     }
+
+    // Phase 1C-2B: validate EVERY requested role (tenant-scoped persisted docs) before touching the user.
+    assertRoleAssignmentAllowed(actor, roles);
 
     // Check which roles user already has
     const existingRoleIds = (user.roles || []).map((roleId) =>
@@ -322,6 +503,7 @@ module.exports.assignRolesToUser = async (userId, roleIds, tenantId) => {
       alreadyAssignedRoleIds: alreadyAssignedRoleIds,
     };
   } catch (error) {
+    if (error instanceof RolePrivilegeError) throw error;
     throw new Error(`Error assigning roles to user: ${error.message}`);
   }
 };
@@ -332,8 +514,9 @@ module.exports.assignRolesToUser = async (userId, roleIds, tenantId) => {
  * @param {string[]} roleIds - Desired role IDs (can be empty to remove all)
  * @param {string} tenantId - Tenant ID
  */
-module.exports.syncRolesForUser = async (userId, roleIds, tenantId) => {
+module.exports.syncRolesForUser = async (userId, roleIds, tenantId, actor) => {
   try {
+    assertRoleAssignmentAllowed(actor, []); // actor context required (fail closed)
     if (!mongoose.Types.ObjectId.isValid(userId)) {
       throw new Error(
         `Invalid userId format: ${userId}. ObjectId must be a 24-character hex string.`
@@ -374,6 +557,9 @@ module.exports.syncRolesForUser = async (userId, roleIds, tenantId) => {
       throw new Error(`Roles not found: ${missing.join(", ")}`);
     }
 
+    // Phase 1C-2B: validate EVERY requested role (tenant-scoped persisted docs) before touching the user.
+    assertRoleAssignmentAllowed(actor, roles);
+
     user.roles = ids.map((id) => new mongoose.Types.ObjectId(id));
     await user.save();
 
@@ -382,6 +568,7 @@ module.exports.syncRolesForUser = async (userId, roleIds, tenantId) => {
     );
     return { user: updatedUser };
   } catch (error) {
+    if (error instanceof RolePrivilegeError) throw error;
     throw new Error(`Error syncing roles for user: ${error.message}`);
   }
 };

@@ -3,7 +3,13 @@ const router = express.Router();
 const TenantController = require("../controllers/tenant.controller");
 const TenantBrandingController = require("../controllers/tenantBranding.controller");
 const { brandingAssetUploadMw } = require("../middlewares/upload.mw");
-const { authenticate, tenantContextWarn } = require("../middlewares/auth");
+const {
+  authenticate,
+  requireTenant,
+  requireTenantPathAccess,
+  requireSuperUser,
+  tenantContextWarn,
+} = require("../middlewares/auth");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter.js");
 
 // Apply authentication to all routes
@@ -12,6 +18,8 @@ router.use(authenticate, tenantContextWarn);
 // Tenant CRUD operations (Super User only for create/update/delete)
 router.post(
   "/tenants",
+  requireTenant,
+  requireSuperUser, // Phase 1C-2B: creating a tenant is a platform (SU-only) action
   defaultPolicyAdapter.middleware("tenant", "create"),
   TenantController.createTenant
 );
@@ -30,30 +38,38 @@ router.get(
 
 router.get(
   "/tenants/:id",
+  requireTenant,
+  requireTenantPathAccess("id"),
   defaultPolicyAdapter.middleware("tenant", "read"),
   TenantController.getTenantById
 );
 
 router.get(
   "/tenants/code/:code",
+  requireTenant, // Phase 1C-2B: non-SU result is confined to the trusted tenant in the controller
   defaultPolicyAdapter.middleware("tenant", "read"),
   TenantController.getTenantByCode
 );
 
 router.get(
   "/tenants/domain/:domain",
+  requireTenant, // Phase 1C-2B: non-SU result is confined to the trusted tenant in the controller
   defaultPolicyAdapter.middleware("tenant", "read"),
   TenantController.getTenantByDomain
 );
 
 router.put(
   "/tenants/:id",
+  requireTenant,
+  requireTenantPathAccess("id"),
   defaultPolicyAdapter.middleware("tenant", "update"),
   TenantController.updateTenant
 );
 
 router.delete(
   "/tenants/:id",
+  requireTenant,
+  requireTenantPathAccess("id"),
   defaultPolicyAdapter.middleware("tenant", "delete"),
   TenantController.deleteTenant
 );
@@ -61,36 +77,48 @@ router.delete(
 // Tenant management operations
 router.get(
   "/tenants/:id/stats",
+  requireTenant,
+  requireTenantPathAccess("id"),
   defaultPolicyAdapter.middleware("tenant", "read"),
   TenantController.getTenantStats
 );
 
 router.put(
   "/tenants/:id/status",
+  requireTenant,
+  requireTenantPathAccess("id"),
   defaultPolicyAdapter.middleware("tenant", "update"),
   TenantController.updateTenantStatus
 );
 
 router.patch(
   "/tenants/:id/organisation-profile",
+  requireTenant,
+  requireTenantPathAccess("id"),
   defaultPolicyAdapter.middleware("tenant", "update"),
   TenantController.updateOrganisationProfile
 );
 
 router.patch(
   "/tenants/:id/branding",
+  requireTenant,
+  requireTenantPathAccess("id"),
   defaultPolicyAdapter.middleware("tenant", "update"),
   TenantController.updateBranding
 );
 
 router.patch(
   "/tenants/:id/regional-settings",
+  requireTenant,
+  requireTenantPathAccess("id"),
   defaultPolicyAdapter.middleware("tenant", "update"),
   TenantController.updateRegionalSettings
 );
 
 router.post(
   "/tenants/:id/branding/assets",
+  requireTenant,
+  requireTenantPathAccess("id"),
   defaultPolicyAdapter.middleware("tenant", "update"),
   brandingAssetUploadMw,
   TenantBrandingController.uploadBrandingAsset
@@ -99,24 +127,32 @@ router.post(
 // Authentication Connection Management Routes
 router.post(
   "/tenants/:id/auth-connections",
+  requireTenant,
+  requireTenantPathAccess("id"),
   defaultPolicyAdapter.middleware("tenant", "admin"),
   TenantController.addAuthenticationConnection
 );
 
 router.get(
   "/tenants/:id/auth-connections",
+  requireTenant,
+  requireTenantPathAccess("id"),
   defaultPolicyAdapter.middleware("tenant", "read"),
   TenantController.getAuthenticationConnections
 );
 
 router.put(
   "/tenants/:id/auth-connections/:connectionId",
+  requireTenant,
+  requireTenantPathAccess("id"),
   defaultPolicyAdapter.middleware("tenant", "admin"),
   TenantController.updateAuthenticationConnection
 );
 
 router.delete(
   "/tenants/:id/auth-connections/:connectionId",
+  requireTenant,
+  requireTenantPathAccess("id"),
   defaultPolicyAdapter.middleware("tenant", "admin"),
   TenantController.removeAuthenticationConnection
 );

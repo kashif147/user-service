@@ -13,14 +13,20 @@ module.exports.initializeRoles = async (req, res, next) => {
   }
 };
 
+// Phase 1C-2B: the acting user's trusted roles (authenticated req.ctx), for the role privilege boundary.
+const roleActor = (req) => ({ roles: Array.isArray(req.ctx?.roles) ? req.ctx.roles : [] });
+
 // Role CRUD operations
 module.exports.createRole = async (req, res, next) => {
   try {
     const tenantId = req.ctx.tenantId;
     const createdBy = req.ctx.userId;
-    const role = await RoleHandler.createRole(req.body, tenantId, createdBy);
+    const role = await RoleHandler.createRole(req.body, tenantId, createdBy, roleActor(req));
     res.status(201).json({ status: "success", data: role });
   } catch (error) {
+    if (error instanceof RoleHandler.RolePrivilegeError) {
+      return next(AppError.forbidden(error.message, { code: error.code }));
+    }
     return next(AppError.internalServerError("Failed to create role"));
   }
 };
@@ -60,13 +66,17 @@ module.exports.updateRole = async (req, res, next) => {
       req.params.id,
       req.body,
       tenantId,
-      updatedBy
+      updatedBy,
+      roleActor(req)
     );
     if (!role) {
       return res.notFoundRecord("Role not found");
     }
     res.status(200).json({ status: "success", data: role });
   } catch (error) {
+    if (error instanceof RoleHandler.RolePrivilegeError) {
+      return next(AppError.forbidden(error.message, { code: error.code }));
+    }
     return next(AppError.internalServerError("Failed to update role"));
   }
 };
@@ -100,13 +110,17 @@ module.exports.updateRolePermissions = async (req, res, next) => {
       req.params.id,
       permissions,
       tenantId,
-      updatedBy
+      updatedBy,
+      roleActor(req)
     );
     if (!role) {
       return res.notFoundRecord("Role not found");
     }
     res.status(200).json({ status: "success", data: role });
   } catch (error) {
+    if (error instanceof RoleHandler.RolePrivilegeError) {
+      return next(AppError.forbidden(error.message, { code: error.code }));
+    }
     const message =
       error.message?.includes("Error updating role permissions")
         ? error.message.replace("Error updating role permissions: ", "")
@@ -138,7 +152,8 @@ module.exports.assignRolesToUser = async (req, res, next) => {
     const result = await RoleHandler.assignRolesToUser(
       userId,
       roleIds,
-      tenantId
+      tenantId,
+      roleActor(req)
     );
 
     res.status(200).json({
@@ -155,6 +170,9 @@ module.exports.assignRolesToUser = async (req, res, next) => {
       },
     });
   } catch (error) {
+    if (error instanceof RoleHandler.RolePrivilegeError) {
+      return next(AppError.forbidden(error.message, { code: error.code }));
+    }
     console.error("[assignRolesToUser]", error.message);
     const message =
       error.message?.includes("Error assigning roles")
@@ -187,7 +205,8 @@ module.exports.syncRolesForUser = async (req, res, next) => {
     const result = await RoleHandler.syncRolesForUser(
       userId,
       roleIds,
-      tenantId
+      tenantId,
+      roleActor(req)
     );
 
     res.status(200).json({
@@ -196,6 +215,9 @@ module.exports.syncRolesForUser = async (req, res, next) => {
       data: { user: result.user },
     });
   } catch (error) {
+    if (error instanceof RoleHandler.RolePrivilegeError) {
+      return next(AppError.forbidden(error.message, { code: error.code }));
+    }
     const message =
       error.message?.includes("Error syncing roles")
         ? error.message.replace("Error syncing roles for user: ", "")

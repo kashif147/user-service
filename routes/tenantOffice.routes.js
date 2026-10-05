@@ -1,7 +1,12 @@
 const express = require("express");
 const router = express.Router();
 const TenantOfficeController = require("../controllers/tenantOffice.controller");
-const { authenticate, requireTenant, tenantContextWarn } = require("../middlewares/auth");
+const {
+  authenticate,
+  requireTenant,
+  requireTenantPathAccess,
+  tenantContextWarn,
+} = require("../middlewares/auth");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter");
 
 router.use(authenticate, tenantContextWarn);
@@ -56,36 +61,48 @@ router.delete(
 
 router.get(
   "/tenants/:tenantId/offices",
+  requireTenant,
+  requireTenantPathAccess("tenantId"),
   defaultPolicyAdapter.middleware("tenant", "read"),
   TenantOfficeController.getOffices
 );
 
 router.get(
   "/tenants/:tenantId/offices/:id",
+  requireTenant,
+  requireTenantPathAccess("tenantId"),
   defaultPolicyAdapter.middleware("tenant", "read"),
   TenantOfficeController.getOfficeById
 );
 
 router.post(
   "/tenants/:tenantId/offices",
+  requireTenant,
+  requireTenantPathAccess("tenantId"),
   defaultPolicyAdapter.middleware("tenant", "update"),
   TenantOfficeController.createOffice
 );
 
 router.put(
   "/tenants/:tenantId/offices/:id",
+  requireTenant,
+  requireTenantPathAccess("tenantId"),
   defaultPolicyAdapter.middleware("tenant", "update"),
   TenantOfficeController.updateOffice
 );
 
 router.patch(
   "/tenants/:tenantId/offices/:id/primary",
+  requireTenant,
+  requireTenantPathAccess("tenantId"),
   defaultPolicyAdapter.middleware("tenant", "update"),
   TenantOfficeController.setPrimaryOffice
 );
 
 router.delete(
   "/tenants/:tenantId/offices/:id",
+  requireTenant,
+  requireTenantPathAccess("tenantId"),
   defaultPolicyAdapter.middleware("tenant", "delete"),
   TenantOfficeController.deactivateOffice
 );

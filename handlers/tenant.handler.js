@@ -182,6 +182,11 @@ module.exports.getAllTenants = async (filters = {}) => {
       query["subscription.plan"] = filters.plan;
     }
 
+    // Phase 1C-2B: non-SU callers are restricted to their own (trusted) tenant.
+    if (filters.ownTenantId) {
+      Object.assign(query, buildTenantQuery(filters.ownTenantId));
+    }
+
     return await Tenant.find(query).sort({ createdAt: -1 }).select("-__v");
   } catch (error) {
     throw new Error(`Error fetching tenants: ${error.message}`);
@@ -200,25 +205,25 @@ module.exports.getTenantById = async (tenantId) => {
   }
 };
 
-module.exports.getTenantByCode = async (code) => {
+// Phase 1C-2B: ownTenantId (non-SU callers) puts tenant ownership in the selector, so another
+// tenant's record is never loaded. Returns null when nothing matches (controller -> 404).
+module.exports.getTenantByCode = async (code, { ownTenantId } = {}) => {
   try {
-    const tenant = await Tenant.findOne({ code, isActive: true });
-    if (!tenant) {
-      throw new Error("Tenant not found");
-    }
-    return tenant;
+    const query = { code, isActive: true };
+    if (ownTenantId) Object.assign(query, buildTenantQuery(ownTenantId));
+    return await Tenant.findOne(query);
   } catch (error) {
     throw new Error(`Error fetching tenant: ${error.message}`);
   }
 };
 
-module.exports.getTenantByDomain = async (domain) => {
+// Phase 1C-2B: ownTenantId (non-SU callers) puts tenant ownership in the selector, so another
+// tenant's record is never loaded. Returns null when nothing matches (controller -> 404).
+module.exports.getTenantByDomain = async (domain, { ownTenantId } = {}) => {
   try {
-    const tenant = await Tenant.findOne({ domain, isActive: true });
-    if (!tenant) {
-      throw new Error("Tenant not found");
-    }
-    return tenant;
+    const query = { domain, isActive: true };
+    if (ownTenantId) Object.assign(query, buildTenantQuery(ownTenantId));
+    return await Tenant.findOne(query);
   } catch (error) {
     throw new Error(`Error fetching tenant: ${error.message}`);
   }
