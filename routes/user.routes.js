@@ -5,10 +5,9 @@ const { authenticate, requireTenant, tenantContextWarn } = require("../middlewar
 const { defaultPolicyMiddleware } = require("../middlewares/policy.middleware");
 const { azureB2CBasicAuth } = require("../middlewares/basicAuth.middleware");
 
-// User registration and login endpoints (no auth required - public endpoints)
-// NOTE: These endpoints should NEVER use bypass values - they require real tenantId from request
-router.post("/users/register", UserController.handleRegistration);
-router.post("/users/login", UserController.handleLogin);
+// Phase 1C-2A: POST /users/register and /users/login were removed. Their handlers resolve the
+// tenant from req.body.tenantId (caller-controlled), so they must not be reachable here; the
+// gateway also denies both paths. Local CRM sign-in is Entra/B2C only.
 
 // Public user validation endpoint for Azure B2C custom policies
 // Protected with Basic Auth (optional - set B2C_API_USERNAME and B2C_API_PASSWORD)
