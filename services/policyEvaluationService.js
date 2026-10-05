@@ -530,19 +530,17 @@ const evaluateResourcePolicy = async (context) => {
           permissions.includes("*") // Wildcard
       );
 
-    // Fallback: Check via roles (for backward compatibility)
-    const userHasResourcePermissionViaRoles =
-      await permissionsService.hasAnyPermission(roles, resourcePermissionCodes);
-
-    // User must have permission either directly OR via roles
-    if (!hasPermissionFromArray && !userHasResourcePermissionViaRoles) {
-      console.log(`Resource permission check failed for ${resource}:${action}`, {
+    // Phase 1C-2G: the former "via roles" fallback (permissionsService.hasAnyPermission, which
+    // resolved role CODES through a tenant-less, code-keyed role->permissions map) was removed.
+    // It could never decide a final PERMIT: rule 5 requires the exact resource:action (or "*") in
+    // the tenant-scoped token permissions, which already makes hasPermissionFromArray true.
+    if (!hasPermissionFromArray) {
+      console.log(`Resource permission check failed for ${resource}`, {
         resourcePermissionCodes,
         resourcePermissionCanonical,
         userPermissions: permissions,
         userRoles: roles,
         hasPermissionFromArray,
-        userHasResourcePermissionViaRoles,
       });
       return {
         decision: "DENY",
@@ -663,7 +661,7 @@ const getUserTypeCategory = (userType) => {
  * @returns {Object} Policy decision
  */
 const evaluateActionPolicy = async (context) => {
-  const { action, roles, permissions, resource } = context;
+  const { action, permissions, resource } = context;
 
   // Action-specific role requirements
   const actionRequirements = {
@@ -712,19 +710,17 @@ const evaluateActionPolicy = async (context) => {
     }
   }
 
-  // Fallback: Check minimum role level (for backward compatibility)
-  // Roles are already normalized to strings in validateToken
-  const userMaxLevel = await roleHierarchyService.getHighestRoleLevel(roles);
-  if (userMaxLevel < requirement.minRoleLevel) {
-    return {
-      decision: "DENY",
-      reason: "INSUFFICIENT_ROLE_LEVEL",
-    };
-  }
-
+  // Phase 1C-2G: the former role-LEVEL fallback (roleHierarchyService.getHighestRoleLevel, a
+  // tenant-less map keyed by role code) was removed. It could never decide a final PERMIT: rule 5
+  // requires the exact resource:action (or "*") in the tenant-scoped token permissions, which the
+  // check above already accepts. Without that permission the request is denied here instead.
+  // (actionRequirements is still used to reject unknown actions.)
+  const requiredPermission = `${resource.toLowerCase()}:${action.toLowerCase()}`;
   return {
-    decision: "PERMIT",
-    reason: "ACTION_AUTHORIZED",
+    decision: "DENY",
+    reason: "MISSING_PERMISSION",
+    error: `User lacks required permission: ${requiredPermission}`,
+    requiredPermission,
   };
 };
 
