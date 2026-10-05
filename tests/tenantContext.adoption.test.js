@@ -73,19 +73,26 @@ function mkRes() {
 }
 
 // Run the middleware capturing anything logging-lib writes to stdout, and how many times
-// next() was called.
+// next() was called. Winston's Console transport writes to `console._stdout`, which is
+// process.stdout in single-file Jest runs but Jest's own buffer stream in multi-file runs
+// (BufferedConsole), so capture writes to both for the duration of the call.
 function run(req) {
   const res = mkRes();
-  const orig = process.stdout.write.bind(process.stdout);
   const chunks = [];
-  process.stdout.write = (s) => (chunks.push(typeof s === "string" ? s : s.toString()), true);
+  const capture = (s) => (chunks.push(typeof s === "string" ? s : s.toString()), true);
+  const streams = [process.stdout];
+  if (console._stdout && console._stdout !== process.stdout) streams.push(console._stdout);
+  const origWrites = streams.map((s) => s.write);
+  for (const s of streams) s.write = capture;
   let nextCount = 0;
   try {
     tenantContextWarn(req, res, () => {
       nextCount += 1;
     });
   } finally {
-    process.stdout.write = orig;
+    streams.forEach((s, i) => {
+      s.write = origWrites[i];
+    });
   }
   const rows = chunks
     .join("")
@@ -219,6 +226,15 @@ describe("tenantContextWarn — adoption wiring", () => {
     const me = readSrc(path.join("routes", "me.routes.js"));
     expect(me).toContain("tenantContextWarn");
     expect(me.indexOf("authenticate")).toBeLessThan(me.lastIndexOf("tenantContextWarn"));
+    // Phase 1C: product-domain routers are no longer deferred — they mount the guard
+    // explicitly, followed by requireTenant (deeper coverage: productDomain.routerGuard.test.js).
+    for (const r of ["product.routes.js", "productType.routes.js", "pricing.routes.js"]) {
+      const src = readSrc(path.join("routes", r));
+      expect(src).toMatch(/require\(["']\.\.\/middlewares\/auth["']\)/);
+      expect(src).toMatch(
+        /router\.use\(\s*authenticate\s*,\s*tenantContextWarn\s*,\s*requireTenant\s*\)/
+      );
+    }
   });
 
   test("12 pre-auth / internal / unauthenticated routers do NOT mount it", () => {
@@ -232,9 +248,6 @@ describe("tenantContextWarn — adoption wiring", () => {
       "internalRoleAccess.routes.js",
       "internalMsTokenVerification.routes.js",
       "lookuptype.router.js",
-      "productType.routes.js",
-      "product.routes.js",
-      "pricing.routes.js",
       "country.routes.js",
       "contact.routes.js",
       "contactType.routes.js",
