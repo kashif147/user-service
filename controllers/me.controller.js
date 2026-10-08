@@ -2,6 +2,8 @@ const crypto = require("crypto");
 const User = require("../models/user.model");
 const Role = require("../models/role.model");
 const Permission = require("../models/permission.model");
+const Lookup = require("../models/lookup.model");
+const LookupType = require("../models/lookupType.model");
 const PolicyCache = require("../services/policyCache");
 const { AppError } = require("../errors/AppError");
 
@@ -39,6 +41,85 @@ const incrementPolicyVersion = () => {
 const generateETag = (userData) => {
   const dataString = JSON.stringify(userData);
   return `"${crypto.createHash("md5").update(dataString).digest("hex")}"`;
+};
+
+// Lookup types a CRM officer can be assigned to (via Lookup.officer).
+// Matched by code, with the type name as a fallback (same as
+// lookup.controller.js's isWorkLocationLookupType).
+const ASSIGNED_LOCATION_TYPES = [
+  { key: "regions", code: "REGION", name: "region" },
+  { key: "branches", code: "BRANCH", name: "branch" },
+  { key: "workLocations", code: "WORKLOC", name: "work location" },
+];
+
+const resolveAssignedLocationKey = (lookupType) => {
+  const code = String(lookupType?.code || "").toUpperCase();
+  const name = String(lookupType?.lookuptype || "")
+    .trim()
+    .toLowerCase();
+  const match = ASSIGNED_LOCATION_TYPES.find(
+    (t) => t.code === code || t.name === name,
+  );
+  return match ? match.key : null;
+};
+
+/**
+ * Regions / branches / work locations the CRM user is assigned to as officer
+ */
+const getAssignedLocations = async (userId) => {
+  const assigned = { regions: [], branches: [], workLocations: [] };
+
+  const lookupTypes = await LookupType.find({
+    $or: [
+      { code: { $in: ASSIGNED_LOCATION_TYPES.map((t) => t.code) } },
+      {
+        lookuptype: {
+          $in: ASSIGNED_LOCATION_TYPES.map(
+            (t) => new RegExp(`^\\s*${t.name}\\s*$`, "i"),
+          ),
+        },
+      },
+    ],
+    isdeleted: { $ne: true },
+  })
+    .select("code lookuptype")
+    .lean();
+
+  if (lookupTypes.length === 0) return assigned;
+
+  const keyByTypeId = new Map();
+  lookupTypes.forEach((type) => {
+    const key = resolveAssignedLocationKey(type);
+    if (key) keyByTypeId.set(type._id.toString(), key);
+  });
+
+  const lookups = await Lookup.find({
+    officer: userId,
+    lookuptypeId: { $in: [...keyByTypeId.keys()] },
+    isdeleted: false,
+    isactive: true,
+  })
+    .populate({ path: "Parentlookupid", select: "code lookupname" })
+    .select("code lookupname DisplayName lookuptypeId Parentlookupid")
+    .sort({ lookupname: 1 })
+    .lean();
+
+  lookups.forEach((lookup) => {
+    const key = keyByTypeId.get(lookup.lookuptypeId?.toString());
+    if (!key) return;
+    const parent = lookup.Parentlookupid;
+    assigned[key].push({
+      id: lookup._id.toString(),
+      code: lookup.code,
+      lookupname: lookup.lookupname,
+      DisplayName: lookup.DisplayName ?? null,
+      lookuptypeId: lookup.lookuptypeId.toString(),
+      parentLookupId: parent?._id ? parent._id.toString() : null,
+      parentLookupName: parent?.lookupname ?? null,
+    });
+  });
+
+  return assigned;
 };
 
 /**
@@ -200,6 +281,10 @@ const getMeProfile = async (req, res, next) => {
         isActive: user.isActive,
         memberSince: user.createdAt,
       };
+
+      if (user.userType === "CRM") {
+        userData.assignedLocations = await getAssignedLocations(user._id);
+      }
     }
 
     // Generate ETag
