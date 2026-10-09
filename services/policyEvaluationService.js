@@ -606,7 +606,8 @@ const evaluateResourcePolicy = async (context) => {
       allowedCategories.some((cat) => sharedCategories.includes(cat)); // Shared category
 
     if (!hasAccess) {
-      console.log(`Category check failed for ${resource}:${action}`, {
+      // Phase 1C-2M: `action` is not destructured in this function; read it from context (log only).
+      console.log(`Category check failed for ${resource}:${context.action}`, {
         userType,
         userTypeCategory,
         allowedCategories,
