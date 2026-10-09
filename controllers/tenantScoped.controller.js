@@ -11,7 +11,7 @@ module.exports.assignRoleToUserInTenant = async (req, res) => {
     // Verify the role belongs to the same tenant
     const role = await RoleHandler.getRoleById(roleId, tenantId);
     if (!role) {
-      return res.fail("Role not found in your tenant");
+      return res.sendBadRequest("Role not found in your tenant");
     }
 
     // Phase 1C-2B: non-SU may not assign SU/ASU/system roles (checked on the tenant-loaded role doc).
@@ -20,13 +20,36 @@ module.exports.assignRoleToUserInTenant = async (req, res) => {
       [role]
     );
 
-    const user = await RoleHandler.assignRoleToUser(userId, roleId, tenantId);
-    res.success(user);
+    // Phase 1C-2N: RoleHandler.assignRoleToUser never existed. Delegate to the hardened batch handler
+    // (tenant-scoped user + active-role lookup, same protected-role rule, duplicate rejection).
+    const result = await RoleHandler.assignRolesToUser(
+      userId,
+      [roleId],
+      tenantId,
+      { roles: Array.isArray(req.ctx?.roles) ? req.ctx.roles : [] }
+    );
+    res.success(result.user);
   } catch (error) {
     if (error instanceof RoleHandler.RolePrivilegeError) {
       return res.status(403).json({ status: "fail", code: error.code, message: error.message });
     }
-    res.fail(error.message);
+    // Phase 1C-2N: res.fail() does not exist; map errors like RoleController.assignRolesToUser.
+    const message = (error.message || "Failed to assign role to user").replace(
+      "Error assigning roles to user: ",
+      ""
+    );
+    if (
+      message.includes("Invalid") ||
+      message.includes("User not found") ||
+      message.includes("Role not found") ||
+      message.includes("Roles not found") ||
+      message.includes("already has all") ||
+      message.includes("Cast to ObjectId failed")
+    ) {
+      return res.sendBadRequest(message);
+    }
+    console.error("[assignRoleToUserInTenant]", message);
+    return res.sendInternalError("Failed to assign role to user");
   }
 };
 

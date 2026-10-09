@@ -85,6 +85,8 @@ const mkRes = () => {
   r.json = (b) => ((r.body = b), r);
   r.success = (d) => r.status(200).json(d);
   r.fail = (m) => ((r.failMessage = m), r.status(400).json({ status: "fail", message: m }));
+  r.sendBadRequest = (m) => ((r.failMessage = m), r.status(400).json({ success: false, error: { message: m } }));
+  r.sendInternalError = (m) => ((r.failMessage = m), r.status(500).json({ success: false, error: { message: m } }));
   return r;
 };
 const callCtl = async (fn, roles, body, actorId) => {
@@ -198,8 +200,9 @@ describe("tenantScoped assignRoleToUserInTenant", () => {
   test("ordinary role passes the guard; another tenant's role is not found", async () => {
     const ok = await call(["ASU"], ID.ord1);
     expect(ok.statusCode).not.toBe(403);
-    // pre-existing: RoleHandler.assignRoleToUser does not exist, so this endpoint cannot assign at all
-    expect(ok.failMessage).toMatch(/assignRoleToUser is not a function/);
+    // Phase 1C-2N: delegates to RoleHandler.assignRolesToUser (assignRoleToUser never existed)
+    expect(ok.statusCode).toBe(200);
+    expect(userRoles(ID.other)).toEqual([ID.ord2, ID.ord1]);
     const cross = await call(["ASU"], ID.otherTenantOrd);
     expect(cross.statusCode).toBe(400);
     expect(mockRoleQueries.every((q) => q.tenantId === A)).toBe(true);
