@@ -3,9 +3,10 @@
  *
  * middlewares/response.mw.js does not define res.fail. Every error path that reached it threw a
  * TypeError inside an async Express 4 handler -> unhandled rejection -> on Node 22 the whole
- * user-service process exits. GET /api/tenant/users hit it on EVERY call (RoleHandler.getAllUsers
- * does not exist). These tests prove each formerly broken path now gets a real HTTP response,
+ * user-service process exits. These tests prove each formerly broken path now gets a real HTTP response,
  * success/403 paths are unchanged, nothing is mutated on rejection, and 500s stay generic.
+ * Phase 1C-2P: GET /api/tenant/users (never worked: RoleHandler.getAllUsers never existed) was removed;
+ * GET /api/users is the supported, tenant-scoped user list.
  *
  * Mounts the REAL routes/tenantScoped.routes.js + REAL response.mw + REAL requireTenant over HTTP.
  * authenticate is a stub (x-test-* headers -> req.ctx); the policy adapter is a pass-through;
@@ -84,7 +85,16 @@ jest.mock("../services/roleHierarchyService", () => ({
   isSuperUser: () => false, isAssistantSuperUser: () => false, isSystemAdmin: () => false,
   getHighestRoleLevel: () => 1, hasMinimumRole: () => false,
 }));
-jest.mock("../helpers/policyAdapter.js", () => ({ defaultPolicyAdapter: { middleware: () => (req, res, next) => next() } }));
+jest.mock("../helpers/policyAdapter.js", () => ({
+  defaultPolicyAdapter: {
+    // pass-through, named after the (resource, action) it guards so route chains can be asserted
+    middleware: (resource, action) => {
+      const fn = (req, res, next) => next();
+      Object.defineProperty(fn, "name", { value: `policy:${resource}:${action}` });
+      return fn;
+    },
+  },
+}));
 jest.mock("../middlewares/auth", () => {
   const actual = jest.requireActual("../middlewares/auth");
   return {
@@ -110,6 +120,7 @@ beforeAll(async () => {
   app.use(express.json());
   app.use(require("../middlewares/response.mw"));
   app.use("/api", require("../routes/tenantScoped.routes"));
+  app.use((req, res) => res.status(404).json({ notFound: true }));
   // eslint-disable-next-line no-unused-vars
   app.use((err, req, res, next) => res.status(err.status || 500).json({ error: err.message }));
   await new Promise((r) => (server = app.listen(0, r)));
@@ -148,7 +159,11 @@ function call(method, path, { body, actorRoles = ["MO"], tenant = A, headers = {
     const rq = http.request({ port, path, method, headers: h, timeout: 3000 }, (res) => {
       let b = "";
       res.on("data", (c) => (b += c));
-      res.on("end", () => resolve({ status: res.statusCode, body: b ? JSON.parse(b) : null }));
+      res.on("end", () => {
+        let body = null;
+        try { body = b ? JSON.parse(b) : null; } catch (e) { body = { raw: b }; }
+        resolve({ status: res.statusCode, body });
+      });
     });
     rq.on("timeout", () => { rq.destroy(); resolve({ status: "NO_RESPONSE" }); });
     if (data) rq.write(data);
@@ -237,11 +252,13 @@ describe("PUT /api/tenant/roles/:id/permissions (assignPermissionsToRoleInTenant
 });
 
 describe("tenant reads", () => {
-  test("GET /api/tenant/users: RoleHandler.getAllUsers does not exist -> generic 500 instead of a crash", async () => {
+  test("GET /api/tenant/users is no longer declared (Phase 1C-2P) -> falls through, never reaches a handler", async () => {
     const r = await call("GET", "/api/tenant/users");
-    expect(r.status).toBe(500);
-    expect(errMsg(r)).toBe("Failed to retrieve users");
-    noLeak(r);
+    expect(r.status).toBe(404);
+    expect(r.body).toEqual({ notFound: true }); // reached no tenant-scoped handler
+    const router = require("../routes/tenantScoped.routes");
+    expect(router.stack.filter((l) => l.route).map((l) => l.route.path)).not.toContain("/tenant/users");
+    expect(require("../controllers/tenantScoped.controller").getUsersInTenant).toBeUndefined();
   });
   test("GET /api/tenant/roles: success unchanged (tenant-scoped); failure -> generic 500", async () => {
     const ok = await call("GET", "/api/tenant/roles");
@@ -275,12 +292,32 @@ test("controller has no executable res.fail() and route chains are unchanged", (
   const routerWide = router.stack.filter((l) => !l.route).map((l) => l.name);
   expect(routerWide).toHaveLength(3); // authenticate, tenantContextWarn (anonymous in prod), requireTenant
   expect([routerWide[0], routerWide[2]]).toEqual(["authenticate", "requireTenant"]);
-  expect(router.stack.filter((l) => l.route).map((l) => `${Object.keys(l.route.methods)[0].toUpperCase()} ${l.route.path} x${l.route.stack.length}`)).toEqual([
-    "POST /tenant/users/assign-role x2",
-    "POST /tenant/users/remove-role x2",
-    "PUT /tenant/roles/:id/permissions x2",
-    "GET /tenant/users x2",
-    "GET /tenant/roles x2",
-    "GET /tenant/permissions x2",
+  // Phase 1C-2P: 6 -> 5 routes; each remaining route keeps its policy gate and handler, in order.
+  const ctl = require("../controllers/tenantScoped.controller");
+  const handlerName = (fn) => Object.keys(ctl).find((k) => ctl[k] === fn) || "?";
+  expect(router.stack.filter((l) => l.route).map((l) => `${Object.keys(l.route.methods)[0].toUpperCase()} ${l.route.path} [${l.route.stack.map((x, i, a) => (i === a.length - 1 ? handlerName(x.handle) : x.name)).join(" > ")}]`)).toEqual([
+    "POST /tenant/users/assign-role [policy:role:write > assignRoleToUserInTenant]",
+    "POST /tenant/users/remove-role [policy:role:write > removeRoleFromUserInTenant]",
+    "PUT /tenant/roles/:id/permissions [policy:role:admin > assignPermissionsToRoleInTenant]",
+    "GET /tenant/roles [policy:role:read > getRolesInTenant]",
+    "GET /tenant/permissions [policy:permission:read > getAvailablePermissions]",
   ]);
+});
+
+test("GET /api/users (the supported user list) is unchanged: trusted tenant, requireTenant, user:read", () => {
+  const fs = require("fs");
+  const path = require("path");
+  const roleRouter = require("../routes/role.routes");
+  const wide = roleRouter.stack.filter((l) => !l.route).map((l) => l.name);
+  expect(wide).toHaveLength(3);
+  expect([wide[0], wide[2]]).toEqual(["authenticate", "requireTenant"]);
+  const users = roleRouter.stack.find((l) => l.route && l.route.path === "/users" && l.route.methods.get);
+  expect(users.route.stack.map((x) => x.name)).toEqual(["policy:user:read", expect.any(String)]);
+  expect(users.route.stack[1].handle).toBe(require("../controllers/role.controller").getAllUsers);
+  const ctl = fs.readFileSync(path.join(__dirname, "..", "controllers", "role.controller.js"), "utf8");
+  const fn = ctl.slice(ctl.indexOf("module.exports.getAllUsers"), ctl.indexOf("module.exports.testDefaultRoleAssignment"));
+  expect(fn).toMatch(/const tenantId = req\.ctx\.tenantId;/);
+  expect(fn).toMatch(/User\.find\(\{ tenantId \}\)/);
+  expect(fn).toMatch(/\.populate\("roles"\)/);
+  expect(fn).toMatch(/res\.status\(200\)\.json\(\{ status: "success", data: usersWithTenantName \}\)/);
 });

@@ -33,12 +33,8 @@ router.put(
 );
 
 // Tenant-scoped data access (ASU only)
-router.get(
-  "/tenant/users",
-  defaultPolicyAdapter.middleware("user", "read"),
-  TenantScopedController.getUsersInTenant
-);
-
+// Phase 1C-2P: GET /tenant/users was removed — it never worked (RoleHandler.getAllUsers never
+// existed) and duplicated GET /api/users (same user:read gate, same trusted-tenant scoping).
 router.get(
   "/tenant/roles",
   defaultPolicyAdapter.middleware("role", "read"),

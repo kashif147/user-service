@@ -143,18 +143,6 @@ module.exports.assignPermissionsToRoleInTenant = async (req, res) => {
   }
 };
 
-// Get users in tenant (ASU can only see users in their tenant)
-module.exports.getUsersInTenant = async (req, res) => {
-  try {
-    const tenantId = req.ctx.tenantId;
-    const users = await RoleHandler.getAllUsers(tenantId);
-    res.success(users);
-  } catch (error) {
-    console.error("[getUsersInTenant]", error.message);
-    return res.sendInternalError("Failed to retrieve users");
-  }
-};
-
 // Get roles in tenant (ASU can only see roles in their tenant)
 module.exports.getRolesInTenant = async (req, res) => {
   try {
