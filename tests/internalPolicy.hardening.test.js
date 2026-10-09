@@ -15,6 +15,7 @@ const express = require("express");
 
 const mockCacheClear = jest.fn(async () => {});
 const mockCacheDelete = jest.fn(async () => {});
+const mockCacheStats = jest.fn(async () => ({ enabled: true, redisConnected: false, localCacheSize: 0, ttl: 300 }));
 const mockEffective = jest.fn(async () => ({ success: true, permissions: [], roles: [], userType: "CRM", tenantId: "t" }));
 const mockEffectiveWithHeaders = jest.fn(async () => ({ success: true, permissions: [], roles: [], userType: "CRM", tenantId: "t" }));
 const mockGetRoleHierarchy = jest.fn(async () => ({ SU: 100 }));
@@ -35,7 +36,7 @@ jest.mock("../services/policyEvaluationService", () => ({
   cache: {
     clear: (...a) => mockCacheClear(...a),
     delete: (...a) => mockCacheDelete(...a),
-    getStats: async () => ({}),
+    getStats: (...a) => mockCacheStats(...a),
   },
   getEffectivePermissions: (...a) => mockEffective(...a),
   getEffectivePermissionsWithHeaders: (...a) => mockEffectiveWithHeaders(...a),
@@ -72,7 +73,7 @@ beforeAll(async () => {
 afterAll(() => new Promise((r) => server.close(r)));
 let warnSpy;
 beforeEach(() => {
-  [mockCacheClear, mockCacheDelete, mockEffective, mockEffectiveWithHeaders, mockGetRoleHierarchy].forEach((m) => m.mockClear());
+  [mockCacheClear, mockCacheDelete, mockCacheStats, mockEffective, mockEffectiveWithHeaders, mockGetRoleHierarchy].forEach((m) => m.mockClear());
   warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
 });
 afterEach(() => warnSpy.mockRestore());
@@ -143,6 +144,47 @@ describe("DELETE /policy/cache* — SU-only operator actions", () => {
   });
 });
 
+describe("GET /policy/cache/stats — SU-only operator read (Phase 1C-2J)", () => {
+  test("1 unauthenticated request cannot reach the handler", async () => {
+    const res = await call("GET", "/policy/cache/stats", {});
+    expect(res.status).toBe(401);
+    expect(mockCacheStats).not.toHaveBeenCalled();
+  });
+
+  test("2 authenticated non-SU (ASU / GS / ordinary / role object / no roles) -> 403, handler not reached", async () => {
+    for (const roles of [["ASU"], ["GS"], ["MEMBER"], [{ code: "ASU" }], []]) {
+      const res = await call("GET", "/policy/cache/stats", { roles });
+      expect(res.status).toBe(403);
+      expect(res.body.error).toMatchObject({ code: "FORBIDDEN", superUserRequired: true });
+      expect(res.body).not.toHaveProperty("stats");
+    }
+    expect(mockCacheStats).not.toHaveBeenCalled();
+  });
+
+  test("3 missing trusted tenant fails closed", async () => {
+    const res = await call("GET", "/policy/cache/stats", { tenant: null, roles: ["SU"] });
+    expect([400, 403]).toContain(res.status);
+    expect(mockCacheStats).not.toHaveBeenCalled();
+  });
+
+  test("4 SU claims in query / headers / body cannot fake SU", async () => {
+    const res = await call("GET", "/policy/cache/stats?role=SU&roles=SU", {
+      roles: ["ASU"],
+      headers: { "x-user-roles": '["SU"]', "x-role": "SU", "x-internal-request": "true" },
+      body: { roles: ["SU"] },
+    });
+    expect(res.status).toBe(403);
+    expect(mockCacheStats).not.toHaveBeenCalled();
+  });
+
+  test("5 valid SU reaches the handler", async () => {
+    const res = await call("GET", "/policy/cache/stats", { roles: ["SU"] });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ success: true, stats: { localCacheSize: 0 } });
+    expect(mockCacheStats).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("GET /policy/permissions/roles — dead handler removed, path behaviour unchanged", () => {
   test("no explicit /permissions/roles route is registered any more", () => {
     const router = require("../routes/policy.routes");
@@ -166,16 +208,20 @@ describe("GET /policy/permissions/roles — dead handler removed, path behaviour
   });
 });
 
-test("only the two DELETE /cache routes are guarded; other /policy routes are unchanged", () => {
+test("6/7/8 only DELETE /cache, DELETE /cache/:key and GET /cache/stats are guarded; no router-wide guard; other /policy routes unchanged", () => {
   const router = require("../routes/policy.routes");
+  expect(router.stack.filter((x) => !x.route)).toHaveLength(0); // no router.use(...) middleware
+  const guarded = [];
   for (const l of router.stack.filter((x) => x.route)) {
     const names = l.route.stack.map((s) => s.name);
-    const isCacheDelete = l.route.methods.delete && l.route.path.startsWith("/cache");
-    if (isCacheDelete) {
+    const isCacheOp = l.route.path.startsWith("/cache") && (l.route.methods.delete || l.route.methods.get);
+    if (isCacheOp) guarded.push(`${Object.keys(l.route.methods)[0].toUpperCase()} ${l.route.path}`);
+    if (isCacheOp) {
       expect(names.slice(0, 4)).toEqual(["authenticate", "tenantContextWarn", "requireTenant", "requireSuperUser"]);
     } else {
       expect(names).not.toContain("requireSuperUser");
       expect(names).not.toContain("authenticate");
     }
   }
+  expect(guarded.sort()).toEqual(["DELETE /cache", "DELETE /cache/:key", "GET /cache/stats"]);
 });

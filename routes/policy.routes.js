@@ -605,7 +605,14 @@ router.post("/ui/initialize", async (req, res, next) => {
  * Get cache statistics
  * GET /policy/cache/stats
  */
-router.get("/cache/stats", async (req, res, next) => {
+router.get(
+  "/cache/stats",
+  // Phase 1C-2J: internal operator read (exposes Redis INFO / error text) — trusted SU only
+  authenticate,
+  tenantContextWarn,
+  requireTenant,
+  requireSuperUser,
+  async (req, res, next) => {
   try {
     const stats = await policyService.cache.getStats();
     res.json({
