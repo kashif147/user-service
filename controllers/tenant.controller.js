@@ -116,13 +116,18 @@ module.exports.deleteTenant = async (req, res, next) => {
   }
 };
 
+// Phase 1C-2Q: the functions below used to call res.fail(), which response.mw.js never defined;
+// each error path crashed the process. They now use response.mw.js helpers with the tenant API's
+// existing conventions (not found -> 404, bad input -> 400, otherwise a generic 500).
+
 // Get tenant statistics
 module.exports.getTenantStats = async (req, res) => {
   try {
     const stats = await TenantHandler.getTenantStats(req.params.id);
     res.success(stats);
   } catch (error) {
-    res.fail(error.message);
+    console.error("[tenant]", error.message);
+    return res.sendInternalError("Failed to retrieve tenant stats");
   }
 };
 
@@ -138,7 +143,14 @@ module.exports.updateTenantStatus = async (req, res) => {
     );
     res.success(tenant);
   } catch (error) {
-    res.fail(error.message);
+    if ((error.message || "").includes("Invalid status")) {
+      return res.sendBadRequest("Invalid status");
+    }
+    if ((error.message || "").includes("Tenant not found")) {
+      return res.sendNotFound("Tenant not found");
+    }
+    console.error("[tenant]", error.message);
+    return res.sendInternalError("Failed to update tenant status");
   }
 };
 
@@ -155,7 +167,14 @@ module.exports.addAuthenticationConnection = async (req, res) => {
     );
     res.success(tenant);
   } catch (error) {
-    res.fail(error.message);
+    if ((error.message || "").includes("Tenant not found")) {
+      return res.sendNotFound("Tenant not found");
+    }
+    if ((error.message || "").includes("Directory ID already exists")) {
+      return res.sendBadRequest("Authentication connection with this Directory ID already exists");
+    }
+    console.error("[tenant]", error.message);
+    return res.sendInternalError("Failed to add authentication connection");
   }
 };
 
@@ -171,7 +190,17 @@ module.exports.updateAuthenticationConnection = async (req, res) => {
     );
     res.success(tenant);
   } catch (error) {
-    res.fail(error.message);
+    if ((error.message || "").includes("Tenant not found")) {
+      return res.sendNotFound("Tenant not found");
+    }
+    if ((error.message || "").includes("Authentication connection not found")) {
+      return res.sendNotFound("Authentication connection not found");
+    }
+    if ((error.message || "").includes("Directory ID already exists")) {
+      return res.sendBadRequest("Authentication connection with this Directory ID already exists");
+    }
+    console.error("[tenant]", error.message);
+    return res.sendInternalError("Failed to update authentication connection");
   }
 };
 
@@ -186,7 +215,14 @@ module.exports.removeAuthenticationConnection = async (req, res) => {
     );
     res.success(tenant);
   } catch (error) {
-    res.fail(error.message);
+    if ((error.message || "").includes("Tenant not found")) {
+      return res.sendNotFound("Tenant not found");
+    }
+    if ((error.message || "").includes("Authentication connection not found")) {
+      return res.sendNotFound("Authentication connection not found");
+    }
+    console.error("[tenant]", error.message);
+    return res.sendInternalError("Failed to remove authentication connection");
   }
 };
 
@@ -198,7 +234,11 @@ module.exports.getAuthenticationConnections = async (req, res) => {
     );
     res.success(connections);
   } catch (error) {
-    res.fail(error.message);
+    if ((error.message || "").includes("Tenant not found")) {
+      return res.sendNotFound("Tenant not found");
+    }
+    console.error("[tenant]", error.message);
+    return res.sendInternalError("Failed to retrieve authentication connections");
   }
 };
 
