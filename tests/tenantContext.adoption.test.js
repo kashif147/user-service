@@ -243,7 +243,6 @@ describe("tenantContextWarn — adoption wiring", () => {
       "token.routes.js",
       "pkce.routes.js",
       "sessions.routes.js",
-      "policy.routes.js",
       "tenantLifecycle.routes.js",
       "internalRoleAccess.routes.js",
       "internalMsTokenVerification.routes.js",
@@ -256,5 +255,10 @@ describe("tenantContextWarn — adoption wiring", () => {
       const src = readSrc(path.join("routes", r));
       expect(src).not.toContain("tenantContextWarn");
     }
+    // Phase 1C-2I: the PDP router (policy.routes.js) still never mounts it router-wide; it is used
+    // only in the per-route chain of the two SU-only operator DELETE /cache routes.
+    const policy = readSrc(path.join("routes", "policy.routes.js"));
+    expect(policy).not.toMatch(/router\.use\([^)]*tenantContextWarn/);
+    expect((policy.match(/^  tenantContextWarn,$/gm) || []).length).toBe(3); // import + 2 operator DELETE routes
   });
 });

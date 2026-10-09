@@ -3,6 +3,12 @@ const router = express.Router();
 const policyService = require("../services/policyEvaluationService");
 const crypto = require("crypto");
 const { AppError } = require("../errors/AppError");
+const {
+  authenticate,
+  tenantContextWarn,
+  requireTenant,
+  requireSuperUser,
+} = require("../middlewares/auth");
 
 /**
  * Centralized RBAC Policy Evaluation Endpoints
@@ -235,42 +241,9 @@ router.get("/permissions/system", async (req, res, next) => {
   }
 });
 
-/**
- * Get Role Definitions Endpoint
- * GET /policy/permissions/roles
- *
- * Returns all role definitions for frontend initialization
- */
-router.get("/permissions/roles", async (req, res, next) => {
-  try {
-    const authHeader = req.headers.authorization;
-
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return next(AppError.unauthorized("Authorization header required"));
-    }
-
-    const token = authHeader.substring(7);
-    const tokenValidation = await policyService.validateToken(token);
-
-    if (!tokenValidation.valid) {
-      return next(AppError.unauthorized(tokenValidation.error));
-    }
-
-    // Get role hierarchy for frontend
-    const roleHierarchyService = require("../services/roleHierarchyService");
-    const roleHierarchy = await roleHierarchyService.getRoleHierarchy();
-
-    res.json({
-      success: true,
-      roles: roleHierarchy,
-      user: tokenValidation.user,
-      timestamp: new Date().toISOString(),
-    });
-  } catch (error) {
-    console.error("Get role definitions error:", error);
-    return next(AppError.internalServerError("Failed to get role definitions"));
-  }
-});
+// Phase 1C-2I: the former GET /permissions/roles handler (global role hierarchy) was removed. It was
+// unreachable — GET /permissions/:resource (declared earlier) always handles /permissions/roles
+// as resource "roles" — and had no callers. Requests to that path keep their existing behaviour.
 
 /**
  * Get Route Permissions Endpoint
@@ -649,7 +622,14 @@ router.get("/cache/stats", async (req, res, next) => {
  * Clear policy cache
  * DELETE /policy/cache
  */
-router.delete("/cache", async (req, res, next) => {
+router.delete(
+  "/cache",
+  // Phase 1C-2I: internal operator action — trusted SU only (was unauthenticated)
+  authenticate,
+  tenantContextWarn,
+  requireTenant,
+  requireSuperUser,
+  async (req, res, next) => {
   try {
     await policyService.cache.clear();
     res.json({
@@ -666,7 +646,14 @@ router.delete("/cache", async (req, res, next) => {
  * Clear specific cache entry
  * DELETE /policy/cache/:key
  */
-router.delete("/cache/:key", async (req, res, next) => {
+router.delete(
+  "/cache/:key",
+  // Phase 1C-2I: internal operator action — trusted SU only (was unauthenticated)
+  authenticate,
+  tenantContextWarn,
+  requireTenant,
+  requireSuperUser,
+  async (req, res, next) => {
   try {
     const { key } = req.params;
     await policyService.cache.delete(key);

@@ -147,11 +147,11 @@ test("E every route in cache.routes.js (reads and writes) is now SU-guarded", ()
   }
 });
 
-test("F the internal /policy router is untouched by this phase (not mounted under /api, no SU guard added)", () => {
+test("F the internal /policy router stays mounted at /policy (not under /api); only its two operator DELETE /cache routes are SU-guarded (Phase 1C-2I)", () => {
   const fs = require("fs");
   const path = require("path");
   const index = fs.readFileSync(path.join(__dirname, "..", "routes", "index.js"), "utf8");
   expect(index).toMatch(/router\.use\("\/policy", require\("\.\/policy\.routes"\)\)/);
   const policy = fs.readFileSync(path.join(__dirname, "..", "routes", "policy.routes.js"), "utf8");
-  expect(policy).not.toMatch(/requireSuperUser/);
+  expect((policy.match(/^  requireSuperUser,$/gm) || []).length).toBe(3); // import + 2 operator DELETE routes
 });
