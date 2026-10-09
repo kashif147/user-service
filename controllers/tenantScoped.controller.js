@@ -33,7 +33,7 @@ module.exports.assignRoleToUserInTenant = async (req, res) => {
     if (error instanceof RoleHandler.RolePrivilegeError) {
       return res.status(403).json({ status: "fail", code: error.code, message: error.message });
     }
-    // Phase 1C-2N: res.fail() does not exist; map errors like RoleController.assignRolesToUser.
+    // Phase 1C-2N: map errors like RoleController.assignRolesToUser (response.mw.js helpers only).
     const message = (error.message || "Failed to assign role to user").replace(
       "Error assigning roles to user: ",
       ""
@@ -61,7 +61,7 @@ module.exports.removeRoleFromUserInTenant = async (req, res) => {
     // Verify the role belongs to the same tenant
     const role = await RoleHandler.getRoleById(roleId, tenantId);
     if (!role) {
-      return res.fail("Role not found in your tenant");
+      return res.sendBadRequest("Role not found in your tenant");
     }
 
     // Phase 1C-2C: same protected-role removal rule (actor from trusted req.ctx).
@@ -73,7 +73,19 @@ module.exports.removeRoleFromUserInTenant = async (req, res) => {
     if (error instanceof RoleHandler.RolePrivilegeError) {
       return res.status(403).json({ status: "fail", code: error.code, message: error.message });
     }
-    res.fail(error.message);
+    // Phase 1C-2O: res.fail() is not defined by response.mw.js (calling it crashed the process).
+    const message = (error.message || "").replace("Error removing role from user: ", "");
+    if (
+      message.includes("Invalid") ||
+      message.includes("User not found") ||
+      message.includes("Role not found") ||
+      message.includes("Roles not found") ||
+      message.includes("Cast to ObjectId failed")
+    ) {
+      return res.sendBadRequest(message);
+    }
+    console.error("[removeRoleFromUserInTenant]", message);
+    return res.sendInternalError("Failed to remove role from user");
   }
 };
 
@@ -85,10 +97,15 @@ module.exports.assignPermissionsToRoleInTenant = async (req, res) => {
     const tenantId = req.ctx.tenantId;
     const updatedBy = req.ctx.userId;
 
+    // Phase 1C-2O: same input check as RoleController.updateRolePermissions (was a crash).
+    if (!Array.isArray(permissions)) {
+      return res.sendBadRequest("permissions must be an array (can be empty)");
+    }
+
     // Verify the role belongs to the same tenant
     const role = await RoleHandler.getRoleById(roleId, tenantId);
     if (!role) {
-      return res.fail("Role not found in your tenant");
+      return res.sendBadRequest("Role not found in your tenant");
     }
 
     // Verify all permissions exist
@@ -111,7 +128,18 @@ module.exports.assignPermissionsToRoleInTenant = async (req, res) => {
     if (error instanceof RoleHandler.RolePrivilegeError) {
       return res.status(403).json({ status: "fail", code: error.code, message: error.message });
     }
-    res.fail(error.message);
+    // Phase 1C-2O: map like RoleController.updateRolePermissions; 500s stay generic.
+    const message = (error.message || "").replace("Error updating role permissions: ", "");
+    if (
+      message.includes("Invalid") ||
+      message.includes("Role not found") ||
+      message.includes("Permission not found") ||
+      message.includes("Cast to ObjectId failed")
+    ) {
+      return res.sendBadRequest(message);
+    }
+    console.error("[assignPermissionsToRoleInTenant]", message);
+    return res.sendInternalError("Failed to update role permissions");
   }
 };
 
@@ -122,7 +150,8 @@ module.exports.getUsersInTenant = async (req, res) => {
     const users = await RoleHandler.getAllUsers(tenantId);
     res.success(users);
   } catch (error) {
-    res.fail(error.message);
+    console.error("[getUsersInTenant]", error.message);
+    return res.sendInternalError("Failed to retrieve users");
   }
 };
 
@@ -134,7 +163,8 @@ module.exports.getRolesInTenant = async (req, res) => {
     const roles = await RoleHandler.getAllRoles(tenantId, userType);
     res.success(roles);
   } catch (error) {
-    res.fail(error.message);
+    console.error("[getRolesInTenant]", error.message);
+    return res.sendInternalError("Failed to retrieve roles");
   }
 };
 
@@ -149,6 +179,7 @@ module.exports.getAvailablePermissions = async (req, res) => {
     const permissions = await PermissionHandler.getAllPermissions(filters);
     res.success(permissions);
   } catch (error) {
-    res.fail(error.message);
+    console.error("[getAvailablePermissions]", error.message);
+    return res.sendInternalError("Failed to retrieve permissions");
   }
 };
