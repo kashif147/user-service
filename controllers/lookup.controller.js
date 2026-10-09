@@ -2,6 +2,7 @@ const Lookup = require("../models/lookup.model");
 const LookupType = require("../models/lookupType.model");
 const { AppError } = require("../errors/AppError");
 const lookupCacheService = require("../services/lookupCacheService");
+const { invalidateMeCache } = require("./me.controller");
 const mongoose = require("mongoose");
 const {
   isSimpleFormat,
@@ -230,6 +231,18 @@ const invalidateLookupCaches = async (lookupId = null, lookuptypeId = null) => {
       lookuptypeId.toString()
     );
   }
+};
+
+// /api/me returns a CRM user's assigned regions/branches/work locations
+// (Lookup.officer), so clear the cached /me snapshot of every officer whose
+// assignments may have changed.
+const invalidateOfficerMeCaches = async (req, officerIds = []) => {
+  const tenantId = req.ctx?.tenantId;
+  if (!tenantId) return;
+  const unique = [
+    ...new Set(officerIds.filter(Boolean).map((id) => id.toString())),
+  ];
+  await Promise.all(unique.map((userId) => invalidateMeCache(tenantId, userId)));
 };
 
 const hierarchyConvenienceFields = (hierarchy) => ({
@@ -580,6 +593,7 @@ const createNewLookup = async (req, res, next) => {
     }
 
     await invalidateLookupCaches(null, lookuptypeId);
+    await invalidateOfficerMeCaches(req, [lookup.officer]);
   } catch (error) {
     if (error.name === "ValidationError") {
       return next(AppError.badRequest(error.message));
@@ -623,6 +637,7 @@ const updateLookup = async (req, res, next) => {
     }
 
     const previousLookupTypeId = lookup.lookuptypeId?.toString();
+    const previousOfficerId = lookup.officer;
     const nextLookupTypeId = lookuptypeId || lookup.lookuptypeId;
     const nextParentLookupId =
       typeof Parentlookupid !== "undefined"
@@ -685,6 +700,7 @@ const updateLookup = async (req, res, next) => {
       lookup._id,
       lookuptypeId || previousLookupTypeId
     );
+    await invalidateOfficerMeCaches(req, [previousOfficerId, lookup.officer]);
   } catch (error) {
     if (error.name === "ValidationError") {
       return next(AppError.badRequest(error.message));
@@ -737,6 +753,7 @@ const deleteLookup = async (req, res, next) => {
     });
 
     await invalidateLookupCaches(req.body.id, lookuptypeId);
+    await invalidateOfficerMeCaches(req, [lookup.officer?._id ?? lookup.officer]);
   } catch (error) {
     return next(AppError.internalServerError("Failed to delete lookup"));
   }
@@ -772,6 +789,10 @@ const bulkUpdateOfficer = async (req, res, next) => {
       );
     }
 
+    const previousOfficerIds = await Lookup.distinct("officer", {
+      _id: { $in: ids },
+    });
+
     const result = await Lookup.updateMany(
       { _id: { $in: ids } },
       { $set: { officer: officer ?? null } },
@@ -787,6 +808,7 @@ const bulkUpdateOfficer = async (req, res, next) => {
         await lookupCacheService.invalidateHierarchyCache(lookupId);
       })
     );
+    await invalidateOfficerMeCaches(req, [...previousOfficerIds, officer]);
 
     const lookupsPayload = isSimpleFormat(req)
       ? await buildSimpleLookupsList(
