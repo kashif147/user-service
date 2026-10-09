@@ -6,6 +6,8 @@
  *  - The GET /policy/permissions/roles handler (global role hierarchy) was removed: it was unreachable
  *    because GET /permissions/:resource is declared first. Requests to that path keep their existing
  *    behaviour (served by /permissions/:resource with resource "roles").
+ *  - Phase 1C-2K: the shadowed GET /permissions/system (global permission catalogue) and
+ *    GET /permissions/routes (static route map) handlers were removed the same way (not reordered).
  *
  * Mounts the REAL routes/policy.routes.js at /policy with the REAL requireTenant / requireSuperUser.
  * authenticate is a stub reading x-test-* headers; the PDP service and role hierarchy are spies.
@@ -19,6 +21,8 @@ const mockCacheStats = jest.fn(async () => ({ enabled: true, redisConnected: fal
 const mockEffective = jest.fn(async () => ({ success: true, permissions: [], roles: [], userType: "CRM", tenantId: "t" }));
 const mockEffectiveWithHeaders = jest.fn(async () => ({ success: true, permissions: [], roles: [], userType: "CRM", tenantId: "t" }));
 const mockGetRoleHierarchy = jest.fn(async () => ({ SU: 100 }));
+const mockGetAllPermissions = jest.fn(async () => [{ code: "GLOBAL_CATALOGUE_ENTRY", resource: "x", action: "read" }]);
+const mockValidateToken = jest.fn(async () => ({ valid: true, user: { id: "u1" } }));
 
 jest.mock("@membership/policy-middleware", () => ({
   gatewaySecurity: { validateGatewayRequest: () => ({ valid: true }) },
@@ -32,6 +36,9 @@ jest.mock("../services/roleHierarchyService", () => ({
   hasMinimumRole: () => false,
   getRoleHierarchy: (...a) => mockGetRoleHierarchy(...a),
 }));
+jest.mock("../services/permissionsService", () => ({
+  getAllPermissions: (...a) => mockGetAllPermissions(...a),
+}));
 jest.mock("../services/policyEvaluationService", () => ({
   cache: {
     clear: (...a) => mockCacheClear(...a),
@@ -40,7 +47,7 @@ jest.mock("../services/policyEvaluationService", () => ({
   },
   getEffectivePermissions: (...a) => mockEffective(...a),
   getEffectivePermissionsWithHeaders: (...a) => mockEffectiveWithHeaders(...a),
-  validateToken: async () => ({ valid: true, user: {} }),
+  validateToken: (...a) => mockValidateToken(...a),
 }));
 jest.mock("../middlewares/auth", () => {
   const actual = jest.requireActual("../middlewares/auth");
@@ -73,7 +80,7 @@ beforeAll(async () => {
 afterAll(() => new Promise((r) => server.close(r)));
 let warnSpy;
 beforeEach(() => {
-  [mockCacheClear, mockCacheDelete, mockCacheStats, mockEffective, mockEffectiveWithHeaders, mockGetRoleHierarchy].forEach((m) => m.mockClear());
+  [mockCacheClear, mockCacheDelete, mockCacheStats, mockEffective, mockEffectiveWithHeaders, mockGetRoleHierarchy, mockGetAllPermissions, mockValidateToken].forEach((m) => m.mockClear());
   warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
 });
 afterEach(() => warnSpy.mockRestore());
@@ -206,6 +213,71 @@ describe("GET /policy/permissions/roles — dead handler removed, path behaviour
     expect(res.status).toBe(401);
     expect(mockGetRoleHierarchy).not.toHaveBeenCalled();
   });
+});
+
+describe.each(["system", "routes"])("GET /policy/permissions/%s — shadowed handler removed (Phase 1C-2K), behaviour unchanged", (name) => {
+  const GENERIC_KEYS = ["permissions", "resource", "roles", "success", "tenantId", "timestamp", "userType"];
+
+  test("1/2 no explicit route is registered any more; /permissions/:resource still is", () => {
+    const router = require("../routes/policy.routes");
+    const paths = router.stack.filter((l) => l.route).map((l) => l.route.path);
+    expect(paths).not.toContain(`/permissions/${name}`);
+    expect(paths).toContain("/permissions/:resource");
+  });
+
+  test("5 without credentials: same 401 as before (from the :resource handler)", async () => {
+    const res = await call("GET", `/policy/permissions/${name}`, {});
+    expect(res.status).toBe(401);
+    expect(res.body).toEqual({ error: "Authorization header required" });
+    expect(mockEffective).not.toHaveBeenCalled();
+  });
+
+  test("3/4/6 bearer non-SU: served by /permissions/:resource with resource name; no catalogue / route map", async () => {
+    const res = await call("GET", `/policy/permissions/${name}`, { headers: { authorization: "Bearer x" } });
+    expect(res.status).toBe(200);
+    expect(Object.keys(res.body).sort()).toEqual(GENERIC_KEYS);
+    expect(res.body).toMatchObject({ success: true, resource: name, permissions: [] });
+    expect(res.body).not.toHaveProperty("routePermissions");
+    expect(res.body).not.toHaveProperty("user");
+    expect(mockEffective).toHaveBeenCalledWith("x", name);
+  });
+
+  test("3/4/6 gateway-header identity: served by /permissions/:resource (gateway branch)", async () => {
+    const res = await call("GET", `/policy/permissions/${name}`, {
+      headers: { "x-jwt-verified": "true", "x-auth-source": "gateway", "x-user-id": "u1", "x-tenant-id": A },
+    });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ success: true, resource: name });
+    expect(res.body).not.toHaveProperty("routePermissions");
+    expect(mockEffectiveWithHeaders).toHaveBeenCalledWith(expect.any(Object), name);
+  });
+
+  test("7 the global permission catalogue and the removed handlers' token check are never used", async () => {
+    await call("GET", `/policy/permissions/${name}`, { headers: { authorization: "Bearer x" } });
+    await call("GET", `/policy/permissions/${name}`, {});
+    expect(mockGetAllPermissions).not.toHaveBeenCalled();
+    expect(mockValidateToken).not.toHaveBeenCalled();
+  });
+});
+
+test("8/9 /policy route table after Phase 1C-2K: exactly 10 routes, original relative order, no router-wide middleware", () => {
+  const router = require("../routes/policy.routes");
+  expect(router.stack.filter((x) => !x.route)).toHaveLength(0);
+  const table = router.stack.filter((x) => x.route).map((l) => `${Object.keys(l.route.methods)[0].toUpperCase()} ${l.route.path}`);
+  expect(table).toEqual([
+    "POST /evaluate",
+    "POST /evaluate-batch",
+    "GET /permissions/:resource",
+    "GET /check/:resource/:action",
+    "GET /health",
+    "GET /info",
+    "POST /ui/initialize",
+    "GET /cache/stats",
+    "DELETE /cache",
+    "DELETE /cache/:key",
+  ]);
+  const generic = router.stack.find((l) => l.route && l.route.path === "/permissions/:resource");
+  expect(generic.route.stack).toHaveLength(1); // still no middleware on the generic route
 });
 
 test("6/7/8 only DELETE /cache, DELETE /cache/:key and GET /cache/stats are guarded; no router-wide guard; other /policy routes unchanged", () => {

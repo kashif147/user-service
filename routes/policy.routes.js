@@ -202,94 +202,15 @@ router.get("/permissions/:resource", async (req, res, next) => {
   }
 });
 
-/**
- * Get System Permissions Endpoint
- * GET /policy/permissions/system
- *
- * Returns all system-level permissions for frontend initialization
- */
-router.get("/permissions/system", async (req, res, next) => {
-  try {
-    const authHeader = req.headers.authorization;
-
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return next(AppError.unauthorized("Authorization header required"));
-    }
-
-    const token = authHeader.substring(7);
-    const tokenValidation = await policyService.validateToken(token);
-
-    if (!tokenValidation.valid) {
-      return next(AppError.unauthorized(tokenValidation.error));
-    }
-
-    // Get all permissions for system initialization
-    const permissionsService = require("../services/permissionsService");
-    const permissions = await permissionsService.getAllPermissions();
-
-    res.json({
-      success: true,
-      permissions,
-      user: tokenValidation.user,
-      timestamp: new Date().toISOString(),
-    });
-  } catch (error) {
-    console.error("Get system permissions error:", error);
-    return next(
-      AppError.internalServerError("Failed to get system permissions")
-    );
-  }
-});
-
 // Phase 1C-2I: the former GET /permissions/roles handler (global role hierarchy) was removed. It was
 // unreachable — GET /permissions/:resource (declared earlier) always handles /permissions/roles
 // as resource "roles" — and had no callers. Requests to that path keep their existing behaviour.
-
-/**
- * Get Route Permissions Endpoint
- * GET /policy/permissions/routes
- *
- * Returns route-specific permissions for frontend navigation
- */
-router.get("/permissions/routes", async (req, res, next) => {
-  try {
-    const authHeader = req.headers.authorization;
-
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return next(AppError.unauthorized("Authorization header required"));
-    }
-
-    const token = authHeader.substring(7);
-    const tokenValidation = await policyService.validateToken(token);
-
-    if (!tokenValidation.valid) {
-      return next(AppError.unauthorized(tokenValidation.error));
-    }
-
-    // Define route permissions mapping
-    const routePermissions = {
-      "/dashboard": { resource: "portal", action: "read" },
-      "/users": { resource: "user", action: "read" },
-      "/roles": { resource: "role", action: "read" },
-      "/admin": { resource: "admin", action: "read" },
-      "/crm": { resource: "crm", action: "read" },
-      "/contacts": { resource: "contact", action: "read" },
-      "/applications": { resource: "application", action: "read" },
-    };
-
-    res.json({
-      success: true,
-      routePermissions,
-      user: tokenValidation.user,
-      timestamp: new Date().toISOString(),
-    });
-  } catch (error) {
-    console.error("Get route permissions error:", error);
-    return next(
-      AppError.internalServerError("Failed to get route permissions")
-    );
-  }
-});
+//
+// Phase 1C-2K: the former GET /permissions/system (global permission catalogue) and
+// GET /permissions/routes (static frontend route map) handlers were removed for the same reason:
+// both were shadowed by GET /permissions/:resource and had no live callers. They were deliberately
+// NOT reordered — making them reachable would expose global metadata to any valid token.
+// Requests to those paths keep their existing behaviour (served by /permissions/:resource).
 
 /**
  * Quick Authorization Check Endpoint
