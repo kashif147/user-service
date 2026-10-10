@@ -374,7 +374,12 @@ module.exports.getAllUsers = async (req, res, next) => {
 
     // Debug logging
     console.log("getAllUsers - tenantId:", tenantId);
-    console.log("getAllUsers - req.ctx:", req.ctx);
+    // Phase 1C-2U: log only identifiers, never the whole req.ctx (roles/permissions arrays).
+    console.log("getAllUsers - context:", {
+      tenantId,
+      userId: req.ctx?.userId,
+      correlationId: req.correlationId || req.headers["x-correlation-id"],
+    });
 
     if (!tenantId) {
       console.error("getAllUsers - tenantId is missing from request context");
@@ -417,9 +422,8 @@ module.exports.getAllUsers = async (req, res, next) => {
       name: error.name,
       tenantId: req.ctx?.tenantId,
     });
-    return next(
-      AppError.internalServerError(`Failed to retrieve users: ${error.message}`)
-    );
+    // Phase 1C-2U: generic public message; the full error is logged above.
+    return next(AppError.internalServerError("Failed to retrieve users"));
   }
 };
 
