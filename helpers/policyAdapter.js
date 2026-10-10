@@ -349,10 +349,12 @@ class PolicyAdapter {
    * @private
    */
   sendErrorResponse(res, error, correlationId) {
+    // Phase 1C-2T: never return the raw exception text (infrastructure addresses, paths) to the client;
+    // the full error is already logged by the middleware's catch block before this is called.
     return res.status(500).json({
       authorized: false,
       reason: "POLICY_SERVICE_ERROR",
-      error: error.message,
+      error: "Policy evaluation failed",
       requiredRoles: [],
       requiredPermissions: [],
       userRoles: [],
