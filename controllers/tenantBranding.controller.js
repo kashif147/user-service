@@ -70,11 +70,9 @@ module.exports.uploadBrandingAsset = async (req, res, next) => {
       },
     });
   } catch (error) {
-    return next(
-      AppError.internalServerError(
-        error.message || "Failed to upload branding asset"
-      )
-    );
+    // Phase 1C-2W: log the real error server-side; never return it to the client.
+    console.error("[uploadBrandingAsset] upload failed:", error);
+    return next(AppError.internalServerError("Failed to upload branding asset"));
   }
 };
 

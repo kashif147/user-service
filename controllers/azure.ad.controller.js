@@ -155,9 +155,9 @@ module.exports.handleAzureADCallback = async (req, res, next) => {
             AppError.internalServerError("Azure AD client configuration error")
           );
         }
-        return next(
-          AppError.internalServerError(`Azure AD error: ${errorMessage}`)
-        );
+        // Phase 1C-2W: Azure's error_description (AADSTS text, trace/correlation IDs) is logged
+        // above, never returned to the client.
+        return next(AppError.internalServerError("Azure AD authentication failed"));
       }
     }
 
@@ -193,10 +193,7 @@ module.exports.handleAzureADCallback = async (req, res, next) => {
       JSON.stringify(error, Object.getOwnPropertyNames(error), 2)
     );
 
-    return next(
-      AppError.internalServerError(
-        error.message || "Azure AD authentication failed"
-      )
-    );
+    // Phase 1C-2W: generic public message; the full error is logged above.
+    return next(AppError.internalServerError("Azure AD authentication failed"));
   }
 };
