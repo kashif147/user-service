@@ -159,6 +159,8 @@ module.exports.handleMicrosoftCallback = async (req, res, next) => {
       refreshToken: tokens.refresh_token,
     });
   } catch (error) {
+    // Deliberate refusals (e.g. portal sign-in denied) carry their own fixed public status/message.
+    if (error instanceof AppError) return next(error);
     console.error("Microsoft Auth Error:", error);
     const oauthDetail =
       error.response?.data?.error_description || error.response?.data?.error;

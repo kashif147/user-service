@@ -2,6 +2,7 @@ const axios = require("axios");
 const { jwtVerify, createRemoteJWKSet } = require("jose");
 const B2CUser = require("../models/user.model");
 const Tenant = require("../models/tenant.model");
+const { AppError } = require("../errors/AppError");
 const {
   syncPortalUserRolesFromMembership,
 } = require("../helpers/portalRoleSync");
@@ -38,6 +39,40 @@ function _resetJwksForTests(policyName, jwks) {
   } else {
     jwksByPolicy.delete(policyName);
   }
+}
+
+// Public message for every portal sign-in refusal; the specific reason is logged server-side only.
+const PORTAL_SIGN_IN_DENIED = "Portal sign-in is not available for this account";
+
+// A portal (B2C) login may only sign in as an active PORTAL user. A CRM user with the same email is
+// never converted to PORTAL (it would carry its CRM roles into a portal token), and a deactivated
+// user gets no token, lastLogin update or role sync.
+function assertPortalSignInAllowed(user) {
+  let reason = null;
+  if (user.userType && user.userType !== "PORTAL") reason = "NON_PORTAL_USER";
+  else if (user.isActive === false) reason = "INACTIVE_USER";
+  if (reason) {
+    console.warn("B2C login denied:", { reason, userId: String(user._id), tenantId: user.tenantId });
+    throw AppError.forbidden(PORTAL_SIGN_IN_DENIED);
+  }
+}
+
+// Legacy migration: a PORTAL user whose tenantId predates Tenant mapping (not an existing Tenant).
+// Returns it only when exactly one such user exists for the email; never a user in a real tenant.
+async function findLegacyPortalUser(email, tenantId) {
+  const candidates = await B2CUser.find({
+    userEmail: email,
+    tenantId: { $ne: tenantId },
+  }).lean();
+  const legacy = [];
+  for (const candidate of candidates) {
+    if (candidate.userType && candidate.userType !== "PORTAL") continue;
+    const tid = String(candidate.tenantId || "");
+    const isRealTenant =
+      /^[0-9a-f]{24}$/i.test(tid) && (await Tenant.exists({ _id: tid }));
+    if (!isRealTenant) legacy.push(candidate);
+  }
+  return legacy.length === 1 ? legacy[0] : null;
 }
 
 /**
@@ -266,28 +301,27 @@ class B2CUsersHandler {
         tenantId: tenantId,
       }).lean();
 
-      // If not found, try to find by email only (for existing users created before tenant mapping)
-      // This handles migration of existing users to new tenant mapping
+      // If not found, look for a legacy PORTAL user created before tenant mapping (its tenantId is
+      // not a real Tenant). Only that user is migrated to the new tenantId: a user in another real
+      // tenant, or a CRM user, is never moved - a new PORTAL user is created in this tenant instead.
       if (!existingUser) {
         console.log(
-          "⚠️  User not found with new tenantId, checking for existing user by email only...",
+          "⚠️  User not found with new tenantId, checking for a legacy portal user by email...",
         );
-        existingUser = await B2CUser.findOne({
-          userEmail: email,
-        }).lean();
+        existingUser = await findLegacyPortalUser(email, tenantId);
 
         if (existingUser) {
           console.log(
-            "✅ Found existing user with old tenantId:",
-            existingUser.tenantId,
-          );
-          console.log(
-            "📌 Will update tenantId from",
+            "📌 Will update legacy tenantId from",
             existingUser.tenantId,
             "to",
             tenantId,
           );
         }
+      }
+
+      if (existingUser) {
+        assertPortalSignInAllowed(existingUser);
       }
 
       const isNewUser = !existingUser;
@@ -304,12 +338,16 @@ class B2CUsersHandler {
           }
         : {};
 
-      // Use atomic findOneAndUpdate with upsert to prevent race conditions
-      // If existing user found by email only, update their tenantId to new Tenant._id
+      // Use atomic findOneAndUpdate with upsert to prevent race conditions. A vetted existing user is
+      // updated by _id (still PORTAL + active, re-checked atomically); otherwise insert by email + tenant.
       const user = await B2CUser.findOneAndUpdate(
-        existingUser && existingUser.tenantId !== tenantId
-          ? { userEmail: email } // Update existing user by email only
-          : { userEmail: email, tenantId: tenantId }, // Normal case: email + tenantId
+        existingUser
+          ? {
+              _id: existingUser._id,
+              userType: { $ne: "CRM" },
+              isActive: { $ne: false },
+            }
+          : { userEmail: email, tenantId: tenantId },
         {
           $set: updateData, // This includes the new tenantId (Tenant._id)
           $setOnInsert: {
@@ -317,11 +355,17 @@ class B2CUsersHandler {
           },
         },
         {
-          upsert: true,
+          upsert: !existingUser,
           new: true,
           runValidators: true,
         },
       );
+
+      if (!user) {
+        // The vetted user was converted/deactivated concurrently: deny rather than insert.
+        console.warn("B2C login denied:", { reason: "USER_CHANGED_DURING_LOGIN", userId: String(existingUser._id) });
+        throw AppError.forbidden(PORTAL_SIGN_IN_DENIED);
+      }
 
       await syncPortalUserRolesFromMembership(user, email, tenantId, {
         isNewUser,
@@ -350,6 +394,7 @@ class B2CUsersHandler {
           tenantId: tenantId,
         });
         if (user) {
+          assertPortalSignInAllowed(user);
           Object.assign(user, updateData);
           await user.save();
           await syncPortalUserRolesFromMembership(user, email, tenantId, {

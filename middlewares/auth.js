@@ -379,10 +379,10 @@ const authenticate = async (req, res, next) => {
 
     next();
   } catch (error) {
-    console.error("JWT Decode Error:", error.message);
+    // The raw exception text stays server-side; the client gets a fixed 400 "Invalid token".
+    console.error("JWT Decode Error:", error);
     const authError = AppError.badRequest("Invalid token", {
       tokenError: true,
-      jwtError: error.message,
     });
     return res.status(authError.status).json({
       error: {
@@ -390,7 +390,6 @@ const authenticate = async (req, res, next) => {
         code: authError.code,
         status: authError.status,
         tokenError: authError.tokenError,
-        jwtError: authError.jwtError,
       },
     });
   }
