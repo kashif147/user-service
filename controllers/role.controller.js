@@ -131,7 +131,9 @@ module.exports.updateRolePermissions = async (req, res, next) => {
     ) {
       return next(AppError.badRequest(message));
     }
-    return next(AppError.internalServerError(message));
+    // Phase 1C-2V: unrecognised errors get a generic public message; full error stays server-side.
+    console.error("[updateRolePermissions] unexpected error:", error);
+    return next(AppError.internalServerError("Failed to update role permissions"));
   }
 };
 
@@ -186,7 +188,8 @@ module.exports.assignRolesToUser = async (req, res, next) => {
     ) {
       return next(AppError.badRequest(message));
     }
-    return next(AppError.internalServerError(message));
+    // Phase 1C-2V: unrecognised errors get a generic public message (error logged above).
+    return next(AppError.internalServerError("Failed to assign roles to user"));
   }
 };
 
@@ -229,7 +232,9 @@ module.exports.syncRolesForUser = async (req, res, next) => {
     ) {
       return next(AppError.badRequest(message));
     }
-    return next(AppError.internalServerError(message));
+    // Phase 1C-2V: unrecognised errors get a generic public message; full error stays server-side.
+    console.error("[syncRolesForUser] unexpected error:", error);
+    return next(AppError.internalServerError("Failed to sync user roles"));
   }
 };
 
