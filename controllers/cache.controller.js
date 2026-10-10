@@ -3,6 +3,10 @@
  *
  * Provides endpoints for managing Redis cache operations
  * including clearing, refreshing, and monitoring cache status
+ *
+ * Phase 1C-2R: error paths used res.fail(), which response.mw.js never defined (each one crashed
+ * the process). They now use response.mw.js helpers; 500s are generic and the underlying
+ * Redis/service error is only logged.
  */
 
 const roleHierarchyService = require("../services/roleHierarchyService");
@@ -44,7 +48,7 @@ module.exports.clearAllCaches = async (req, res) => {
     });
   } catch (error) {
     console.error("Cache clear error:", error);
-    res.fail(`Failed to clear caches: ${error.message}`);
+    return res.sendInternalError("Failed to clear caches");
   }
 };
 
@@ -63,7 +67,7 @@ module.exports.refreshRoleHierarchyCache = async (req, res) => {
     });
   } catch (error) {
     console.error("Role hierarchy cache refresh error:", error);
-    res.fail(`Failed to refresh role hierarchy cache: ${error.message}`);
+    return res.sendInternalError("Failed to refresh role hierarchy cache");
   }
 };
 
@@ -82,7 +86,7 @@ module.exports.refreshPermissionsCache = async (req, res) => {
     });
   } catch (error) {
     console.error("Permissions cache refresh error:", error);
-    res.fail(`Failed to refresh permissions cache: ${error.message}`);
+    return res.sendInternalError("Failed to refresh permissions cache");
   }
 };
 
@@ -114,7 +118,7 @@ module.exports.getCacheStats = async (req, res) => {
     });
   } catch (error) {
     console.error("Cache stats error:", error);
-    res.fail(`Failed to get cache statistics: ${error.message}`);
+    return res.sendInternalError("Failed to get cache statistics");
   }
 };
 
@@ -130,7 +134,7 @@ module.exports.getRoleHierarchy = async (req, res) => {
     });
   } catch (error) {
     console.error("Role hierarchy error:", error);
-    res.fail(`Failed to get role hierarchy: ${error.message}`);
+    return res.sendInternalError("Failed to get role hierarchy");
   }
 };
 
@@ -146,7 +150,7 @@ module.exports.getPermissionsMap = async (req, res) => {
     });
   } catch (error) {
     console.error("Permissions map error:", error);
-    res.fail(`Failed to get permissions map: ${error.message}`);
+    return res.sendInternalError("Failed to get permissions map");
   }
 };
 
@@ -156,7 +160,7 @@ module.exports.getRolePermissions = async (req, res) => {
     const { roleCode } = req.params;
 
     if (!roleCode) {
-      return res.fail("Role code is required");
+      return res.sendBadRequest("Role code is required");
     }
 
     const permissions = await permissionsService.getRolePermissions(roleCode);
@@ -169,7 +173,7 @@ module.exports.getRolePermissions = async (req, res) => {
     });
   } catch (error) {
     console.error("Role permissions error:", error);
-    res.fail(`Failed to get role permissions: ${error.message}`);
+    return res.sendInternalError("Failed to get role permissions");
   }
 };
 
@@ -202,7 +206,7 @@ module.exports.testCachePerformance = async (req, res) => {
     });
   } catch (error) {
     console.error("Cache performance test error:", error);
-    res.fail(`Failed to test cache performance: ${error.message}`);
+    return res.sendInternalError("Failed to test cache performance");
   }
 };
 
@@ -220,7 +224,7 @@ module.exports.clearLookupCaches = async (req, res) => {
     });
   } catch (error) {
     console.error("Lookup cache clear error:", error);
-    res.fail(`Failed to clear lookup caches: ${error.message}`);
+    return res.sendInternalError("Failed to clear lookup caches");
   }
 };
 
@@ -238,7 +242,7 @@ module.exports.getLookupCacheStats = async (req, res) => {
     });
   } catch (error) {
     console.error("Lookup cache stats error:", error);
-    res.fail(`Failed to get lookup cache statistics: ${error.message}`);
+    return res.sendInternalError("Failed to get lookup cache statistics");
   }
 };
 
@@ -256,6 +260,6 @@ module.exports.clearCountryCaches = async (req, res) => {
     });
   } catch (error) {
     console.error("Country cache clear error:", error);
-    res.fail(`Failed to clear country caches: ${error.message}`);
+    return res.sendInternalError("Failed to clear country caches");
   }
 };
