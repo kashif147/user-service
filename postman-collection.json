@@ -1414,22 +1414,6 @@
               "path": ["token", "validate"]
             }
           }
-        },
-        {
-          "name": "Generate Test Token",
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"userId\": \"user_id_here\",\n  \"tenantId\": \"{{tenantId}}\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/token/generate-test",
-              "host": ["{{baseUrl}}"],
-              "path": ["token", "generate-test"]
-            }
-          }
         }
       ]
     },

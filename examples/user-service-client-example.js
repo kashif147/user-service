@@ -103,24 +103,17 @@ async function demonstrateUsage() {
 
   const client = new UserServiceClient();
 
-  // First, get a test token
-  console.log("\n1️⃣ Getting test token...");
-  const tokenResponse = await axios.post(
-    "http://localhost:3000/token/generate-test",
-    {
-      userId: "demo-user-123",
-      tenantId: "demo-tenant-456",
-      email: "demo@example.com",
-    }
-  );
+  // Use a token obtained from a real login flow (the unauthenticated
+  // POST /token/generate-test endpoint was removed in Phase 2B0).
+  console.log("\n1️⃣ Reading token from USER_SERVICE_TOKEN...");
+  const token = process.env.USER_SERVICE_TOKEN;
 
-  if (!tokenResponse.data.success) {
-    console.log("❌ Failed to get test token");
+  if (!token) {
+    console.log("❌ Set USER_SERVICE_TOKEN to a valid Bearer token first");
     return;
   }
 
-  const token = tokenResponse.data.token;
-  console.log("✅ Test token obtained");
+  console.log("✅ Token loaded");
 
   // Validate the token
   console.log("\n2️⃣ Validating token...");

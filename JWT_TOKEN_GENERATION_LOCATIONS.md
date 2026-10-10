@@ -153,19 +153,11 @@ const tokenData = await generateToken(user);
 
 ---
 
-### 7. **Test Token Generation**
+### 7. **Test Token Generation** (removed)
 
-**File:** `controllers/token.controller.js`  
-**Function:** `generateTestToken()`
-
-```javascript
-// Line 207
-const token = jwt.sign(testPayload, process.env.JWT_SECRET, {
-  expiresIn: "24h"
-});
-```
-
-**Route:** `POST /token/generate-test` (for testing only)
+`POST /token/generate-test` and `generateTestToken()` were removed in Phase 2B0: the route minted a
+`JWT_SECRET`-signed token for any caller-supplied userId/tenantId with no authentication. There is
+no replacement route.
 
 ---
 
@@ -196,7 +188,6 @@ const token = jwt.sign(payload, JWT_SECRET, {
 | Azure B2C | `controllers/b2c.users.controller.js` | `handleB2CCallback()` | B2C callback | ✅ Yes |
 | B2C Session | `controllers/sessions.controller.js` | `issueInternalJWT()` | `POST /sessions` | ⚠️ Roles only (no permissions) |
 | Refresh Token | `helpers/refreshToken.js` | `validateAndRefresh()` | `POST /auth/refresh` | ✅ Yes |
-| Test Token | `controllers/token.controller.js` | `generateTestToken()` | `POST /token/generate-test` | ❌ No (test only) |
 | Bypass Token | `generate-bypass-token.js` | `generateToken()` | Standalone script | ❌ No (dev only) |
 
 ## Important Notes
