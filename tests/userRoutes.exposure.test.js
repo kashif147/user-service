@@ -3,8 +3,9 @@
  *
  * Their handlers resolve the tenant from req.body.tenantId, so any authenticated caller could
  * create a CRM user (and receive a token) in another tenant. The routes were removed; the gateway
- * also denies /user-service/api/users/{register,login}. The handlers remain (still referenced by
- * routes/auth.routes.js /general-crm/*, which the gateway already blocks).
+ * also denies /user-service/api/users/{register,login}. Phase 2B removed the handlers themselves
+ * along with /auth/general-crm/* (see authRoutes.generalCrmRemoved.test.js); the stubs below just
+ * prove nothing on this router reaches them.
  *
  * Mounts the real router with order-recording stubs: no DB / Redis / network.
  */

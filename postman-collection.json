@@ -270,38 +270,6 @@
           ]
         },
         {
-          "name": "General CRM Register",
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"user@example.com\",\n  \"password\": \"password123\",\n  \"firstName\": \"John\",\n  \"lastName\": \"Doe\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/auth/general-crm/register",
-              "host": ["{{baseUrl}}"],
-              "path": ["auth", "general-crm", "register"]
-            }
-          }
-        },
-        {
-          "name": "General CRM Login",
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"user@example.com\",\n  \"password\": \"password123\"\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/auth/general-crm/login",
-              "host": ["{{baseUrl}}"],
-              "path": ["auth", "general-crm", "login"]
-            }
-          }
-        },
-        {
           "name": "Refresh Token",
           "request": {
             "method": "POST",
