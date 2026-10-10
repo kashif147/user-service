@@ -242,7 +242,7 @@ describe("tenantContextWarn — adoption wiring", () => {
       "auth.routes.js",
       "token.routes.js",
       "pkce.routes.js",
-      "sessions.routes.js",
+      // sessions.routes.js removed in Phase 1C-2Y (dead, unsafe POST /sessions endpoint)
       "tenantLifecycle.routes.js",
       "internalRoleAccess.routes.js",
       "internalMsTokenVerification.routes.js",

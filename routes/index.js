@@ -4,7 +4,9 @@ const router = express.Router();
 router.use("/auth", require("./auth.routes"));
 router.use("/token", require("./token.routes"));
 router.use("/pkce", require("./pkce.routes"));
-router.use("/sessions", require("./sessions.routes"));
+// Phase 1C-2Y: POST /sessions (B2C id_token -> internal JWT) was removed. It never worked
+// (createSession was registered unbound), had no live caller, and duplicated the hardened
+// /auth/azure-portal PKCE + nonce login with weaker checks.
 
 // Centralized RBAC Policy Evaluation API
 router.use("/policy", require("./policy.routes"));
