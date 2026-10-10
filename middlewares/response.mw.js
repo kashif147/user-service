@@ -1,5 +1,9 @@
 const { AppError } = require("../errors/AppError");
 
+// Phase 1C-2S: stack traces and error extras are diagnostics for local development only.
+// Explicit allow-list — staging, production, test and an unset NODE_ENV all get the safe response.
+const exposeErrorDiagnostics = () => process.env.NODE_ENV === "development";
+
 module.exports = (req, res, next) => {
   // Success response helper
   res.success = (data) => {
@@ -12,7 +16,6 @@ module.exports = (req, res, next) => {
       req.correlationId ||
       req.headers["x-correlation-id"] ||
       require("crypto").randomUUID();
-    const isProduction = process.env.NODE_ENV === "production";
 
     res.status(appError.status).json({
       success: false,
@@ -20,9 +23,9 @@ module.exports = (req, res, next) => {
         message: appError.message,
         code: appError.code,
         status: appError.status,
-        ...(isProduction
-          ? {}
-          : { stack: appError.stack, extras: appError.extras }),
+        ...(exposeErrorDiagnostics()
+          ? { stack: appError.stack, extras: appError.extras }
+          : {}),
       },
       correlationId,
     });
@@ -77,3 +80,5 @@ module.exports = (req, res, next) => {
 
   next();
 };
+
+module.exports.exposeErrorDiagnostics = exposeErrorDiagnostics;

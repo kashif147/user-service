@@ -186,16 +186,17 @@ app.use((err, req, res, next) => {
     req.correlationId || req.headers["x-correlation-id"] || crypto.randomUUID();
 
   // Handle AppError instances
+  // Phase 1C-2S: diagnostics (stack/extras) only when NODE_ENV === "development".
   if (err.name === "AppError") {
-    const isProduction = process.env.NODE_ENV === "production";
-
     return res.status(err.status).json({
       success: false,
       error: {
         message: err.message,
         code: err.code,
         status: err.status,
-        ...(isProduction ? {} : { stack: err.stack, extras: err.extras }),
+        ...(responseMiddleware.exposeErrorDiagnostics()
+          ? { stack: err.stack, extras: err.extras }
+          : {}),
       },
       correlationId,
     });
@@ -261,13 +262,15 @@ app.use((err, req, res, next) => {
     console.log("STACK:", err.stack);
   }
 
+  // Phase 1C-2S: raw message and stack only when NODE_ENV === "development" (logging above unchanged).
+  const exposeDiagnostics = responseMiddleware.exposeErrorDiagnostics();
   res.status(500).json({
     success: false,
     error: {
-      message: isProduction ? "Internal Server Error" : err.message,
+      message: exposeDiagnostics ? err.message : "Internal Server Error",
       code: "INTERNAL_SERVER_ERROR",
       status: 500,
-      ...(isProduction ? {} : { stack: err.stack }),
+      ...(exposeDiagnostics ? { stack: err.stack } : {}),
     },
     correlationId,
   });
