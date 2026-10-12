@@ -26,6 +26,13 @@ async function initEventSystem() {
       prefetch: 10,
       connectionName: "user-service",
       serviceName: "user-service",
+      // user-service publishes the product catalogue events (product.*, pricing.*) to
+      // product.events (mapping below). The pinned middleware (main/db70fb8) does not declare
+      // it by default (added on its develop/gateway line in 1913bdb), so declare it here with
+      // the same properties; publishing to a missing exchange closes the publisher channel.
+      exchanges: [
+        { name: "product.events", type: "topic", options: { durable: true } },
+      ],
     });
     
     // Add exchange mapping for CRM and Portal user events
