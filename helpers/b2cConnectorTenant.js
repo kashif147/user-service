@@ -3,7 +3,7 @@
 // The connector call carries no user token, so a tenantId in its body is just a claim. The
 // call itself is authenticated (azureB2CBasicAuth), and B2C sets client_id to the B2C app
 // registration that ran the user flow; each tenant records that app as the `audience` of its
-// active "Azure B2C" authentication connection. Exactly one matching tenant is the trusted
+// active, auto-provisioning "Azure B2C" authentication connection. Exactly one matching tenant is the trusted
 // tenant; none or several -> null (callers fail closed).
 const Tenant = require("../models/tenant.model");
 
@@ -12,7 +12,9 @@ async function resolveB2CConnectorTenantId(clientId) {
   if (!id) return null;
   const tenants = await Tenant.find({
     authenticationConnections: {
-      $elemMatch: { connectionType: "Azure B2C", audience: id, isActive: true },
+      // Sign-up provisions a user, so only auto-provisioning connections qualify
+      // (see autoProvisionUsers in models/tenant.model.js).
+      $elemMatch: { connectionType: "Azure B2C", audience: id, isActive: true, autoProvisionUsers: { $ne: false } },
     },
   })
     .select("_id")

@@ -17,3 +17,16 @@ public unless real auth is added.
 specifically a restricted subset of role/permission management for `ASU` admins, re-verifying every
 target role belongs to `req.ctx.tenantId` before mutating; it wraps the same
 `RoleHandler`/`PermissionHandler` used elsewhere rather than duplicating logic.
+
+## IdP directory vs ProjectShell tenant (sign-in)
+
+The Entra `tid` / B2C directory only validates WHO signed in (`decodeIdToken`, unchanged). The
+ProjectShell application tenant comes from the ProjectShell user record:
+`helpers/identityTenantResolution.js` (used by both `azure.ad.handler.js` and
+`b2c.users.handler.js` `findOrCreateUser`) finds the user (oid, then email) among the tenants that
+trust that directory and uses that user's own `tenantId`, never rewriting it. Several tenants may
+share one directory; first-login auto-provisioning goes only to the single trusting tenant whose
+connection has `autoProvisionUsers !== false` (zero or several -> 403), and the B2C sign-up
+connector (`helpers/b2cConnectorTenant.js`) follows the same flag. A tenant that should accept
+only pre-provisioned users on a shared directory gets its connection with
+`autoProvisionUsers: false`.

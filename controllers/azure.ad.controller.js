@@ -130,6 +130,9 @@ module.exports.handleAzureADCallback = async (req, res, next) => {
       accessToken: tokenData.token,
     });
   } catch (error) {
+    // Deliberate refusals from the handler (e.g. identity not provisioned in any tenant that
+    // trusts this directory) already carry their public status/message.
+    if (error instanceof AppError) return next(error);
     console.error("=== Azure AD Authentication Error ===");
     console.error("Error message:", error.message);
     console.error("Error stack:", error.stack);

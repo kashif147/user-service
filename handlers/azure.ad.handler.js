@@ -6,6 +6,8 @@ const Role = require("../models/role.model");
 const Tenant = require("../models/tenant.model");
 const jwt = require("jsonwebtoken");
 const { assignDefaultRole } = require("../helpers/roleAssignment");
+const { resolveApplicationTenant, IdentityTenantError } = require("../helpers/identityTenantResolution");
+const { AppError } = require("../errors/AppError");
 const {
   publishCrmUserCreated,
   publishCrmUserUpdated,
@@ -259,7 +261,9 @@ class AzureADHandler {
       console.log("Profile received:", JSON.stringify(profile, null, 2));
 
       const email = profile.userEmail;
-      const tenantId = profile.tenantId;
+      // decodeIdToken validated the trusted Entra directory; the APPLICATION tenant is resolved
+      // below from the ProjectShell user record (helpers/identityTenantResolution.js).
+      let tenantId = profile.tenantId;
       const resolvedFirstName = profile.userFirstName || null;
       const resolvedLastName = profile.userLastName || null;
       const resolvedFullName =
@@ -292,23 +296,46 @@ class AzureADHandler {
         updatedAt: new Date(),
       };
 
-      // First, try to find existing user by email + new tenantId (Tenant._id)
-      let existingUser = await User.findOne({
-        userEmail: email,
-        tenantId: tenantId,
-      }).lean();
+      // Application tenant = the ProjectShell user's own tenant among the tenants that trust this
+      // Entra directory (several tenants may share one directory). The directory never assigns or
+      // rewrites a user's tenant; first-login provisioning goes to the single auto-provisioning tenant.
+      let resolution;
+      try {
+        resolution = await resolveApplicationTenant({
+          connectionType: "Entra ID (Azure AD)",
+          directoryId: profile.microsoftDirectoryId,
+          email,
+          microsoftId: profile.userMicrosoftId,
+          UserModel: User,
+        });
+      } catch (err) {
+        if (err instanceof IdentityTenantError) {
+          console.warn("Azure AD login denied:", { reason: err.code });
+          throw AppError.forbidden("CRM sign-in is not available for this account");
+        }
+        throw err;
+      }
+      tenantId = resolution.tenantId;
+      updateData.tenantId = tenantId;
+      let existingUser = resolution.existingUser;
 
-      // If not found, try to find by email only (for existing users created before tenant mapping)
-      // This handles migration of existing users to new tenant mapping
+      // Legacy migration only: a user whose tenantId predates Tenant mapping (not a real Tenant,
+      // e.g. a raw directory id) is moved into the resolved tenant. A user in another REAL tenant
+      // is never moved (previously any email match was re-tenanted on login).
       if (!existingUser) {
-        console.log("⚠️  User not found with new tenantId, checking for existing user by email only...");
-        existingUser = await User.findOne({
+        const legacy = await User.find({
           userEmail: email,
+          tenantId: { $nin: resolution.candidateTenantIds },
         }).lean();
-        
-        if (existingUser) {
-          console.log("✅ Found existing user with old tenantId:", existingUser.tenantId);
-          console.log("📌 Will update tenantId from", existingUser.tenantId, "to", tenantId);
+        const legacyOnly = [];
+        for (const u of legacy) {
+          const tid = String(u.tenantId || "");
+          const isRealTenant = /^[0-9a-f]{24}$/i.test(tid) && (await Tenant.exists({ _id: tid }));
+          if (!isRealTenant) legacyOnly.push(u);
+        }
+        if (legacyOnly.length === 1) {
+          existingUser = legacyOnly[0];
+          console.log("📌 Migrating legacy CRM user (pre-tenant-mapping tenantId) into resolved tenant");
         }
       }
 
@@ -319,9 +346,9 @@ class AzureADHandler {
       // Use atomic findOneAndUpdate with upsert to prevent race conditions
       // If existing user found by email only, update their tenantId to new Tenant._id
       const user = await User.findOneAndUpdate(
-        existingUser && existingUser.tenantId !== tenantId
-          ? { userEmail: email } // Update existing user by email only
-          : { userEmail: email, tenantId: tenantId }, // Normal case: email + tenantId
+        existingUser
+          ? { _id: existingUser._id } // the resolved (or legacy-migrated) user, by identity
+          : { userEmail: email, tenantId: tenantId }, // first-login provisioning
         {
           $set: updateData, // This includes the new tenantId (Tenant._id)
           $setOnInsert: {

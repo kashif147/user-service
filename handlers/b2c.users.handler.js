@@ -3,6 +3,7 @@ const { jwtVerify, createRemoteJWKSet } = require("jose");
 const B2CUser = require("../models/user.model");
 const Tenant = require("../models/tenant.model");
 const { AppError } = require("../errors/AppError");
+const { resolveApplicationTenant, IdentityTenantError } = require("../helpers/identityTenantResolution");
 const {
   syncPortalUserRolesFromMembership,
 } = require("../helpers/portalRoleSync");
@@ -272,7 +273,9 @@ class B2CUsersHandler {
     console.log("User profile:", profile);
 
     const email = profile.userEmail;
-    const tenantId = profile.tenantId;
+    // decodeIdToken validated the trusted B2C directory; the APPLICATION tenant is resolved below
+    // from the ProjectShell user record (helpers/identityTenantResolution.js).
+    let tenantId = profile.tenantId;
 
     if (!email) {
       console.log("Email not found in profile");
@@ -295,29 +298,34 @@ class B2CUsersHandler {
     };
 
     try {
-      // First, try to find existing user by email + new tenantId (Tenant._id)
-      let existingUser = await B2CUser.findOne({
-        userEmail: email,
-        tenantId: tenantId,
-      }).lean();
+      // Application tenant = the portal user's own tenant among the tenants that trust this B2C
+      // directory (several tenants may share it); new users are provisioned only into the single
+      // auto-provisioning tenant. The directory never assigns or rewrites a user's tenant.
+      let resolution;
+      try {
+        resolution = await resolveApplicationTenant({
+          connectionType: "Azure B2C",
+          directoryId: profile.microsoftDirectoryId,
+          email,
+          microsoftId: profile.userMicrosoftId,
+          UserModel: B2CUser,
+        });
+      } catch (err) {
+        if (err instanceof IdentityTenantError) {
+          console.warn("B2C login denied:", { reason: err.code });
+          throw AppError.forbidden(PORTAL_SIGN_IN_DENIED);
+        }
+        throw err;
+      }
+      tenantId = resolution.tenantId;
+      updateData.tenantId = tenantId;
+      let existingUser = resolution.existingUser;
 
       // If not found, look for a legacy PORTAL user created before tenant mapping (its tenantId is
-      // not a real Tenant). Only that user is migrated to the new tenantId: a user in another real
-      // tenant, or a CRM user, is never moved - a new PORTAL user is created in this tenant instead.
+      // not a real Tenant). Only that user is migrated to the resolved tenantId: a user in another
+      // real tenant, or a CRM user, is never moved - a new PORTAL user is created instead.
       if (!existingUser) {
-        console.log(
-          "⚠️  User not found with new tenantId, checking for a legacy portal user by email...",
-        );
         existingUser = await findLegacyPortalUser(email, tenantId);
-
-        if (existingUser) {
-          console.log(
-            "📌 Will update legacy tenantId from",
-            existingUser.tenantId,
-            "to",
-            tenantId,
-          );
-        }
       }
 
       if (existingUser) {

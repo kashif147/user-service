@@ -187,6 +187,14 @@ const TenantSchema = new mongoose.Schema({
         type: Boolean,
         default: true,
       },
+      // false: this tenant trusts the directory for sign-in of users already provisioned in it,
+      // but first-login auto-provisioning (and the B2C sign-up connector) never targets it.
+      // Lets several tenants share one directory while exactly one auto-provisions
+      // (helpers/identityTenantResolution.js).
+      autoProvisionUsers: {
+        type: Boolean,
+        default: true,
+      },
       createdAt: {
         type: Date,
         default: Date.now,

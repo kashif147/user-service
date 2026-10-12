@@ -18,11 +18,14 @@ const B2C_TENANT = "aaaaaaaaaaaaaaaaaaaaaaaa";
 const OTHER_TENANT = "bbbbbbbbbbbbbbbbbbbbbbbb";
 const DENIED = "Portal sign-in is not available for this account";
 
-const mockStore = { users: [], calls: [], failNextUpdate: null, realTenants: [] };
+const mockStore = { users: [], calls: [], failNextUpdate: null, realTenants: [], trustingTenants: [] };
 const mockMatches = (u, q) =>
-  Object.entries(q).every(([k, v]) =>
-    v && typeof v === "object" && "$ne" in v ? u[k] !== v.$ne : String(u[k]) === String(v),
-  );
+  Object.entries(q).every(([k, v]) => {
+    if (v && typeof v === "object" && "$ne" in v) return u[k] !== v.$ne;
+    if (v && typeof v === "object" && "$in" in v) return v.$in.map(String).includes(String(u[k]));
+    if (v && typeof v === "object" && "$nin" in v) return !v.$nin.map(String).includes(String(u[k]));
+    return String(u[k]) === String(v);
+  });
 const mockClone = (o) => JSON.parse(JSON.stringify(o));
 const mockDoc = (u) =>
   Object.assign(u, {
@@ -63,6 +66,16 @@ jest.mock("../models/user.model", () => ({
 }));
 jest.mock("../models/tenant.model", () => ({
   exists: async (q) => (mockStore.realTenants.includes(String(q._id)) ? { _id: q._id } : null),
+  // helpers/identityTenantResolution.js: active tenants trusting a directory for a connection type.
+  find: (q) => {
+    const m = q.authenticationConnections.$elemMatch;
+    const rows = mockStore.trustingTenants.filter((t) =>
+      t.authenticationConnections.some(
+        (c) => c.connectionType === m.connectionType && c.directoryId === m.directoryId && c.isActive === m.isActive,
+      ),
+    );
+    return { select: () => ({ lean: async () => mockClone(rows) }) };
+  },
 }));
 jest.mock("../helpers/portalRoleSync", () => ({
   syncPortalUserRolesFromMembership: async (u, email, t, o) => {
@@ -129,6 +142,11 @@ beforeEach(() => {
   mockStore.calls = [];
   mockStore.failNextUpdate = null;
   mockStore.realTenants = [B2C_TENANT, OTHER_TENANT];
+  // Default: only the B2C tenant trusts the B2C directory (today's single-tenant DEV setup).
+  // OTHER_TENANT is a real tenant that does NOT trust it.
+  mockStore.trustingTenants = [
+    { _id: B2C_TENANT, authenticationConnections: [{ connectionType: "Azure B2C", directoryId: "b2c-dir", isActive: true }] },
+  ];
   warnLogs = [];
   process.env.MS_B2C_DIRECTORY_ID = "b2c-dir";
   jest.spyOn(console, "log").mockImplementation(() => {});
@@ -322,5 +340,90 @@ describe("controller error mapping", () => {
     B2CUsersHandler.decodeIdToken.mockRejectedValueOnce(new Error("B2C token nonce mismatch"));
     const out = await login("m@x.com", "oid-1");
     expect(out.err).toMatchObject({ status: 401, message: "Microsoft authentication failed" });
+  });
+});
+
+// Phase 2E — several ProjectShell tenants may trust the SAME B2C directory. The directory only
+// validates who signed in; the application tenant comes from the ProjectShell user record.
+describe("several tenants trusting one B2C directory (application tenant from the user record)", () => {
+  const TENANT_B = "cccccccccccccccccccccccc";
+  const conn = (autoProvisionUsers) => ({ connectionType: "Azure B2C", directoryId: "b2c-dir", isActive: true, ...(autoProvisionUsers === undefined ? {} : { autoProvisionUsers }) });
+  beforeEach(() => {
+    mockStore.realTenants.push(TENANT_B);
+    mockStore.trustingTenants = [
+      { _id: B2C_TENANT, authenticationConnections: [conn()] },
+      { _id: TENANT_B, authenticationConnections: [conn(false)] },
+    ];
+  });
+
+  test("E1 user provisioned in Tenant B signs in to Tenant B (same directory), tenant not rewritten", async () => {
+    mockStore.users = [user({ id: "b1", email: "b.member@x.com", tenant: TENANT_B, type: "PORTAL", oid: "oid-b1" })];
+    const out = await login("b.member@x.com", "oid-b1");
+    expect(out.status).toBe(200);
+    expect(byId("b1").tenantId).toBe(TENANT_B);
+    expect(mockStore.calls).toContain(`jwt:b.member@x.com:PORTAL:${TENANT_B}`);
+    expect(mockStore.users).toHaveLength(1);
+  });
+
+  test("E2 Tenant-A user still resolves to Tenant A when Tenant B shares the directory", async () => {
+    mockStore.users = [user({ id: "a1", email: "a.member@x.com", tenant: B2C_TENANT, type: "PORTAL", oid: "oid-a1" })];
+    const out = await login("a.member@x.com", "oid-a1");
+    expect(out.status).toBe(200);
+    expect(mockStore.calls).toContain(`jwt:a.member@x.com:PORTAL:${B2C_TENANT}`);
+  });
+
+  test("E3 Microsoft object id wins over email: oid in Tenant B, same email in no tenant -> Tenant B", async () => {
+    mockStore.users = [user({ id: "b2", email: "old@x.com", tenant: TENANT_B, type: "PORTAL", oid: "oid-b2" })];
+    const out = await login("new@x.com", "oid-b2");
+    expect(out.status).toBe(200);
+    expect(mockStore.calls).toContain(`jwt:new@x.com:PORTAL:${TENANT_B}`);
+  });
+
+  test("E4 a new identity is provisioned only into the auto-provisioning tenant (A), never into B", async () => {
+    const out = await login("brand.new@x.com", "oid-new");
+    expect(out.status).toBe(200);
+    expect(mockStore.users).toHaveLength(1);
+    expect(mockStore.users[0]).toMatchObject({ tenantId: B2C_TENANT, userType: "PORTAL" });
+  });
+
+  test("E5 identity provisioned in BOTH tenants is ambiguous -> 403, nothing updated, no JWT", async () => {
+    mockStore.users = [
+      user({ id: "x1", email: "both@x.com", tenant: B2C_TENANT, type: "PORTAL", oid: "oid-both" }),
+      user({ id: "x2", email: "both@x.com", tenant: TENANT_B, type: "PORTAL", oid: "oid-both" }),
+    ];
+    const out = await login("both@x.com", "oid-both");
+    expectDenied(out);
+    noSideEffects();
+    expect(warnLogs.join("\n")).toContain("AMBIGUOUS_USER_TENANT");
+  });
+
+  test("E6 no tenant auto-provisions -> a new identity is refused (403), nothing inserted", async () => {
+    mockStore.trustingTenants[0].authenticationConnections = [conn(false)];
+    const out = await login("nobody@x.com", "oid-nobody");
+    expectDenied(out);
+    noSideEffects();
+    expect(warnLogs.join("\n")).toContain("NOT_PROVISIONED");
+  });
+
+  test("E7 two auto-provisioning tenants on one directory -> new identity refused (no guessing)", async () => {
+    mockStore.trustingTenants[1].authenticationConnections = [conn(true)];
+    const out = await login("nobody2@x.com", "oid-nobody2");
+    expectDenied(out);
+    noSideEffects();
+  });
+
+  test("E8 a user in a real tenant that does NOT trust the directory is ignored (not a sign-in path into it)", async () => {
+    mockStore.users = [user({ id: "o1", email: "o@x.com", tenant: OTHER_TENANT, type: "PORTAL", oid: "oid-o1" })];
+    const out = await login("o@x.com", "oid-o1");
+    expect(out.status).toBe(200);
+    expect(byId("o1").tenantId).toBe(OTHER_TENANT);
+    expect(mockStore.calls).toContain(`jwt:o@x.com:PORTAL:${B2C_TENANT}`);
+  });
+
+  test("E9 Tenant-B CRM-type user is still refused by portal sign-in", async () => {
+    mockStore.users = [user({ id: "c1", email: "crm.b@x.com", tenant: TENANT_B, type: "CRM", oid: "oid-c1" })];
+    const out = await login("crm.b@x.com", "oid-c1");
+    expectDenied(out);
+    noSideEffects();
   });
 });

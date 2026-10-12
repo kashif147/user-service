@@ -10,11 +10,15 @@ const mockTenants = [
   { _id: "dup1", authenticationConnections: [{ connectionType: "Azure B2C", audience: "app-shared", isActive: true }] },
   { _id: "dup2", authenticationConnections: [{ connectionType: "Azure B2C", audience: "app-shared", isActive: true }] },
   { _id: "off", authenticationConnections: [{ connectionType: "Azure B2C", audience: "app-off", isActive: false }] },
+  // Phase 2E: two tenants share one B2C app; only the first auto-provisions (sign-up target).
+  { _id: "prov", authenticationConnections: [{ connectionType: "Azure B2C", audience: "app-sharedB", isActive: true }] },
+  { _id: "noprov", authenticationConnections: [{ connectionType: "Azure B2C", audience: "app-sharedB", isActive: true, autoProvisionUsers: false }] },
 ];
 jest.mock("../models/tenant.model", () => ({
   find: jest.fn((q) => {
     const m = q.authenticationConnections.$elemMatch;
-    const rows = mockTenants.filter((t) => t.authenticationConnections.some((c) => c.connectionType === m.connectionType && c.audience === m.audience && c.isActive === m.isActive));
+    const rows = mockTenants.filter((t) => t.authenticationConnections.some((c) => c.connectionType === m.connectionType && c.audience === m.audience && c.isActive === m.isActive
+      && (!m.autoProvisionUsers || c.autoProvisionUsers !== m.autoProvisionUsers.$ne)));
     const chain = { select: () => chain, limit: (n) => { chain._n = n; return chain; }, lean: async () => rows.slice(0, chain._n || rows.length) };
     return chain;
   }),
@@ -76,4 +80,11 @@ test("5 profile-service down: fail-open continues with the TRUSTED tenant, never
   expect(r.body.action).toBe("Continue");
   expect(r.body.tenantId).toBe(B);
   expect(r.body.tenantId).not.toMatch(/default/);
+});
+
+test("6 a B2C app shared by two tenants signs up only into the auto-provisioning one (never a sign-in-only tenant)", async () => {
+  const r = await call({ email: "s@example.test", step: "PostAttributeCollection", client_id: "app-sharedB" });
+  expect(r.body.action).toBe("Continue");
+  expect(mockPosts).toHaveLength(1);
+  expect(mockPosts[0].headers["x-tenant-id"]).toBe("prov");
 });
