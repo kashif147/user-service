@@ -231,6 +231,20 @@ const validateUserInternal = async (req, res, next) => {
     // IMPORTANT: Forward validation to profile-service
     // Profile-service will check for duplicate profiles (membership records)
     // This ensures we're checking against actual member profiles, not just user accounts
+    // Trusted tenant (Phase 2C B): resolved from the B2C app (client_id) of this
+    // authenticated connector call, never from a tenantId in the body. No unique tenant ->
+    // fail closed: sign-up must not be validated (or later linked) against another tenant.
+    const { resolveB2CConnectorTenantId } = require("../helpers/b2cConnectorTenant");
+    const trustedTenantId = await resolveB2CConnectorTenantId(client_id);
+    if (!trustedTenantId) {
+      console.warn(`[${requestId}] 🚫 No unique tenant for this B2C application - blocking sign-up validation`);
+      return sendResponse(200, {
+        version: "1.0.0",
+        action: "ShowBlockPage",
+        userMessage: "Sign-up is not available for this application. Please contact support.",
+      });
+    }
+
     const profileServiceUrl = process.env.PROFILE_SERVICE_URL || 'http://localhost:3002';
     const profileValidationUrl = `${profileServiceUrl}/api/profile/validate`;
 
@@ -247,8 +261,12 @@ const validateUserInternal = async (req, res, next) => {
         req.body,
         {
           timeout: 15000, // 15 second timeout
+          // Genuine service-to-service call (no user token): the trusted tenant travels in
+          // x-tenant-id; profile-service ignores any tenantId in the forwarded body.
           headers: {
             'Content-Type': 'application/json',
+            'x-internal-request': 'true',
+            'x-tenant-id': trustedTenantId,
           }
         }
       );
@@ -277,7 +295,7 @@ const validateUserInternal = async (req, res, next) => {
       if (profileServiceError.code === 'ECONNREFUSED' || profileServiceError.code === 'ETIMEDOUT') {
         console.warn(`[${requestId}] ⚠️ Profile service unavailable - allowing signup (fail open)`);
         
-        const defaultTenantId = process.env.DEFAULT_TENANT_ID || "default-tenant-id";
+        const defaultTenantId = trustedTenantId; // trusted connector tenant, never a "default" fallback
         
         const duration = Date.now() - startTime;
         console.log(`[${requestId}] ⏱️  Total response time: ${duration}ms`);
