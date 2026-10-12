@@ -17,6 +17,8 @@ router.use("/policy", require("./policy.routes"));
 // that apply authenticate globally.
 // =====================================================
 
+// B2C connector first: Basic-auth only, must not pass through the JWT router.use() of the routers below.
+router.use("/api", require("./b2cConnector.routes"));
 router.use("/api", require("./tenantLifecycle.routes"));
 router.use("/api", require("./internalRoleAccess.routes"));
 router.use("/api", require("./internalMsTokenVerification.routes"));

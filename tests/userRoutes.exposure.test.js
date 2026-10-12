@@ -50,12 +50,14 @@ jest.mock("../controllers/user.controller", () => {
 });
 
 const userRouter = require("../routes/user.routes");
+const b2cConnectorRouter = require("../routes/b2cConnector.routes");
 
 let server;
 let base;
 beforeAll(async () => {
   const app = express();
   app.use(express.json());
+  app.use("/api", b2cConnectorRouter);
   app.use("/api", userRouter);
   app.use((req, res) => res.status(404).json({ notFound: true }));
   await new Promise((r) => (server = app.listen(0, r)));
@@ -91,7 +93,9 @@ describe("user.routes.js exposure (Phase 1C-2A)", () => {
   test("A /users/register and /users/login are not declared", () => {
     expect(routeTable()).not.toContain("POST /users/register");
     expect(routeTable()).not.toContain("POST /users/login");
-    expect(routeTable()).toEqual(["POST /users/validate", "GET /users/by-email/:email"]);
+    expect(routeTable()).toEqual(["GET /users/by-email/:email"]);
+    // POST /users/validate moved to routes/b2cConnector.routes.js (mounted first in routes/index.js).
+    expect(b2cConnectorRouter.stack.filter((l) => l.route).map((l) => l.route.path)).toEqual(["/users/validate"]);
   });
 
   test.each(["/api/users/register", "/api/users/login"])(

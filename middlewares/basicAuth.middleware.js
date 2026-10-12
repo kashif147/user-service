@@ -10,13 +10,29 @@
  * - B2C_API_USERNAME (required)
  * - B2C_API_PASSWORD (required)
  * 
- * If credentials are not set, Basic Auth is disabled (endpoint remains public)
+ * If credentials are not set: development/test keep the local no-op; every other NODE_ENV
+ * fails closed (ShowBlockPage), so the connector is never anonymously reachable.
  */
 function azureB2CBasicAuth() {
   const username = process.env.B2C_API_USERNAME || process.env.BASIC_AUTH_USERNAME;
   const password = process.env.B2C_API_PASSWORD || process.env.BASIC_AUTH_PASSWORD;
 
   if (!username || !password) {
+    // Outside local development/test, never expose the connector anonymously.
+    const env = (process.env.NODE_ENV || "").toLowerCase();
+    if (env !== "development" && env !== "test") {
+      console.error(
+        "B2C_API_USERNAME/B2C_API_PASSWORD not set - validate endpoint is closed (fail-closed outside development/test)"
+      );
+      return (req, res) => {
+        res.setHeader("Content-Type", "application/json");
+        return res.status(200).json({
+          version: "1.0.0",
+          action: "ShowBlockPage",
+          userMessage: "Authentication not configured",
+        });
+      };
+    }
     console.warn(
       "⚠️  B2C_API_USERNAME or B2C_API_PASSWORD not set - Basic Auth disabled for validate endpoint"
     );

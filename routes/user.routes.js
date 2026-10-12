@@ -3,40 +3,13 @@ const router = express.Router();
 const UserController = require("../controllers/user.controller");
 const { authenticate, requireTenant, tenantContextWarn } = require("../middlewares/auth");
 const { defaultPolicyMiddleware } = require("../middlewares/policy.middleware");
-const { azureB2CBasicAuth } = require("../middlewares/basicAuth.middleware");
 
 // Phase 1C-2A: POST /users/register and /users/login were removed. Their handlers resolve the
 // tenant from req.body.tenantId (caller-controlled), so they must not be reachable here; the
 // gateway also denies both paths. Local CRM sign-in is Entra/B2C only.
 
-// Public user validation endpoint for Azure B2C custom policies
-// Protected with Basic Auth (optional - set B2C_API_USERNAME and B2C_API_PASSWORD)
-// Wrapped to ensure no errors escape to global handler
-router.post(
-  "/users/validate",
-  // CRITICAL: Set Content-Type header BEFORE processing
-  (req, res, next) => {
-    res.setHeader('Content-Type', 'application/json');
-    next();
-  },
-  azureB2CBasicAuth(), // Basic Auth middleware (no-op if password not configured)
-  async (req, res, next) => {
-    try {
-      await UserController.validateUser(req, res, next);
-    } catch (error) {
-      // Final safety net - ensure we never return unhandled errors to Azure B2C
-      console.error("FATAL: validateUser error escaped:", error);
-      if (!res.headersSent) {
-        res.setHeader('Content-Type', 'application/json');
-        return res.status(200).json({
-          version: "1.0.0",
-          action: "ShowBlockPage",
-          userMessage: "An error occurred during validation. Please try again.",
-        });
-      }
-    }
-  }
-);
+// POST /users/validate (Azure B2C API connector) lives in routes/b2cConnector.routes.js, mounted
+// in routes/index.js before every other "/api" router so their JWT router.use() cannot intercept it.
 
 // Protected user management endpoints (require authentication)
 router.use(authenticate, tenantContextWarn);
