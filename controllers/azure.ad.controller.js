@@ -1,7 +1,7 @@
 const AzureADHandler = require("../handlers/azure.ad.handler");
 const jwtHelper = require("../helpers/jwt");
 const { AppError } = require("../errors/AppError");
-const { takeNonceForState } = require("../helpers/pkceStateStore");
+const { takeLoginTransaction } = require("../helpers/pkceStateStore");
 
 // Handle GET request from Azure redirect
 module.exports.handleAzureADRedirect = async (req, res, next) => {
@@ -45,7 +45,10 @@ module.exports.handleAzureADCallback = async (req, res, next) => {
     if (!state) {
       return next(AppError.badRequest("state is required"));
     }
-    const expectedNonce = takeNonceForState(state);
+    // The same single-use read also restores the ProjectShell tenant the login was started for
+    // (GET /pkce/generate?tenant=...). A tenantId in the body/query/headers is never read here.
+    const transaction = takeLoginTransaction(state);
+    const expectedNonce = transaction?.nonce;
     if (!expectedNonce) {
       return next(
         AppError.badRequest("Unknown or expired state; restart the login flow")
@@ -75,7 +78,8 @@ module.exports.handleAzureADCallback = async (req, res, next) => {
       code,
       codeVerifier,
       finalRedirectUri,
-      expectedNonce
+      expectedNonce,
+      transaction.loginContext
     );
 
     const issuedAtReadable = user.userIssuedAt

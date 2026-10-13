@@ -32,13 +32,36 @@ setInterval(pruneNonce, 60 * 1000).unref();
 /**
  * @param {string} state
  * @param {string} nonce
+ * @param {{tenantId: string, connectionId: string}|null} [loginContext] - the ProjectShell
+ *   tenant (and its Entra connection) the sign-in was started for. Kept server-side next to the
+ *   nonce so the callback restores it from the state alone; nothing the browser sends on the
+ *   callback can change it.
  */
-function rememberNonceForState(state, nonce) {
+function rememberNonceForState(state, nonce, loginContext = null) {
   if (!state || !nonce) return;
   nonceStore.set(String(state), {
     nonce: String(nonce),
+    loginContext: loginContext
+      ? { tenantId: String(loginContext.tenantId), connectionId: String(loginContext.connectionId) }
+      : null,
     expiresAt: now() + TTL_MS,
   });
+}
+
+/**
+ * Single-use read of everything bound to an authorize `state`.
+ * @param {string} state
+ * @returns {{nonce: string, loginContext: {tenantId: string, connectionId: string}|null}|null}
+ */
+function takeLoginTransaction(state) {
+  if (state == null || String(state).trim() === "") return null;
+  pruneNonce();
+  const key = String(state);
+  const row = nonceStore.get(key);
+  if (!row) return null;
+  nonceStore.delete(key);
+  if (row.expiresAt <= now()) return null;
+  return { nonce: row.nonce, loginContext: row.loginContext || null };
 }
 
 /**
@@ -101,4 +124,5 @@ module.exports = {
   takePolicyForState,
   rememberNonceForState,
   takeNonceForState,
+  takeLoginTransaction,
 };

@@ -6,7 +6,11 @@ const Role = require("../models/role.model");
 const Tenant = require("../models/tenant.model");
 const jwt = require("jsonwebtoken");
 const { assignDefaultRole } = require("../helpers/roleAssignment");
-const { resolveApplicationTenant, IdentityTenantError } = require("../helpers/identityTenantResolution");
+const {
+  resolveApplicationTenant,
+  resolveTenantScopedUser,
+  IdentityTenantError,
+} = require("../helpers/identityTenantResolution");
 const { AppError } = require("../errors/AppError");
 const {
   publishCrmUserCreated,
@@ -63,7 +67,8 @@ async function findTenantByAzureADDirectoryId(directoryId) {
         name: tenant.name,
         code: tenant.code,
       });
-      console.log("📌 This Tenant._id will be used as tenantId in user document and JWT token");
+      // Only proves the directory is trusted by SOME tenant. The application tenant is decided in
+      // findOrCreateUser (login context or the user's own record), never by this lookup.
       return tenant;
     } else {
       console.log("❌ No Tenant found for Azure AD directory ID:", directoryId);
@@ -108,7 +113,7 @@ class AzureADHandler {
 
     console.log("== Azure AD Token Exchange Request ==");
     console.log("POST:", TOKEN_ENDPOINT);
-    console.log("Data:", data.toString());
+    // Never log `data`: it carries client_secret, the authorization code and the PKCE verifier.
     console.log("Headers:", {
       "Content-Type": "application/x-www-form-urlencoded",
     });
@@ -166,7 +171,12 @@ class AzureADHandler {
    *   Mandatory: without it, a captured/replayed ID token could be reused against a fresh
    *   session, so a missing nonce fails the login rather than proceeding without it.
    */
-  static async decodeIdToken(idToken, expectedNonce) {
+  /**
+   * Verifies a Microsoft ID token for this app (signature via the pinned JWKS, issuer, audience,
+   * algorithm, exp/nbf, `tid`, `nonce`) and returns its claims (used by `decodeIdToken`). Does not
+   * look up any ProjectShell tenant or user.
+   */
+  static async verifyIdToken(idToken, expectedNonce) {
     if (!expectedNonce) {
       throw new Error("Azure AD login rejected: missing expected nonce");
     }
@@ -194,6 +204,11 @@ class AzureADHandler {
       throw new Error("Azure AD token nonce mismatch");
     }
 
+    return payload;
+  }
+
+  static async decodeIdToken(idToken, expectedNonce) {
+    const payload = await this.verifyIdToken(idToken, expectedNonce);
     const extractedDirectoryId = payload.tid;
 
     // Look up Tenant document by directory ID
@@ -255,15 +270,23 @@ class AzureADHandler {
     }
   }
 
-  static async findOrCreateUser(profile, tokens) {
+  /**
+   * @param {object} profile  verified token claims (+ Graph profile)
+   * @param {object} tokens
+   * @param {{tenantId: string, connectionId: string}|null} [loginContext]  the tenant the sign-in
+   *   was started for, restored server-side from the OAuth state. When present the user is found or
+   *   created ONLY in that tenant; when absent the directory-wide fallback applies.
+   */
+  static async findOrCreateUser(profile, tokens, loginContext = null) {
+    const email = profile.userEmail;
+    let tenantId = profile.tenantId;
     try {
       console.log("=== Azure AD findOrCreateUser Debug ===");
       console.log("Profile received:", JSON.stringify(profile, null, 2));
 
-      const email = profile.userEmail;
       // decodeIdToken validated the trusted Entra directory; the APPLICATION tenant is resolved
-      // below from the ProjectShell user record (helpers/identityTenantResolution.js).
-      let tenantId = profile.tenantId;
+      // below from the login context or the ProjectShell user record
+      // (helpers/identityTenantResolution.js).
       const resolvedFirstName = profile.userFirstName || null;
       const resolvedLastName = profile.userLastName || null;
       const resolvedFullName =
@@ -275,7 +298,7 @@ class AzureADHandler {
       console.log("Extracted tenantId:", tenantId);
 
       if (!email) throw new Error("Email not found in Azure AD token");
-      if (!tenantId) {
+      if (!tenantId && !loginContext) {
         console.error("ERROR: Tenant ID is missing from profile!");
         console.error("Profile keys:", Object.keys(profile));
         console.error("Profile tenantId field:", profile.tenantId);
@@ -299,18 +322,25 @@ class AzureADHandler {
       // Application tenant = the ProjectShell user's own tenant among the tenants that trust this
       // Entra directory (several tenants may share one directory). The directory never assigns or
       // rewrites a user's tenant; first-login provisioning goes to the single auto-provisioning tenant.
+      const identity = {
+        connectionType: "Entra ID (Azure AD)",
+        directoryId: profile.microsoftDirectoryId,
+        email,
+        microsoftId: profile.userMicrosoftId,
+        UserModel: User,
+      };
       let resolution;
       try {
-        resolution = await resolveApplicationTenant({
-          connectionType: "Entra ID (Azure AD)",
-          directoryId: profile.microsoftDirectoryId,
-          email,
-          microsoftId: profile.userMicrosoftId,
-          UserModel: User,
-        });
+        resolution = loginContext
+          ? await resolveTenantScopedUser({ ...identity, ...loginContext })
+          : await resolveApplicationTenant(identity);
       } catch (err) {
         if (err instanceof IdentityTenantError) {
-          console.warn("Azure AD login denied:", { reason: err.code });
+          console.warn("Azure AD login denied:", {
+            reason: err.code,
+            mode: loginContext ? "tenant-scoped" : "directory-fallback",
+            tenantId: loginContext?.tenantId || null,
+          });
           throw AppError.forbidden("CRM sign-in is not available for this account");
         }
         throw err;
@@ -319,10 +349,11 @@ class AzureADHandler {
       updateData.tenantId = tenantId;
       let existingUser = resolution.existingUser;
 
-      // Legacy migration only: a user whose tenantId predates Tenant mapping (not a real Tenant,
-      // e.g. a raw directory id) is moved into the resolved tenant. A user in another REAL tenant
-      // is never moved (previously any email match was re-tenanted on login).
-      if (!existingUser) {
+      // Legacy migration only (directory-fallback logins): a user whose tenantId predates Tenant
+      // mapping (not a real Tenant, e.g. a raw directory id) is moved into the resolved tenant. A
+      // user in another REAL tenant is never moved. Tenant-scoped logins never look outside their
+      // tenant.
+      if (!existingUser && !loginContext) {
         const legacy = await User.find({
           userEmail: email,
           tenantId: { $nin: resolution.candidateTenantIds },
@@ -342,13 +373,20 @@ class AzureADHandler {
       const previousEmail = existingUser?.userEmail;
       const previousFullName = existingUser?.userFullName;
       const isNewUser = !existingUser;
+      console.log("CRM sign-in resolved:", {
+        mode: loginContext ? "tenant-scoped" : "directory-fallback",
+        tenantId,
+        outcome: isNewUser ? "provisioned" : "existing",
+      });
 
       // Use atomic findOneAndUpdate with upsert to prevent race conditions
       // If existing user found by email only, update their tenantId to new Tenant._id
       const user = await User.findOneAndUpdate(
         existingUser
           ? { _id: existingUser._id } // the resolved (or legacy-migrated) user, by identity
-          : { userEmail: email, tenantId: tenantId }, // first-login provisioning
+          : loginContext
+            ? { tenantId, userMicrosoftId: profile.userMicrosoftId } // JIT, keyed by the Entra oid
+            : { userEmail: email, tenantId: tenantId }, // first-login provisioning
         {
           $set: updateData, // This includes the new tenantId (Tenant._id)
           $setOnInsert: {
@@ -397,11 +435,14 @@ class AzureADHandler {
         console.log(
           `Duplicate key error detected, fetching existing user: ${email}`
         );
-        const user = await User.findOne({
-          userEmail: email,
-          tenantId: tenantId,
-        });
-        if (user) {
+        const user = await User.findOne(
+          loginContext
+            ? { tenantId, userMicrosoftId: profile.userMicrosoftId }
+            : { userEmail: email, tenantId: tenantId }
+        );
+        // Only adopt the concurrently-created record of the SAME identity: an email collision with
+        // a different oid is a conflict, not a login.
+        if (user && (!loginContext || user.userMicrosoftId === profile.userMicrosoftId)) {
           // Update the user with latest data
           Object.assign(user, {
             ...profile,
@@ -424,8 +465,9 @@ class AzureADHandler {
    * @param {string} codeVerifier
    * @param {string|null} redirectUri
    * @param {string} expectedNonce - required; see decodeIdToken's jsdoc.
+   * @param {{tenantId: string, connectionId: string}|null} [loginContext] - from the OAuth state.
    */
-  static async handleAzureADAuth(code, codeVerifier, redirectUri = null, expectedNonce) {
+  static async handleAzureADAuth(code, codeVerifier, redirectUri = null, expectedNonce, loginContext = null) {
     try {
       console.log("=== Azure AD Handler: Starting Authentication ===");
       console.log("Code present:", !!code);
@@ -472,7 +514,7 @@ class AzureADHandler {
       console.log("Step 4: Finding or creating user...");
       console.log("Combined profile keys:", Object.keys(combinedProfile));
       console.log("Combined profile tenantId:", combinedProfile.tenantId);
-      const user = await this.findOrCreateUser(combinedProfile, tokens);
+      const user = await this.findOrCreateUser(combinedProfile, tokens, loginContext);
       console.log("User processed successfully, ID:", user._id);
 
       console.log("=== Azure AD Handler: Authentication Completed ===");

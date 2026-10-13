@@ -4,6 +4,7 @@ const {
   rememberStatePolicy,
   rememberNonceForState,
 } = require("../helpers/pkceStateStore");
+const { resolveLoginTenant, LoginTenantError } = require("../helpers/loginTenantContext");
 const {
   resolveB2CPolicy,
   b2cAuthorizationUrl,
@@ -74,7 +75,26 @@ module.exports.generatePKCE = async (req, res, next) => {
     // nonce below, so it needs to be unguessable, not just unique.
     const azureADState = crypto.randomBytes(12).toString("base64url");
     const azureADNonce = crypto.randomBytes(16).toString("base64url");
-    rememberNonceForState(azureADState, azureADNonce);
+
+    // Tenant-scoped sign-in: ?tenant=<code> names the ProjectShell tenant this login is for. It is
+    // resolved to that tenant's active Entra connection and bound to the state server-side; the
+    // callback restores it from the state, never from anything the browser sends back. Without
+    // ?tenant the login falls back to the directory-wide user lookup (CRM builds that predate
+    // tenant-scoped sign-in).
+    let loginContext = null;
+    if (req.query.tenant !== undefined) {
+      try {
+        loginContext = await resolveLoginTenant(req.query.tenant, tenantId);
+      } catch (e) {
+        if (e instanceof LoginTenantError) {
+          console.warn("Tenant-scoped sign-in refused:", { reason: e.code });
+          // Same message for unknown and unconfigured tenants (no tenant-code enumeration).
+          return next(AppError.badRequest("Microsoft sign-in is not available for this organisation"));
+        }
+        throw e;
+      }
+    }
+    rememberNonceForState(azureADState, azureADNonce, loginContext);
 
     const azureADAuthUrl =
       `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?` +

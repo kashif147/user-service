@@ -37,7 +37,10 @@ jest.mock("../handlers/azure.ad.handler", () => ({
   },
 }));
 jest.mock("../helpers/jwt", () => ({ generateToken: async () => ({ token: "jwt.token.value" }) }));
-jest.mock("../helpers/pkceStateStore", () => ({ takeNonceForState: () => "nonce-1" }));
+jest.mock("../helpers/pkceStateStore", () => ({
+  takeNonceForState: () => "nonce-1",
+  takeLoginTransaction: () => ({ nonce: "nonce-1", loginContext: null }),
+}));
 jest.mock("../services/azure.blob.service", () => ({
   isConfigured: true,
   uploadToBlob: async () => { if (mockMode.v === "blob_fail") throw new Error(MARK); return "https://blob/x.png"; },

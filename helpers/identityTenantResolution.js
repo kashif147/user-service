@@ -21,6 +21,10 @@
  * With one tenant per directory (today's INMO setup) the result is identical to the previous
  * directory -> tenant lookup. Nothing here reads a tenant from the request, the token's
  * tenant-ish claims (tid/extension_tenantId) or the client.
+ *
+ * CRM sign-ins started for a specific tenant (GET /pkce/generate?tenant=...) use
+ * resolveTenantScopedUser below instead; resolveApplicationTenant remains the CRM fallback for
+ * logins without a tenant and the B2C portal path.
  */
 const Tenant = require("../models/tenant.model");
 
@@ -100,4 +104,68 @@ async function resolveApplicationTenant({ connectionType, directoryId, email, mi
   return { tenantId: provisioning[0]._id.toString(), existingUser: null, candidateTenantIds };
 }
 
-module.exports = { resolveApplicationTenant, IdentityTenantError };
+const isPlaceholderMicrosoftId = (v) => !v || String(v).startsWith("pending-first-login");
+
+/**
+ * Tenant-scoped sign-in (the login was started for a specific ProjectShell tenant; its tenantId and
+ * connection id come from the server-side OAuth state, never from the request).
+ *
+ *  1. The stored connection must still be an active Entra connection of that active tenant, and
+ *     its directoryId must equal the verified token's `tid`.
+ *  2. The user is looked up ONLY inside that tenant: by Entra `oid` (the durable identity; the
+ *     record's issuer must be the same directory), else by email but only to claim a record that
+ *     has no real oid yet (pre-provisioned / legacy). An email match carrying a DIFFERENT oid is
+ *     refused, never taken over.
+ *  3. Nobody found -> just-in-time provisioning into this tenant, unless the connection has
+ *     `autoProvisionUsers: false`.
+ * Users in other tenants are never read, moved or created here.
+ *
+ * @returns {Promise<{ tenantId: string, existingUser: object|null }>}
+ */
+async function resolveTenantScopedUser({ tenantId, connectionId, connectionType, directoryId, email, microsoftId, UserModel }) {
+  const tenant = await Tenant.findOne({ _id: tenantId, isActive: { $ne: false } })
+    .select("_id authenticationConnections")
+    .lean();
+  const connection = (tenant?.authenticationConnections || []).find(
+    (c) => String(c._id) === String(connectionId) && c.connectionType === connectionType && c.isActive === true
+  );
+  if (!connection) {
+    throw new IdentityTenantError("CONNECTION_INVALID", "The sign-in connection is no longer active for this tenant");
+  }
+  if (!directoryId || connection.directoryId !== directoryId) {
+    throw new IdentityTenantError("DIRECTORY_MISMATCH", "Token directory does not match this tenant's connection");
+  }
+  if (!microsoftId) {
+    throw new IdentityTenantError("IDENTITY_INCOMPLETE", "Token has no object id");
+  }
+  const scopedTenantId = String(tenant._id);
+
+  const byOid = await UserModel.find({ tenantId: scopedTenantId, userMicrosoftId: microsoftId }).lean();
+  if (byOid.length > 1) {
+    throw new IdentityTenantError("AMBIGUOUS_USER_TENANT", "Identity matches more than one user in this tenant");
+  }
+  if (byOid.length === 1) {
+    const issuer = byOid[0].userIssuer;
+    if (issuer && !String(issuer).includes(`/${directoryId}/`)) {
+      throw new IdentityTenantError("IDENTITY_CONFLICT", "User record belongs to a different directory");
+    }
+    return { tenantId: scopedTenantId, existingUser: byOid[0] };
+  }
+
+  if (email) {
+    const byEmail = await UserModel.find({ tenantId: scopedTenantId, userEmail: email }).lean();
+    if (byEmail.length === 1) {
+      if (!isPlaceholderMicrosoftId(byEmail[0].userMicrosoftId)) {
+        throw new IdentityTenantError("IDENTITY_CONFLICT", "Email belongs to a different identity in this tenant");
+      }
+      return { tenantId: scopedTenantId, existingUser: byEmail[0] };
+    }
+  }
+
+  if (connection.autoProvisionUsers === false) {
+    throw new IdentityTenantError("NOT_PROVISIONED", "This tenant does not create users on first sign-in");
+  }
+  return { tenantId: scopedTenantId, existingUser: null };
+}
+
+module.exports = { resolveApplicationTenant, resolveTenantScopedUser, IdentityTenantError };

@@ -75,6 +75,7 @@ describe("handleAzureADCallback", () => {
       "verifier",
       undefined,
       "nonce-ok",
+      null, // no tenant-scoped login context: /pkce/generate was called without ?tenant
     );
     expect(res.status).toHaveBeenCalledWith(200);
     expect(next).not.toHaveBeenCalled();
