@@ -120,7 +120,7 @@ module.exports.handleAzureADCallback = async (req, res, next) => {
       },
     };
 
-    console.log(`Azure AD authentication successful for: ${user.userEmail}`);
+    console.log(`Azure AD authentication successful: user ${user._id}, tenant ${user.tenantId}`);
 
     // Returned as the signed JWT itself. It used to be AES-encrypted with a key derived from
     // JWT_SECRET, which forced the CRM to ship JWT_SECRET (REACT_APP_JWT_SECRET) in its public

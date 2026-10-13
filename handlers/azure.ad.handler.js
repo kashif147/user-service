@@ -281,9 +281,6 @@ class AzureADHandler {
     const email = profile.userEmail;
     let tenantId = profile.tenantId;
     try {
-      console.log("=== Azure AD findOrCreateUser Debug ===");
-      console.log("Profile received:", JSON.stringify(profile, null, 2));
-
       // decodeIdToken validated the trusted Entra directory; the APPLICATION tenant is resolved
       // below from the login context or the ProjectShell user record
       // (helpers/identityTenantResolution.js).
@@ -294,15 +291,9 @@ class AzureADHandler {
         `${resolvedFirstName || ""} ${resolvedLastName || ""}`.trim() ||
         null;
 
-      console.log("Extracted email:", email);
-      console.log("Extracted tenantId:", tenantId);
-
       if (!email) throw new Error("Email not found in Azure AD token");
       if (!tenantId && !loginContext) {
-        console.error("ERROR: Tenant ID is missing from profile!");
-        console.error("Profile keys:", Object.keys(profile));
-        console.error("Profile tenantId field:", profile.tenantId);
-        console.error("Fallback tenant ID:", TENANT_ID);
+        console.error("Azure AD login: no tenant could be determined for this sign-in");
         throw new Error("Tenant ID not found in Azure AD token");
       }
 
@@ -405,7 +396,7 @@ class AzureADHandler {
         isNewUser || !user.roles || user.roles.length === 0;
 
       if (isNewUser) {
-        console.log(`Creating new CRM user: ${email}`);
+        console.log(`Created CRM user ${user._id} in tenant ${tenantId}`);
         if (needsRoleAssignment) {
           await assignDefaultRole(user, "CRM", tenantId);
           // Save again to persist the role assignment
@@ -413,7 +404,7 @@ class AzureADHandler {
         }
         await publishCrmUserCreated(user);
       } else {
-        console.log(`Updating existing CRM user: ${email}`);
+        console.log(`Updated CRM user ${user._id} in tenant ${tenantId}`);
         // If existing user doesn't have roles, assign them
         if (needsRoleAssignment) {
           await assignDefaultRole(user, "CRM", tenantId);
@@ -425,7 +416,6 @@ class AzureADHandler {
         });
       }
 
-      console.log(`User processed successfully: ${email}`);
       return user;
     } catch (error) {
       console.error("Error in findOrCreateUser:", error.message);
@@ -433,7 +423,7 @@ class AzureADHandler {
       if (error.code === 11000) {
         // User was created by another request, fetch and return it
         console.log(
-          `Duplicate key error detected, fetching existing user: ${email}`
+          `Duplicate key on CRM user upsert in tenant ${tenantId}; re-reading the existing record`
         );
         const user = await User.findOne(
           loginContext
@@ -484,7 +474,7 @@ class AzureADHandler {
 
       console.log("Step 2: Verifying ID token...");
       const baseProfile = await this.decodeIdToken(tokens.id_token, expectedNonce);
-      console.log("ID token verified, tenantId:", baseProfile.tenantId);
+      console.log("ID token verified");
 
       console.log("Step 3: Fetching user info from Graph API...");
       const graphProfile = await this.getUserInfoFromGraph(tokens.access_token);
@@ -512,10 +502,8 @@ class AzureADHandler {
       };
 
       console.log("Step 4: Finding or creating user...");
-      console.log("Combined profile keys:", Object.keys(combinedProfile));
-      console.log("Combined profile tenantId:", combinedProfile.tenantId);
       const user = await this.findOrCreateUser(combinedProfile, tokens, loginContext);
-      console.log("User processed successfully, ID:", user._id);
+      console.log(`CRM sign-in complete: user ${user._id}, tenant ${user.tenantId}`);
 
       console.log("=== Azure AD Handler: Authentication Completed ===");
       return { user, tokens };

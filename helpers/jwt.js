@@ -16,7 +16,7 @@ module.exports.generateToken = async (user) => {
     // Validate required fields
     if (!user.tenantId) {
       console.error("ERROR: User tenantId is missing!");
-      console.error("User object:", JSON.stringify(user, null, 2));
+      console.error("User id:", user._id);
       throw new Error("User tenantId is required for JWT generation");
     }
 
