@@ -43,9 +43,7 @@ function azureB2CBasicAuth() {
     return (req, res, next) => next();
   }
 
-  console.log(
-    `✅ Basic Auth enabled for validate endpoint - Username: ${username}`
-  );
+  console.log("✅ Basic Auth enabled for validate endpoint");
 
   return (req, res, next) => {
     try {

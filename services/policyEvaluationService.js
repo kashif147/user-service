@@ -187,11 +187,12 @@ const evaluatePolicyInternal = async (request) => {
     }
 
     const user = tokenValidation.user;
-    console.log(
-      "Token validation result:",
-      JSON.stringify(tokenValidation, null, 2)
-    );
-    console.log("User object:", JSON.stringify(user, null, 2));
+    // Ids only: the validated user carries the email (and roles/permissions) from the token.
+    console.log("Token validated:", {
+      userId: user?.id || null,
+      tenantId: user?.tenantId || null,
+      userType: user?.userType || null,
+    });
 
     // Validate user object exists and has required properties
     if (!user || !user.id) {

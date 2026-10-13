@@ -169,4 +169,18 @@ describe("azureB2CBasicAuth without configured credentials", () => {
   test.each(["development", "test"])("I NODE_ENV=%s keeps the documented local no-op", (env) => {
     expect(run(load({ NODE_ENV: env })).nexted).toBe(true);
   });
+
+  test("J configured credentials: the username is never logged; auth still enforced", () => {
+    const logs = [];
+    const spy = jest.spyOn(console, "log").mockImplementation((...a) => logs.push(a.join(" ")));
+    let r;
+    try {
+      r = run(load({ NODE_ENV: "staging", B2C_API_USERNAME: "connector-user@b2c.example", B2C_API_PASSWORD: "pw-not-logged" }));
+    } finally {
+      spy.mockRestore();
+    }
+    expect(r.nexted).toBe(false); // no Authorization header -> still refused
+    expect(logs.join("\n")).toMatch(/Basic Auth enabled/);
+    expect(logs.join("\n")).not.toMatch(/connector-user|b2c\.example|pw-not-logged/);
+  });
 });

@@ -419,3 +419,22 @@ describe("PDP cache-key includes every decision-relevant verified attribute (Pha
     expect(r2.cached).toBe(true);
   });
 });
+
+describe("PDP logging carries no personal data", () => {
+  test("token branch logs ids only: no email, no full validation result or user object", async () => {
+    const logs = [];
+    const spy = jest.spyOn(console, "log").mockImplementation((...a) =>
+      logs.push(a.map((x) => (typeof x === "object" ? JSON.stringify(x) : String(x))).join(" "))
+    );
+    try {
+      const res = await evaluatePolicy({ token: suToken("log-user"), resource: "role", action: "read", context: {} });
+      expect(res.decision).toBe("PERMIT"); // decision unchanged
+    } finally {
+      spy.mockRestore();
+    }
+    const all = logs.join("\n");
+    expect(all).toMatch(/Token validated/);
+    expect(all).toContain("log-user");
+    expect(all).not.toMatch(/u@example\.invalid|Token validation result|User object/);
+  });
+});
