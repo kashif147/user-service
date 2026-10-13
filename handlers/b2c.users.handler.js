@@ -76,50 +76,6 @@ async function findLegacyPortalUser(email, tenantId) {
   return legacy.length === 1 ? legacy[0] : null;
 }
 
-/**
- * Find Tenant document by Azure B2C directory ID
- * @param {string} directoryId - Microsoft B2C directory ID (tid or extension_tenantId from token)
- * @returns {Promise<Object|null>} Tenant document or null
- */
-async function findTenantByB2CDirectoryId(directoryId) {
-  try {
-    console.log("=== Looking up Tenant by Azure B2C directory ID ===");
-    console.log("Directory ID from Microsoft:", directoryId);
-
-    const tenant = await Tenant.findOne({
-      "authenticationConnections.connectionType": "Azure B2C",
-      "authenticationConnections.directoryId": directoryId,
-      "authenticationConnections.isActive": true,
-    });
-
-    if (tenant) {
-      console.log("✅ Found Tenant:", {
-        _id: tenant._id.toString(),
-        name: tenant.name,
-        code: tenant.code,
-      });
-      console.log(
-        "📌 This Tenant._id will be used as tenantId in user document and JWT token",
-      );
-      return tenant;
-    } else {
-      console.log(
-        "❌ No Tenant found for Azure B2C directory ID:",
-        directoryId,
-      );
-      console.log("💡 Make sure Tenant document has:");
-      console.log(
-        "   - authenticationConnections.connectionType = 'Azure B2C'",
-      );
-      console.log("   - authenticationConnections.directoryId =", directoryId);
-      return null;
-    }
-  } catch (error) {
-    console.error("Error looking up Tenant:", error.message);
-    return null;
-  }
-}
-
 const CLIENT_ID =
   process.env.MS_CLIENT_ID || "e3688a2f-3956-42f9-8c98-6fea7a60a5b4";
 const REDIRECT_URI = process.env.MS_REDIRECT_URI || "http://localhost:3000";
@@ -127,16 +83,8 @@ const REDIRECT_URI = process.env.MS_REDIRECT_URI || "http://localhost:3000";
 class B2CUsersHandler {
   static async exchangeCodeForTokens(code, codeVerifier, policyName) {
     const tokenEndpoint = b2cTokenEndpoint(policyName);
-    console.log("=== Token Exchange Debug ===");
-    console.log("B2C policy (user flow):", policyName);
-    console.log("Token Endpoint:", tokenEndpoint);
-    console.log("Client ID:", CLIENT_ID);
-    console.log("Redirect URI:", REDIRECT_URI);
-    console.log("Code (first 50 chars):", code.substring(0, 50) + "...");
-    console.log(
-      "Code Verifier (first 20 chars):",
-      codeVerifier.substring(0, 20) + "...",
-    );
+    // Never log the authorization code, the PKCE verifier or the request body built from them.
+    console.log("B2C token exchange:", { policy: policyName });
 
     const data = new URLSearchParams({
       grant_type: "authorization_code",
@@ -147,27 +95,24 @@ class B2CUsersHandler {
       scope: "openid offline_access",
     });
 
-    console.log("Request data:", data.toString());
-
     try {
-      console.log("🔄 Sending token exchange request...");
       const response = await axios.post(tokenEndpoint, data.toString(), {
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
       });
 
-      console.log("✅ Token exchange successful");
-      console.log("Response status:", response.status);
-      console.log("Tokens received:", {
-        id_token: response.data.id_token ? "Present" : "Missing",
-        refresh_token: response.data.refresh_token ? "Present" : "Missing",
+      console.log("B2C token exchange succeeded:", {
+        idToken: Boolean(response.data.id_token),
+        refreshToken: Boolean(response.data.refresh_token),
       });
 
       return response.data;
     } catch (error) {
-      console.log("❌ Token exchange failed:", error.message);
-      console.log("Error status:", error.response?.status);
-      console.log("Error details:", error.response?.data);
-      console.log("Full error:", error);
+      // Status and Microsoft's error code only: the HTTP client error carries the request
+      // (code + verifier) in its config, so it is never logged whole.
+      console.log("B2C token exchange failed:", {
+        status: error.response?.status || null,
+        error: error.response?.data?.error || error.code || null,
+      });
       throw error;
     }
   }
@@ -229,20 +174,11 @@ class B2CUsersHandler {
     }
 
     // The issuer check above already pins this to the single configured B2C directory, so
-    // use that fixed, trusted value for the tenant lookup below rather than deriving a
-    // directory ID from token claims (tid/extension_tenantId/tenantId/iss) - single-tenant
-    // by design, no per-customer B2C directory discovery here.
+    // use that fixed, trusted value rather than deriving a directory ID from token claims
+    // (tid/extension_tenantId/tenantId/iss). The directory never selects a ProjectShell tenant
+    // (several tenants share the B2C directory): findOrCreateUser resolves the tenant from the
+    // user's own record (helpers/identityTenantResolution.js).
     const extractedDirectoryId = process.env.MS_B2C_DIRECTORY_ID;
-
-    // Look up Tenant document by directory ID
-    const tenant = await findTenantByB2CDirectoryId(extractedDirectoryId);
-
-    if (!tenant) {
-      console.error("B2C login: no Tenant found for directory ID", extractedDirectoryId);
-      throw new Error(
-        `Tenant not found for Azure B2C directory: ${extractedDirectoryId}`,
-      );
-    }
 
     return {
       userEmail: payload.emails?.[0] || null,
@@ -261,38 +197,28 @@ class B2CUsersHandler {
       userAuthTime: payload.auth_time || null,
       userTokenVersion: payload.ver || null,
       userPolicy: payload.tfp || null,
-      // Use Tenant._id instead of Microsoft directory ID
-      tenantId: tenant._id.toString(),
-      // Store Microsoft directory ID separately for reference
+      // Microsoft directory id, kept for reference; not a ProjectShell tenant
       microsoftDirectoryId: extractedDirectoryId,
     };
   }
 
   static async findOrCreateUser(profile, tokens) {
-    console.log("Finding or creating user");
-    console.log("User profile:", profile);
-
     const email = profile.userEmail;
     // decodeIdToken validated the trusted B2C directory; the APPLICATION tenant is resolved below
-    // from the ProjectShell user record (helpers/identityTenantResolution.js).
-    let tenantId = profile.tenantId;
-
+    // from the ProjectShell user record (helpers/identityTenantResolution.js). Any tenantId on
+    // the profile is ignored.
+    let tenantId = null;
     if (!email) {
-      console.log("Email not found in profile");
+      console.log("B2C sign-in: token has no email claim");
       throw new Error("Email not found in Microsoft token");
     }
-
-    if (!tenantId) {
-      console.log("Tenant ID not found in profile");
-      throw new Error("Tenant ID not found in Microsoft token");
-    }
-
+    const identityProfile = { ...profile };
+    delete identityProfile.tenantId;
     const updateData = {
-      ...profile,
+      ...identityProfile,
       userAuthProvider: "microsoft",
       userType: "PORTAL", // Ensure portal users are marked as PORTAL type
       userLastLogin: new Date(),
-      tenantId: tenantId,
       tokens: buildUserTokensSubdocument(tokens),
       updatedAt: new Date(),
     };
@@ -380,23 +306,24 @@ class B2CUsersHandler {
       });
 
       if (isNewUser) {
-        console.log("Creating new user");
         await publishPortalUserCreated(user);
       } else {
-        console.log("Updating existing user");
         await publishPortalUserUpdated(user, previousValues);
       }
 
-      console.log("User saved successfully");
+      console.log("B2C sign-in resolved:", {
+        provider: "azure-b2c",
+        userId: String(user._id),
+        tenantId,
+        outcome: isNewUser ? "provisioned" : "existing",
+      });
       return user;
     } catch (error) {
-      console.log("Error saving user:", error.message);
+      console.log("B2C sign-in failed:", { name: error.name, code: error.code || null });
       // Handle duplicate key errors (E11000) that might still occur in edge cases
       if (error.code === 11000) {
         // User was created by another request, fetch and return it
-        console.log(
-          `Duplicate key error detected, fetching existing user: ${email}`,
-        );
+        console.log(`Duplicate key on PORTAL user upsert in tenant ${tenantId}; re-reading the existing record`);
         const user = await B2CUser.findOne({
           userEmail: email,
           tenantId: tenantId,

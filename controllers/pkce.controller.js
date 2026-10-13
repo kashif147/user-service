@@ -5,6 +5,7 @@ const {
   rememberNonceForState,
 } = require("../helpers/pkceStateStore");
 const { resolveLoginTenant, LoginTenantError } = require("../helpers/loginTenantContext");
+const { getEntraConfig, EntraConfigError } = require("../helpers/entraConfig");
 const {
   resolveB2CPolicy,
   b2cAuthorizationUrl,
@@ -39,20 +40,31 @@ function createStateForPolicies() {
 }
 
 /**
+ * PKCE code verifier (RFC 7636 section 4.1): 128 characters from the unreserved set, from a
+ * cryptographically secure source. 96 random bytes base64url-encode to exactly 128 characters
+ * of [A-Za-z0-9-_], a subset of the allowed alphabet.
+ */
+function generateCodeVerifier() {
+  return crypto.randomBytes(96).toString("base64url");
+}
+
+/** Entra settings for the CRM authorize URL, or null (logged) when Entra is not configured. */
+function entraConfigOrNull() {
+  try {
+    return getEntraConfig();
+  } catch (e) {
+    if (!(e instanceof EntraConfigError)) throw e;
+    console.error(e.message); // variable names only, never values
+    return null;
+  }
+}
+
+/**
  * Generate PKCE parameters for Azure AD authentication
  */
 module.exports.generatePKCE = async (req, res, next) => {
   try {
-    // Generate code verifier (128 characters)
-    const charset =
-      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
-    let codeVerifier = "";
-
-    for (let i = 0; i < 128; i++) {
-      codeVerifier += charset.charAt(
-        Math.floor(Math.random() * charset.length),
-      );
-    }
+    const codeVerifier = generateCodeVerifier();
 
     // Generate code challenge using SHA256
     const hash = crypto.createHash("sha256").update(codeVerifier).digest();
@@ -62,14 +74,12 @@ module.exports.generatePKCE = async (req, res, next) => {
       .replace(/\//g, "_")
       .replace(/=/g, "");
 
-    // Generate authorization URLs with real values
-    const tenantId =
-      process.env.AZURE_AD_TENANT_ID || "39866a06-30bc-4a89-80c6-9dd9357dd453";
-    const clientId =
-      process.env.AZURE_AD_CLIENT_ID || "ad25f823-e2d3-43e2-bea5-a9e6c9b0dbae";
-    const redirectUri =
-      process.env.AZURE_AD_REDIRECT_URI ||
-      "http://localhost:3000/auth/azure-crm";
+    // Entra (CRM) authorize URL. No built-in fallbacks: without configuration there is no CRM
+    // URL (B2C portal URLs below are unaffected), and a tenant-scoped CRM login is refused.
+    const entra = entraConfigOrNull();
+    if (!entra && req.query.tenant !== undefined) {
+      return next(AppError.internalServerError("Microsoft sign-in is not configured"));
+    }
     const scope = "openid profile email offline_access";
     // crypto.randomBytes, not Math.random(): this state doubles as the lookup key for the
     // nonce below, so it needs to be unguessable, not just unique.
@@ -84,7 +94,7 @@ module.exports.generatePKCE = async (req, res, next) => {
     let loginContext = null;
     if (req.query.tenant !== undefined) {
       try {
-        loginContext = await resolveLoginTenant(req.query.tenant, tenantId);
+        loginContext = await resolveLoginTenant(req.query.tenant, entra.tenantId);
       } catch (e) {
         if (e instanceof LoginTenantError) {
           console.warn("Tenant-scoped sign-in refused:", { reason: e.code });
@@ -94,22 +104,25 @@ module.exports.generatePKCE = async (req, res, next) => {
         throw e;
       }
     }
-    rememberNonceForState(azureADState, azureADNonce, loginContext);
+    let azureADAuthUrl = null;
+    if (entra) {
+      rememberNonceForState(azureADState, azureADNonce, loginContext);
 
-    const azureADAuthUrl =
-      `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?` +
-      `client_id=${clientId}&` +
-      `response_type=code&` +
-      `redirect_uri=${encodeURIComponent(redirectUri)}&` +
-      `scope=${encodeURIComponent(scope)}&` +
-      `state=${azureADState}&` +
-      `nonce=${azureADNonce}&` +
-      `code_challenge=${codeChallenge}&` +
-      `code_challenge_method=S256&` +
-      // Without this, Azure AD silently re-authenticates from its own session cookie -
-      // logging our own token out never touches that cookie - so a user who just logged
-      // out gets signed straight back in on the next click with no credential prompt.
-      `prompt=login`;
+      azureADAuthUrl =
+        `https://login.microsoftonline.com/${entra.tenantId}/oauth2/v2.0/authorize?` +
+        `client_id=${entra.clientId}&` +
+        `response_type=code&` +
+        `redirect_uri=${encodeURIComponent(entra.redirectUri)}&` +
+        `scope=${encodeURIComponent(scope)}&` +
+        `state=${azureADState}&` +
+        `nonce=${azureADNonce}&` +
+        `code_challenge=${codeChallenge}&` +
+        `code_challenge_method=S256&` +
+        // Without this, Azure AD silently re-authenticates from its own session cookie -
+        // logging our own token out never touches that cookie - so a user who just logged
+        // out gets signed straight back in on the next click with no credential prompt.
+        `prompt=login`;
+    }
 
     let selectedPolicy;
     try {
@@ -227,14 +240,11 @@ module.exports.generatePKCE = async (req, res, next) => {
  */
 module.exports.getLogoutUrls = async (req, res, next) => {
   try {
-    const azureADTenantId =
-      process.env.AZURE_AD_TENANT_ID || "39866a06-30bc-4a89-80c6-9dd9357dd453";
-    const azureADRedirectUri =
-      process.env.AZURE_AD_REDIRECT_URI ||
-      "http://localhost:3000/auth/azure-crm";
-    const azureADLogoutUrl =
-      `https://login.microsoftonline.com/${azureADTenantId}/oauth2/v2.0/logout?` +
-      `post_logout_redirect_uri=${encodeURIComponent(azureADRedirectUri)}`;
+    const entra = entraConfigOrNull();
+    const azureADLogoutUrl = entra
+      ? `https://login.microsoftonline.com/${entra.tenantId}/oauth2/v2.0/logout?` +
+        `post_logout_redirect_uri=${encodeURIComponent(entra.redirectUri)}`
+      : null;
 
     const b2cRedirectUri =
       process.env.MS_REDIRECT_URI || "http://localhost:3000";
@@ -252,3 +262,5 @@ module.exports.getLogoutUrls = async (req, res, next) => {
     );
   }
 };
+
+module.exports._generateCodeVerifier = generateCodeVerifier;

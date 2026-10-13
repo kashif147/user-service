@@ -2,6 +2,7 @@ const AzureADHandler = require("../handlers/azure.ad.handler");
 const jwtHelper = require("../helpers/jwt");
 const { AppError } = require("../errors/AppError");
 const { takeLoginTransaction } = require("../helpers/pkceStateStore");
+const { EntraConfigError } = require("../helpers/entraConfig");
 
 // Handle GET request from Azure redirect
 module.exports.handleAzureADRedirect = async (req, res, next) => {
@@ -137,6 +138,10 @@ module.exports.handleAzureADCallback = async (req, res, next) => {
     // Deliberate refusals from the handler (e.g. identity not provisioned in any tenant that
     // trusts this directory) already carry their public status/message.
     if (error instanceof AppError) return next(error);
+    if (error instanceof EntraConfigError) {
+      console.error(error.message); // variable names only, never values
+      return next(AppError.internalServerError("Microsoft sign-in is not configured"));
+    }
     console.error("=== Azure AD Authentication Error ===");
     console.error("Error message:", error.message);
     console.error("Error stack:", error.stack);
@@ -194,11 +199,9 @@ module.exports.handleAzureADCallback = async (req, res, next) => {
       return next(AppError.unauthorized("Azure AD authentication failed"));
     }
 
-    // Log full error for debugging
-    console.error(
-      "Full error object:",
-      JSON.stringify(error, Object.getOwnPropertyNames(error), 2)
-    );
+    // Never serialise the whole error: an HTTP client error carries the token request (client
+    // secret, authorization code, PKCE verifier) in its config.
+    console.error("Azure AD authentication error:", { name: error.name, code: error.code || null });
 
     // Phase 1C-2W: generic public message; the full error is logged above.
     return next(AppError.internalServerError("Azure AD authentication failed"));

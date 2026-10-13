@@ -38,12 +38,12 @@ beforeEach(() => {
 });
 
 describe("tenant.handler getAllTenants", () => {
-  test("ownTenantId is applied to the query (by _id or directoryId), alongside existing filters", async () => {
+  test("ownTenantId is applied to the query (by Tenant._id only), alongside existing filters", async () => {
     await TenantHandler.getAllTenants({ status: "active", ownTenantId: A });
     expect(mockFind).toHaveBeenCalledWith({
       isActive: true,
       status: "active",
-      $or: [{ _id: A }, { "authenticationConnections.directoryId": A }],
+      _id: A,
     });
   });
 
@@ -61,7 +61,7 @@ describe("tenant.handler code/domain lookups (B2)", () => {
       expect(mockFindOne).toHaveBeenCalledWith({
         [field]: value,
         isActive: true,
-        $or: [{ _id: A }, { "authenticationConnections.directoryId": A }],
+        _id: A,
       });
       expect(out).toBeNull();
     }
@@ -136,5 +136,34 @@ describe("role.handler updateRole (M1)", () => {
       "permissions",
       "isActive",
     ]);
+  });
+});
+
+// Phase 1 hardening: a Microsoft directory id identifies an authentication connection, never an
+// organisation. Several organisations may share one directory, so accepting it as /tenants/:id
+// would load whichever organisation the database returned first.
+describe("tenant.handler: only the internal Tenant._id identifies an organisation", () => {
+  const DIRECTORY = "39866a06-30bc-4a89-80c6-9dd9357dd453";
+
+  test("getTenantById with an Entra/B2C directory id never queries by directory -> Tenant not found", async () => {
+    await expect(TenantHandler.getTenantById(DIRECTORY)).rejects.toThrow("Tenant not found");
+    expect(mockFindOne).toHaveBeenCalledTimes(1);
+    expect(mockFindOne).toHaveBeenCalledWith({ _id: null });
+    expect(JSON.stringify(mockFindOne.mock.calls)).not.toMatch(/authenticationConnections/);
+  });
+
+  test("getTenantById with a Tenant._id queries by _id only", async () => {
+    await expect(TenantHandler.getTenantById(A)).rejects.toThrow("Tenant not found");
+    expect(mockFindOne).toHaveBeenCalledWith({ _id: A });
+  });
+
+  test.each([["12-char string"], ["{$ne:null}"], [""], [undefined]])("non-ObjectId selector %p matches nothing", async (v) => {
+    await expect(TenantHandler.getTenantById(v)).rejects.toThrow("Tenant not found");
+    expect(mockFindOne).toHaveBeenCalledWith({ _id: null });
+  });
+
+  test("ownTenantId that is a directory id scopes a list to nothing, not to a first-found tenant", async () => {
+    await TenantHandler.getAllTenants({ ownTenantId: DIRECTORY });
+    expect(mockFind).toHaveBeenCalledWith({ isActive: true, _id: null });
   });
 });

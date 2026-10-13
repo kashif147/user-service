@@ -3,8 +3,8 @@
  * ID token verification path. Uses a throwaway RSA keypair + local JWKS
  * (tests/helpers/testJwt.js) instead of a real Microsoft tenant.
  */
-const TEST_TENANT_ID = "39866a06-30bc-4a89-80c6-9dd9357dd453"; // this file's own fallback default
-const TEST_CLIENT_ID = "ad25f823-e2d3-43e2-bea5-a9e6c9b0dbae"; // this file's own fallback default
+const TEST_TENANT_ID = "39866a06-30bc-4a89-80c6-9dd9357dd453"; // = tests/setupEntraEnv.js
+const TEST_CLIENT_ID = "ad25f823-e2d3-43e2-bea5-a9e6c9b0dbae"; // = tests/setupEntraEnv.js
 const EXPECTED_ISSUER = `https://login.microsoftonline.com/${TEST_TENANT_ID}/v2.0`;
 
 jest.mock("../models/tenant.model", () => ({
@@ -53,25 +53,17 @@ describe("AzureADHandler.decodeIdToken", () => {
     Tenant.findOne.mockReset();
   });
 
-  test("valid token with matching nonce resolves the tenant and returns a profile", async () => {
-    Tenant.findOne.mockResolvedValueOnce({
-      _id: { toString: () => "tenant-mongo-id-1" },
-      name: "Test Tenant",
-      code: "TT",
-    });
-
+  test("valid token with matching nonce returns the identity profile; no tenant is looked up", async () => {
     const token = await signTestJwt(privateKey, baseClaims({ nonce: expectedNonce }));
 
     const profile = await AzureADHandler.decodeIdToken(token, expectedNonce);
 
-    expect(profile.tenantId).toBe("tenant-mongo-id-1");
     expect(profile.userEmail).toBe("staff@example.com");
-    expect(Tenant.findOne).toHaveBeenCalledWith(
-      expect.objectContaining({
-        "authenticationConnections.connectionType": "Entra ID (Azure AD)",
-        "authenticationConnections.directoryId": TEST_TENANT_ID,
-      }),
-    );
+    expect(profile.microsoftDirectoryId).toBe(TEST_TENANT_ID);
+    // The directory only says who issued the token; the ProjectShell tenant is resolved later
+    // (login context or the user's own record), never by a first-found directory lookup.
+    expect(profile).not.toHaveProperty("tenantId");
+    expect(Tenant.findOne).not.toHaveBeenCalled();
   });
 
   test("missing expectedNonce is rejected before any verification is attempted", async () => {
@@ -141,12 +133,31 @@ describe("AzureADHandler.decodeIdToken", () => {
     await expect(AzureADHandler.decodeIdToken(token, expectedNonce)).rejects.toThrow();
   });
 
-  test("no matching Tenant document fails closed even with a valid, verified token", async () => {
-    Tenant.findOne.mockResolvedValueOnce(null);
+  test("a directory shared by several tenants is never resolved to a first-found tenant here", async () => {
+    // Even if a directory lookup would return some tenant, decodeIdToken does not ask.
+    Tenant.findOne.mockResolvedValue({ _id: { toString: () => "first-found-tenant" } });
     const token = await signTestJwt(privateKey, baseClaims({ nonce: expectedNonce }));
 
-    await expect(AzureADHandler.decodeIdToken(token, expectedNonce)).rejects.toThrow(
-      /Tenant not found/i,
-    );
+    const profile = await AzureADHandler.decodeIdToken(token, expectedNonce);
+
+    expect(Tenant.findOne).not.toHaveBeenCalled();
+    expect(JSON.stringify(profile)).not.toMatch(/first-found-tenant/);
   });
+
+  test.each(["AZURE_AD_TENANT_ID", "AZURE_AD_CLIENT_ID"])(
+    "missing %s fails closed before any verification (no built-in fallback)",
+    async (name) => {
+      const saved = process.env[name];
+      delete process.env[name];
+      try {
+        const token = await signTestJwt(privateKey, baseClaims({ nonce: expectedNonce }));
+        await expect(AzureADHandler.decodeIdToken(token, expectedNonce)).rejects.toMatchObject({
+          code: "ENTRA_NOT_CONFIGURED",
+          missing: [name],
+        });
+      } finally {
+        process.env[name] = saved;
+      }
+    },
+  );
 });

@@ -15,16 +15,13 @@ const {
   normalizeSubscription,
 } = require("../constants/tenantUpdateDefaults");
 
+// An organisation is identified only by its internal Tenant._id (code and domain have their own
+// lookups). A Microsoft directory id identifies an authentication connection, never an
+// organisation - several organisations may share one directory - so it is not accepted here.
+// Anything that is not a 24-hex id matches no tenant (callers answer "Tenant not found").
 const buildTenantQuery = (tenantId) => {
-  if (mongoose.Types.ObjectId.isValid(tenantId)) {
-    return {
-      $or: [
-        { _id: tenantId },
-        { "authenticationConnections.directoryId": tenantId },
-      ],
-    };
-  }
-  return { "authenticationConnections.directoryId": tenantId };
+  const id = String(tenantId ?? "");
+  return /^[0-9a-f]{24}$/i.test(id) ? { _id: id } : { _id: null };
 };
 
 const flattenForMongoSet = (obj, prefix = "") => {

@@ -3,6 +3,10 @@ require("dotenv").config({
   path: `.env.${process.env.NODE_ENV || "development"}`,
 });
 
+// Entra (CRM) sign-in has no built-in fallbacks: report missing configuration at startup (names
+// only). Sign-in requests then fail closed; the rest of the service keeps running.
+require("./helpers/entraConfig").logMissingEntraConfig();
+
 // Suppress Application Insights warnings if not configured
 // Azure App Service auto-injects Application Insights, but warnings appear if key is missing
 // Must be done BEFORE any other require/import statements to catch early initialization

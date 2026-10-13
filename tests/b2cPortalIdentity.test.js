@@ -427,3 +427,71 @@ describe("several tenants trusting one B2C directory (application tenant from th
     noSideEffects();
   });
 });
+
+// Phase 1 hardening: B2C sign-in logs carry ids, tenant, provider and outcome only - never the
+// email, names, Microsoft profile, authorization code or PKCE verifier.
+describe("B2C sign-in logging carries no personal data or secrets", () => {
+  const EMAIL = "fiona.lennon@members.example";
+  const allLogs = () =>
+    [console.log, console.error, console.warn]
+      .flatMap((fn) => fn.mock.calls)
+      .map((args) => args.map((x) => (typeof x === "object" ? JSON.stringify(x) : String(x))).join(" "))
+      .join("\n")
+      .concat("\n", warnLogs.join("\n"))
+      // this file's in-memory model names new users "new-<email>"; real ids are ObjectIds
+      .replace(/new-[^"\s]+/g, "new-<id>");
+  beforeEach(() => {
+    B2CUsersHandler.decodeIdToken.mockImplementation(async () => ({
+      userEmail: profile.email,
+      userMicrosoftId: profile.oid,
+      userFirstName: "Fiona",
+      userLastName: "Lennon",
+      userMobilePhone: "+353871234567",
+      tenantId: B2C_TENANT,
+      microsoftDirectoryId: "b2c-dir",
+    }));
+  });
+
+  test.each([
+    ["new user", []],
+    ["existing user", [user({ id: "p9", email: EMAIL, tenant: B2C_TENANT, type: "PORTAL", oid: "oid-9" })]],
+  ])("%s: logs id + tenant + outcome, no email/name/phone/profile", async (_d, users) => {
+    mockStore.users = users;
+    const out = await login(EMAIL, "oid-9");
+    expect(out.status).toBe(200);
+    const logs = allLogs();
+    expect(logs).toMatch(/B2C sign-in resolved/);
+    expect(logs).toContain(B2C_TENANT);
+    expect(logs).not.toMatch(/fiona|lennon|members\.example|353871234567/i);
+    expect(logs).not.toMatch(/userFirstName|userMobilePhone|User profile/);
+  });
+
+  test("E11000 recovery path does not log the email", async () => {
+    mockStore.failNextUpdate = () => {
+      mockStore.users.push(user({ id: "race", email: EMAIL, tenant: B2C_TENANT, type: "PORTAL", oid: "oid-r" }));
+    };
+    await login(EMAIL, "oid-r");
+    expect(allLogs()).not.toMatch(/members\.example/);
+  });
+
+  test("a failure whose error carries the token request logs neither the code nor the verifier", async () => {
+    const httpError = Object.assign(new Error("Request failed with status code 400"), {
+      config: { data: "grant_type=authorization_code&code=SECRET-AUTH-CODE&code_verifier=SECRET-VERIFIER" },
+      response: { status: 400, data: { error: "invalid_grant", error_description: "x" } },
+    });
+    B2CUsersHandler.exchangeCodeForTokens.mockRejectedValueOnce(httpError);
+    const out = await login(EMAIL, "oid-x");
+    expect(out.err).toBeTruthy();
+    expect(allLogs()).not.toMatch(/SECRET-AUTH-CODE|SECRET-VERIFIER/);
+  });
+
+  test("the directory-derived tenantId on the profile is never used: user record decides", async () => {
+    mockStore.trustingTenants.push({ _id: OTHER_TENANT, authenticationConnections: [{ connectionType: "Azure B2C", directoryId: "b2c-dir", isActive: true }] });
+    mockStore.users = [user({ id: "o1", email: EMAIL, tenant: OTHER_TENANT, type: "PORTAL", oid: "oid-o" })];
+    // decodeIdToken's profile claims B2C_TENANT (what a first-found directory lookup used to return)
+    const out = await login(EMAIL, "oid-o");
+    expect(out.status).toBe(200);
+    expect(byId("o1").tenantId).toBe(OTHER_TENANT);
+    expect(mockStore.calls.some((c) => c.startsWith("jwt:") && c.endsWith(`:${OTHER_TENANT}`))).toBe(true);
+  });
+});

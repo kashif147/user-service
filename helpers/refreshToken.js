@@ -31,7 +31,7 @@ class RefreshTokenHelper {
         throw new Error("Invalid refresh token");
       }
 
-      console.log("✅ User found:", user.userEmail);
+      console.log("✅ User found:", String(user._id));
 
       // Microsoft sends refresh_token_expires_in as *remaining seconds*, not Unix time.
       // We persist absolute deadline as refresh_token_expires_at (ms).

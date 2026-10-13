@@ -55,7 +55,7 @@ async function hasActiveMembership(email, tenantId) {
     console.warn(
       "[MEMBERSHIP_CHECK] Error checking active membership:",
       err.message,
-      { email: email?.substring(0, 20) + "...", tenantId }
+      { tenantId }
     );
     return false;
   }

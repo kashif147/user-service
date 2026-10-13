@@ -6,4 +6,6 @@
 // this service's existing .babelrc, @babel/preset-env) transforms it like first-party code.
 module.exports = {
   transformIgnorePatterns: ["/node_modules/(?!jose)/"],
+  // No built-in Entra defaults in the app; give the suites fixed test values (tests/setupEntraEnv.js).
+  setupFiles: ["<rootDir>/tests/setupEntraEnv.js"],
 };

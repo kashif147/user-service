@@ -17,24 +17,18 @@ const {
   publishCrmUserUpdated,
 } = require("../rabbitMQ/publishers/user.crm.publisher");
 
-const TENANT_ID =
-  process.env.AZURE_AD_TENANT_ID || "39866a06-30bc-4a89-80c6-9dd9357dd453";
-const CLIENT_ID =
-  process.env.AZURE_AD_CLIENT_ID || "ad25f823-e2d3-43e2-bea5-a9e6c9b0dbae";
-const CLIENT_SECRET = process.env.AZURE_AD_CLIENT_SECRET;
-const REDIRECT_URI =
-  process.env.AZURE_AD_REDIRECT_URI || "http://localhost:3000/auth/azure-crm";
+const { getEntraConfig } = require("../helpers/entraConfig");
 
-const TOKEN_ENDPOINT = `https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/token`;
 const GRAPH_ME_ENDPOINT = "https://graph.microsoft.com/v1.0/me";
 
-// Single-tenant, fixed JWKS (never derived from the token being verified). Reused across
-// requests: createRemoteJWKSet caches fetched keys and handles kid-based key selection.
+// Single-tenant, fixed JWKS for the configured directory (never derived from the token being
+// verified). Reused across requests: createRemoteJWKSet caches fetched keys and handles kid-based
+// key selection.
 let jwksSingleton = null;
-function getJwks() {
+function getJwks(tenantId) {
   if (!jwksSingleton) {
     jwksSingleton = createRemoteJWKSet(
-      new URL(`https://login.microsoftonline.com/${TENANT_ID}/discovery/v2.0/keys`),
+      new URL(`https://login.microsoftonline.com/${tenantId}/discovery/v2.0/keys`),
     );
   }
   return jwksSingleton;
@@ -43,44 +37,6 @@ function getJwks() {
  * throwaway keypair's JWKS instead of the real Microsoft tenant. */
 function _resetJwksForTests(jwks) {
   jwksSingleton = jwks || null;
-}
-
-/**
- * Find Tenant document by Azure AD directory ID
- * @param {string} directoryId - Microsoft directory ID (tid from token)
- * @returns {Promise<Object|null>} Tenant document or null
- */
-async function findTenantByAzureADDirectoryId(directoryId) {
-  try {
-    console.log("=== Looking up Tenant by Azure AD directory ID ===");
-    console.log("Directory ID from Microsoft:", directoryId);
-    
-    const tenant = await Tenant.findOne({
-      "authenticationConnections.connectionType": "Entra ID (Azure AD)",
-      "authenticationConnections.directoryId": directoryId,
-      "authenticationConnections.isActive": true,
-    });
-
-    if (tenant) {
-      console.log("✅ Found Tenant:", {
-        _id: tenant._id.toString(),
-        name: tenant.name,
-        code: tenant.code,
-      });
-      // Only proves the directory is trusted by SOME tenant. The application tenant is decided in
-      // findOrCreateUser (login context or the user's own record), never by this lookup.
-      return tenant;
-    } else {
-      console.log("❌ No Tenant found for Azure AD directory ID:", directoryId);
-      console.log("💡 Make sure Tenant document has:");
-      console.log("   - authenticationConnections.connectionType = 'Entra ID (Azure AD)'");
-      console.log("   - authenticationConnections.directoryId =", directoryId);
-      return null;
-    }
-  } catch (error) {
-    console.error("Error looking up Tenant:", error.message);
-    return null;
-  }
 }
 
 class AzureADHandler {
@@ -97,14 +53,17 @@ class AzureADHandler {
     console.log("Code length:", cleanCode.length);
     console.log("CodeVerifier length:", codeVerifier?.length || 0);
 
-    // Use provided redirect_uri or fall back to environment variable/default
-    const finalRedirectUri = redirectUri || REDIRECT_URI;
+    const config = getEntraConfig();
+    const tokenEndpoint = `https://login.microsoftonline.com/${config.tenantId}/oauth2/v2.0/token`;
+
+    // Use provided redirect_uri or fall back to the configured one
+    const finalRedirectUri = redirectUri || config.redirectUri;
     console.log("Using redirect_uri:", finalRedirectUri);
 
     const data = new URLSearchParams({
       grant_type: "authorization_code",
-      client_id: CLIENT_ID,
-      client_secret: CLIENT_SECRET,
+      client_id: config.clientId,
+      client_secret: config.clientSecret,
       redirect_uri: finalRedirectUri,
       code: cleanCode,
       code_verifier: codeVerifier,
@@ -112,7 +71,7 @@ class AzureADHandler {
     });
 
     console.log("== Azure AD Token Exchange Request ==");
-    console.log("POST:", TOKEN_ENDPOINT);
+    console.log("POST:", tokenEndpoint);
     // Never log `data`: it carries client_secret, the authorization code and the PKCE verifier.
     console.log("Headers:", {
       "Content-Type": "application/x-www-form-urlencoded",
@@ -120,7 +79,7 @@ class AzureADHandler {
     console.log("=======================================");
 
     try {
-      const response = await axios.post(TOKEN_ENDPOINT, data.toString(), {
+      const response = await axios.post(tokenEndpoint, data.toString(), {
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
       });
 
@@ -187,16 +146,17 @@ class AzureADHandler {
     // unverified/forged/tampered/expired/wrong-issuer/wrong-audience token. Deliberately
     // does not log the token or its decoded payload: both carry PII/identity claims and a
     // captured log line would be as good as a captured token for anyone who can read logs.
-    const { payload } = await jwtVerify(idToken, getJwks(), {
-      issuer: `https://login.microsoftonline.com/${TENANT_ID}/v2.0`,
-      audience: CLIENT_ID,
+    const { tenantId, clientId } = getEntraConfig();
+    const { payload } = await jwtVerify(idToken, getJwks(tenantId), {
+      issuer: `https://login.microsoftonline.com/${tenantId}/v2.0`,
+      audience: clientId,
       algorithms: ["RS256"],
     });
 
     // Defense in depth: the issuer check above already pins the tenant, but require the
     // claim explicitly rather than relying solely on string-matching the issuer URL, and
-    // reject outright if it's absent rather than silently falling back to TENANT_ID.
-    if (payload.tid !== TENANT_ID) {
+    // reject outright if it's absent rather than silently falling back to the configured id.
+    if (payload.tid !== tenantId) {
       throw new Error("Azure AD token tenant mismatch");
     }
 
@@ -209,15 +169,10 @@ class AzureADHandler {
 
   static async decodeIdToken(idToken, expectedNonce) {
     const payload = await this.verifyIdToken(idToken, expectedNonce);
+    // The verified directory only says WHO issued the token. It never selects a ProjectShell
+    // tenant (several tenants may share one directory): findOrCreateUser resolves the tenant from
+    // the login context or the user's own record (helpers/identityTenantResolution.js).
     const extractedDirectoryId = payload.tid;
-
-    // Look up Tenant document by directory ID
-    const tenant = await findTenantByAzureADDirectoryId(extractedDirectoryId);
-
-    if (!tenant) {
-      console.error("Azure AD login: no Tenant found for directory ID", extractedDirectoryId);
-      throw new Error(`Tenant not found for Azure AD directory: ${extractedDirectoryId}`);
-    }
 
     const tokenFirstName = payload.given_name || payload.givenName || null;
     const tokenLastName = payload.family_name || payload.surname || null;
@@ -241,13 +196,9 @@ class AzureADHandler {
       userAuthTime: payload.auth_time || null,
       userTokenVersion: payload.ver || "2.0",
       userPolicy: null,
-      // Use Tenant._id instead of Microsoft directory ID
-      tenantId: tenant._id.toString(),
-      // Store Microsoft directory ID separately for reference
+      // Microsoft directory id, kept for reference; not a ProjectShell tenant
       microsoftDirectoryId: extractedDirectoryId,
     };
-
-    console.log(`Azure AD login verified: tenant=${tenant._id.toString()}`);
 
     return profile;
   }
@@ -279,7 +230,8 @@ class AzureADHandler {
    */
   static async findOrCreateUser(profile, tokens, loginContext = null) {
     const email = profile.userEmail;
-    let tenantId = profile.tenantId;
+    // Set only by the tenant resolution below; any tenantId on the profile is ignored.
+    let tenantId = null;
     try {
       // decodeIdToken validated the trusted Entra directory; the APPLICATION tenant is resolved
       // below from the login context or the ProjectShell user record
@@ -292,20 +244,17 @@ class AzureADHandler {
         null;
 
       if (!email) throw new Error("Email not found in Azure AD token");
-      if (!tenantId && !loginContext) {
-        console.error("Azure AD login: no tenant could be determined for this sign-in");
-        throw new Error("Tenant ID not found in Azure AD token");
-      }
 
+      const identityProfile = { ...profile };
+      delete identityProfile.tenantId;
       const updateData = {
-        ...profile,
+        ...identityProfile,
         userFirstName: resolvedFirstName,
         userLastName: resolvedLastName,
         userFullName: resolvedFullName,
         userAuthProvider: "azure-ad",
         userType: "CRM",
         userLastLogin: new Date(),
-        tenantId: tenantId,
         tokens: buildUserTokensSubdocument(tokens),
         updatedAt: new Date(),
       };
@@ -459,6 +408,7 @@ class AzureADHandler {
    */
   static async handleAzureADAuth(code, codeVerifier, redirectUri = null, expectedNonce, loginContext = null) {
     try {
+      getEntraConfig(); // fail closed before any Microsoft call when Entra is not configured
       console.log("=== Azure AD Handler: Starting Authentication ===");
       console.log("Code present:", !!code);
       console.log("CodeVerifier present:", !!codeVerifier);

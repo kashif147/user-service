@@ -32,8 +32,9 @@ const mockReset = () => {
   };
 };
 const mockBoom = () => new Error("mongo down: secret-host:27017");
+// The handlers select a tenant by { _id } only (a directory id never identifies a tenant).
 const mockMatch = (q) => {
-  const id = q && q.$or ? q.$or[0]._id : null;
+  const id = q && q._id ? String(q._id) : null;
   return id && mockState.tenants[id] ? mockState.tenants[id] : null;
 };
 const mockDoc = (t) => {
@@ -251,6 +252,24 @@ describe("authentication connections", () => {
     expect(nf.status).toBe(404);
     mockState.fail = "find";
     expect500(await call("GET", P(A)), "Failed to retrieve authentication connections");
+  });
+});
+
+describe("a Microsoft directory id is not an organisation id", () => {
+  // Tenant A's connections carry directoryId "dir-1"; previously /tenants/dir-1 loaded tenant A.
+  // SU is used so the path guard is not what stops it.
+  test("GET /tenants/:id/auth-connections with a directory id -> 404, nothing loaded", async () => {
+    const r = await call("GET", `/api/tenants/dir-1/auth-connections`, { roles: ["SU"] });
+    expect(r.status).toBe(404);
+    expect(mockState.mutations).toEqual([]);
+  });
+
+  test("GET /tenants/:id with a directory id returns no tenant (same as any unknown id)", async () => {
+    const byDir = await call("GET", `/api/tenants/dir-1`, { roles: ["SU"] });
+    const unknown = await call("GET", `/api/tenants/${C}`, { roles: ["SU"] });
+    expect(byDir.status).toBe(unknown.status); // getTenantById answers an unknown id with 500 today
+    expect(byDir.status).not.toBe(200);
+    expect(JSON.stringify(byDir.body)).not.toMatch(new RegExp(A));
   });
 });
 

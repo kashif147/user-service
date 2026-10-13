@@ -67,25 +67,17 @@ describe("B2CUsersHandler.decodeIdToken", () => {
     Tenant.findOne.mockReset();
   });
 
-  test("valid token, matching policy and nonce, resolves the tenant", async () => {
-    Tenant.findOne.mockResolvedValueOnce({
-      _id: { toString: () => "tenant-mongo-id-b2c" },
-      name: "Test Tenant",
-      code: "TT",
-    });
-
+  test("valid token, matching policy and nonce, returns the identity profile; no tenant is looked up", async () => {
     const token = await signTestJwt(privateKey, baseClaims({ nonce: expectedNonce }));
 
     const profile = await B2CUsersHandler.decodeIdToken(token, TEST_POLICY, expectedNonce);
 
-    expect(profile.tenantId).toBe("tenant-mongo-id-b2c");
     expect(profile.userEmail).toBe("member@example.com");
-    expect(Tenant.findOne).toHaveBeenCalledWith(
-      expect.objectContaining({
-        "authenticationConnections.connectionType": "Azure B2C",
-        "authenticationConnections.directoryId": process.env.MS_B2C_DIRECTORY_ID,
-      }),
-    );
+    expect(profile.microsoftDirectoryId).toBe(process.env.MS_B2C_DIRECTORY_ID);
+    // The shared B2C directory never selects a ProjectShell tenant (no first-found lookup); the
+    // tenant comes from the user's own record in findOrCreateUser.
+    expect(profile).not.toHaveProperty("tenantId");
+    expect(Tenant.findOne).not.toHaveBeenCalled();
   });
 
   test("missing expectedNonce is rejected before any verification is attempted", async () => {
@@ -144,11 +136,6 @@ describe("B2CUsersHandler.decodeIdToken", () => {
   // ERR_JWT_CLAIM_VALIDATION_FAILED on `iss` until getTenantName() started lowercasing.
   test("real B2C tokens (lowercased issuer host) validate against a mixed-case configured tenant name", async () => {
     expect(TEST_TENANT_NAME).not.toBe(ISSUER_TENANT_HOST); // sanity: the two truly differ in casing
-    Tenant.findOne.mockResolvedValueOnce({
-      _id: { toString: () => "tenant-mongo-id-b2c" },
-      name: "Test Tenant",
-      code: "TT",
-    });
 
     const token = await signTestJwt(
       privateKey,
@@ -159,7 +146,7 @@ describe("B2CUsersHandler.decodeIdToken", () => {
     );
 
     const profile = await B2CUsersHandler.decodeIdToken(token, TEST_POLICY, expectedNonce);
-    expect(profile.tenantId).toBe("tenant-mongo-id-b2c");
+    expect(profile.userEmail).toBe("member@example.com");
   });
 
   test("wrong audience fails", async () => {

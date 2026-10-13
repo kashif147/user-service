@@ -161,7 +161,14 @@ module.exports.handleMicrosoftCallback = async (req, res, next) => {
   } catch (error) {
     // Deliberate refusals (e.g. portal sign-in denied) carry their own fixed public status/message.
     if (error instanceof AppError) return next(error);
-    console.error("Microsoft Auth Error:", error);
+    // Never log the whole error: an HTTP client error carries the token request (authorization
+    // code, PKCE verifier) in its config.
+    console.error("Microsoft Auth Error:", {
+      name: error.name,
+      code: error.code || null,
+      status: error.response?.status || null,
+      error: error.response?.data?.error || null,
+    });
     const oauthDetail =
       error.response?.data?.error_description || error.response?.data?.error;
     const detailStr = String(oauthDetail || "");

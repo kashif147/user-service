@@ -24,7 +24,7 @@ class AuthController {
       // Validate refresh token and generate new access token
       const result = await RefreshTokenHelper.validateAndRefresh(refreshToken);
 
-      console.log("✅ Token refresh successful for user:", result.user.email);
+      console.log("✅ Token refresh successful for user:", String(result.user.id));
 
       // accessToken is the signed JWT itself, not AES-encrypted - see
       // azure.ad.controller.js's handleAzureADCallback for why encrypting it was actually
@@ -161,7 +161,7 @@ class AuthController {
         tokensRevoked: true,
       });
 
-      console.log("✅ User logged out successfully:", userEmail);
+      console.log("✅ User logged out successfully:", String(userId));
 
       return res.status(200).json({
         success: true,
