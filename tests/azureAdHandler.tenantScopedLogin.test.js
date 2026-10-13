@@ -26,6 +26,7 @@ const mockMatches = (u, q) =>
   Object.entries(q).every(([k, v]) => {
     if (v && typeof v === "object" && "$in" in v) return v.$in.map(String).includes(String(u[k]));
     if (v && typeof v === "object" && "$nin" in v) return !v.$nin.map(String).includes(String(u[k]));
+    if (v && typeof v === "object" && "$ne" in v) return u[k] !== v.$ne;
     return String(u[k]) === String(v);
   });
 const mockDoc = (u) => Object.assign(u, { save: async function save() { mockStore.calls.push(`save:${u._id}`); return this; } });
@@ -49,7 +50,7 @@ jest.mock("../models/user.model", () => ({
       if (mockStore.users.some((u) => String(u.tenantId) === t && (u.userEmail === set.userEmail || u.userMicrosoftId === set.userMicrosoftId))) {
         throw mockDup();
       }
-      r = { _id: `new-${mockStore.users.length + 1}`, roles: [] };
+      r = { _id: `new-${mockStore.users.length + 1}`, roles: [], ...mockClone(upd.$setOnInsert || {}) };
       mockStore.users.push(r);
       mockStore.calls.push(`insert:${t}`);
     }
@@ -72,9 +73,21 @@ jest.mock("../models/tenant.model", () => ({
   },
 }));
 jest.mock("../models/role.model", () => ({}));
-jest.mock("../helpers/roleAssignment", () => ({
-  assignDefaultRole: async (u, type, t) => mockStore.calls.push(`defaultRole:${type}:${t}`),
-}));
+// Provisioning rules are tested for real in phase2.connectionDefaultRole.test.js; here: a user has
+// access when it holds any role, and JIT gets "role-default".
+jest.mock("../helpers/connectionDefaultRole", () => {
+  class DefaultRoleError extends Error {}
+  return {
+    DefaultRoleError,
+    isAutomatic: (c) => c?.autoProvisionUsers === true,
+    hasActiveRoleInTenant: async (u) => (u.roles || []).length > 0,
+    resolveJitDefaultRoleId: async ({ tenantId, userType, connection }) => {
+      mockStore.calls.push(`defaultRole:${userType}:${tenantId}`);
+      if (connection.defaultRoleId === "broken") throw new DefaultRoleError("INACTIVE");
+      return "role-default";
+    },
+  };
+});
 jest.mock("../helpers/oauthTokenStorage", () => ({ buildUserTokensSubdocument: () => ({ stored: true }) }));
 jest.mock("../rabbitMQ/publishers/user.crm.publisher", () => ({
   publishCrmUserCreated: async () => mockStore.calls.push("publishCreated"),
@@ -84,7 +97,7 @@ jest.mock("../rabbitMQ/publishers/user.crm.publisher", () => ({
 const AzureADHandler = require("../handlers/azure.ad.handler");
 
 const conn = (id, extra = {}) => ({
-  _id: id, connectionType: "Entra ID (Azure AD)", issuerUrl: ISSUER, directoryId: DIR, isActive: true, ...extra,
+  _id: id, connectionType: "Entra ID (Azure AD)", issuerUrl: ISSUER, directoryId: DIR, isActive: true, autoProvisionUsers: true, ...extra,
 });
 // decodeIdToken's profile: tenantId is whatever tenant the directory lookup found first (A). It
 // must never decide the application tenant.
@@ -122,7 +135,7 @@ describe("positive cases: same Entra directory, tenant chosen by the login conte
     const u = await login(EMAIL_A, OID_A, ctxA);
     expect(u._id).toBe("a1");
     expect(String(u.tenantId)).toBe(TENANT_A);
-    expect(mockStore.calls).toContain(`update:{"_id":"a1"}`);
+    expect(mockStore.calls).toContain(`update:{"_id":"a1","isActive":{"$ne":false}}`);
   });
 
   test("S2 User B through DEVTENANTB, first login -> JIT user created ONLY in DEVTENANTB, keyed by oid", async () => {
@@ -135,6 +148,7 @@ describe("positive cases: same Entra directory, tenant chosen by the login conte
     expect(usersIn(TENANT_A)).toHaveLength(1);
     expect(mockStore.calls).toEqual(expect.arrayContaining([`insert:${TENANT_B}`, `defaultRole:CRM:${TENANT_B}`, "publishCreated"]));
     expect(mockStore.calls).toContain(`update:${JSON.stringify({ tenantId: TENANT_B, userMicrosoftId: OID_B })}`);
+    expect(u.roles).toEqual(["role-default"]); // assigned in the same insert, never role-less
   });
 
   test("S3 second login reuses the same DEVTENANTB user (no duplicate)", async () => {
@@ -177,7 +191,7 @@ describe("isolation: users are never read, moved or duplicated across tenants", 
     expect(String(u.tenantId)).toBe(TENANT_B);
     expect(u._id).not.toBe("a1");
     expect(byId("a1").tenantId).toBe(TENANT_A);
-    expect(mockStore.calls).not.toContain(`update:{"_id":"a1"}`);
+    expect(mockStore.calls).not.toEqual(expect.arrayContaining([expect.stringContaining(`"_id":"a1"`)]));
   });
 
   test("I2 DEVTENANTB with autoProvisionUsers:false -> 403, nothing written anywhere", async () => {
@@ -186,6 +200,13 @@ describe("isolation: users are never read, moved or duplicated across tenants", 
     await expect(login(EMAIL_B, OID_B, ctxB)).rejects.toMatchObject({ name: "AppError", status: 403 });
     expect(mockStore.calls).toEqual([]);
     expect(byId("a1").tenantId).toBe(TENANT_A); // the wrongly-placed A record is not silently moved
+  });
+
+  test("I2b DEVTENANTB with autoProvisionUsers UNSET -> 403 (unset = pre-authorised only), nothing written", async () => {
+    mockStore.tenants[1].authenticationConnections = [conn(CONN_B, { autoProvisionUsers: undefined })];
+    await expect(login(EMAIL_B, OID_B, ctxB)).rejects.toMatchObject({ name: "AppError", status: 403 });
+    expect(mockStore.calls).toEqual([]);
+    expect(usersIn(TENANT_B)).toHaveLength(0);
   });
 
   test("I3 the old defect: B's identity existing in MULTIAUTH does NOT make a DEVTENANTB login land in MULTIAUTH", async () => {
@@ -249,6 +270,19 @@ describe("logins without a tenant context keep the directory-wide fallback", () 
     expect(mockStore.calls).toEqual([]);
   });
 
+  test("F4 no organisation code: a new identity is refused even when exactly ONE tenant auto-provisions", async () => {
+    mockStore.tenants[0].authenticationConnections = [conn(CONN_A, { autoProvisionUsers: false })];
+    await expect(login(EMAIL_B, OID_B, null)).rejects.toMatchObject({ status: 403 });
+    expect(mockStore.calls).toEqual([]);
+    expect(mockStore.users).toHaveLength(0);
+  });
+
+  test("F5 no organisation code: an existing user without an active role is refused too", async () => {
+    mockStore.users = [{ ...crmUser({ id: "b1", email: EMAIL_B, tenant: TENANT_B, oid: OID_B }), roles: [] }];
+    await expect(login(EMAIL_B, OID_B, null)).rejects.toMatchObject({ status: 403, message: "You don't have access to this organisation" });
+    expect(mockStore.calls).toEqual([]);
+  });
+
   test("F3 identity present in both tenants -> fallback refuses, tenant-scoped login picks the right one", async () => {
     mockStore.users = [
       crmUser({ id: "a1", email: EMAIL_A, tenant: TENANT_A, oid: OID_A }),
@@ -257,5 +291,55 @@ describe("logins without a tenant context keep the directory-wide fallback", () 
     await expect(login(EMAIL_A, OID_A, null)).rejects.toMatchObject({ status: 403 });
     expect((await login(EMAIL_A, OID_A, ctxB))._id).toBe("b1");
     expect((await login(EMAIL_A, OID_A, ctxA))._id).toBe("a1");
+  });
+});
+
+describe("Phase 2a: access checks and default role at CRM sign-in", () => {
+  test("P1 existing user with isActive=false -> 403 before any update, role processing or token", async () => {
+    mockStore.users = [{ ...crmUser({ id: "b1", email: EMAIL_B, tenant: TENANT_B, oid: OID_B }), isActive: false }];
+    await expect(login(EMAIL_B, OID_B, ctxB)).rejects.toMatchObject({ status: 403, message: "CRM sign-in is not available for this account" });
+    expect(mockStore.calls).toEqual([]);
+    expect(byId("b1").userLastLogin).toBeUndefined();
+  });
+
+  test("P2 existing user with zero active roles -> 403 'no access', REO is NOT restored", async () => {
+    mockStore.users = [{ ...crmUser({ id: "b1", email: EMAIL_B, tenant: TENANT_B, oid: OID_B }), roles: [] }];
+    await expect(login(EMAIL_B, OID_B, ctxB)).rejects.toMatchObject({ status: 403, message: "You don't have access to this organisation" });
+    expect(mockStore.calls).toEqual([]);
+    expect(byId("b1").roles).toEqual([]);
+  });
+
+  test("P3 existing user is reused when the connection is NOT automatic (false or unset)", async () => {
+    for (const flag of [false, undefined]) {
+      mockStore.tenants[1].authenticationConnections = [conn(CONN_B, { autoProvisionUsers: flag })];
+      mockStore.users = [crmUser({ id: "b1", email: EMAIL_B, tenant: TENANT_B, oid: OID_B })];
+      mockStore.calls = [];
+      const u = await login(EMAIL_B, OID_B, ctxB);
+      expect(u._id).toBe("b1");
+      expect(mockStore.calls).not.toEqual(expect.arrayContaining([expect.stringMatching(/^(insert|defaultRole)/)]));
+    }
+  });
+
+  test("P4 configured default role unusable at login -> JIT refused, no user created", async () => {
+    mockStore.tenants[1].authenticationConnections = [conn(CONN_B, { defaultRoleId: "broken" })];
+    await expect(login(EMAIL_B, OID_B, ctxB)).rejects.toMatchObject({ status: 403 });
+    expect(usersIn(TENANT_B)).toHaveLength(0);
+    expect(mockStore.calls).not.toEqual(expect.arrayContaining([expect.stringMatching(/^(insert|update|publish)/)]));
+  });
+
+  test("P5 user deactivated between lookup and update -> 403, never upserted", async () => {
+    mockStore.users = [crmUser({ id: "b1", email: EMAIL_B, tenant: TENANT_B, oid: OID_B })];
+    const User = require("../models/user.model");
+    const orig = User.findOneAndUpdate;
+    User.findOneAndUpdate = async (q, upd, opts) => {
+      byId("b1").isActive = false;
+      return orig(q, upd, opts);
+    };
+    try {
+      await expect(login(EMAIL_B, OID_B, ctxB)).rejects.toMatchObject({ status: 403 });
+    } finally {
+      User.findOneAndUpdate = orig;
+    }
+    expect(mockStore.users).toHaveLength(1);
   });
 });

@@ -141,6 +141,14 @@ router.get(
   TenantController.getAuthenticationConnections
 );
 
+router.get(
+  "/tenants/:id/auth-connections/default-role-options",
+  requireTenant,
+  requireTenantPathAccess("id"),
+  defaultPolicyAdapter.middleware("tenant", "admin"),
+  TenantController.getDefaultRoleOptions
+);
+
 router.put(
   "/tenants/:id/auth-connections/:connectionId",
   requireTenant,

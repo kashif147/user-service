@@ -14,6 +14,13 @@ const {
   mergeSubscription,
   normalizeSubscription,
 } = require("../constants/tenantUpdateDefaults");
+const {
+  ConnectionValidationError,
+  assertConnectionWritable,
+  pickConnectionFields,
+  prepareConnectionsForWrite,
+  eligibleDefaultRoles,
+} = require("../helpers/connectionDefaultRole");
 
 // An organisation is identified only by its internal Tenant._id (code and domain have their own
 // lookups). A Microsoft directory id identifies an authentication connection, never an
@@ -139,6 +146,22 @@ module.exports.createTenant = async (tenantData, createdBy) => {
     }
 
     const payload = { ...tenantData, createdBy };
+    if (payload.authenticationConnections !== undefined) {
+      // The organisation's roles are created only after the tenant, so an automatic connection
+      // (which needs a default role of this organisation) can only be enabled afterwards.
+      if (!Array.isArray(payload.authenticationConnections)) {
+        throw new ConnectionValidationError("authenticationConnections must be an array");
+      }
+      payload.authenticationConnections = payload.authenticationConnections.map(pickConnectionFields);
+      if (payload.authenticationConnections.some((c) => c.autoProvisionUsers === true || c.defaultRoleId)) {
+        throw new ConnectionValidationError(
+          "Create the organisation first, then enable automatic provisioning with a default role"
+        );
+      }
+      for (const c of payload.authenticationConnections) {
+        await assertConnectionWritable(null, c);
+      }
+    }
     if (payload.organisationProfile) {
       payload.organisationProfile = normalizeOrganisationProfile(
         payload.organisationProfile
@@ -163,6 +186,7 @@ module.exports.createTenant = async (tenantData, createdBy) => {
 
     return tenant;
   } catch (error) {
+    if (error instanceof ConnectionValidationError) throw error;
     throw new Error(`Error creating tenant: ${error.message}`);
   }
 };
@@ -237,6 +261,15 @@ module.exports.updateTenant = async (tenantId, updateData, updatedBy) => {
       ...applyNestedTenantSections(tenant, updateData),
       updatedBy,
     };
+    // A full authenticationConnections array (the Tenant Management form) goes through the same
+    // connection rules as the per-connection endpoints.
+    if (payload.authenticationConnections !== undefined) {
+      payload.authenticationConnections = await prepareConnectionsForWrite(
+        String(tenant._id),
+        payload.authenticationConnections,
+        tenant.authenticationConnections
+      );
+    }
 
     const updatedTenant = await Tenant.findOneAndUpdate(
       buildTenantQuery(tenantId),
@@ -250,6 +283,7 @@ module.exports.updateTenant = async (tenantId, updateData, updatedBy) => {
 
     return updatedTenant;
   } catch (error) {
+    if (error instanceof ConnectionValidationError) throw error;
     throw new Error(`Error updating tenant: ${error.message}`);
   }
 };
@@ -345,9 +379,11 @@ module.exports.addAuthenticationConnection = async (
       );
     }
 
-    // Add new connection
+    // Add new connection (writable fields only, provisioning rules checked)
+    const fields = pickConnectionFields(connectionData);
+    await assertConnectionWritable(String(tenant._id), fields);
     tenant.authenticationConnections.push({
-      ...connectionData,
+      ...fields,
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -357,6 +393,7 @@ module.exports.addAuthenticationConnection = async (
 
     return tenant;
   } catch (error) {
+    if (error instanceof ConnectionValidationError) throw error;
     throw new Error(`Error adding authentication connection: ${error.message}`);
   }
 };
@@ -397,8 +434,12 @@ module.exports.updateAuthenticationConnection = async (
       }
     }
 
-    // Update connection
-    Object.assign(connection, updateData);
+    // Update connection: writable fields only; the merged result must satisfy the provisioning rules
+    const fields = pickConnectionFields(updateData);
+    const stored = typeof connection.toObject === "function" ? connection.toObject() : connection;
+    const merged = { ...pickConnectionFields(stored), ...fields };
+    await assertConnectionWritable(String(tenant._id), merged);
+    Object.assign(connection, fields);
     connection.updatedAt = new Date();
     tenant.updatedBy = updatedBy;
 
@@ -406,10 +447,21 @@ module.exports.updateAuthenticationConnection = async (
 
     return tenant;
   } catch (error) {
+    if (error instanceof ConnectionValidationError) throw error;
     throw new Error(
       `Error updating authentication connection: ${error.message}`
     );
   }
+};
+
+// Roles that may be the default role of a connection of `connectionType` in this organisation
+// (the Tenant Management role picker). Same rules as saving a connection.
+module.exports.getDefaultRoleOptions = async (tenantId, connectionType) => {
+  const tenant = await Tenant.findOne(buildTenantQuery(tenantId)).select("_id").lean();
+  if (!tenant) {
+    throw new Error("Tenant not found");
+  }
+  return eligibleDefaultRoles(String(tenant._id), connectionType);
 };
 
 module.exports.removeAuthenticationConnection = async (

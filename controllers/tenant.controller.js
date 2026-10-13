@@ -7,6 +7,7 @@ const {
 const {
   pickRegionalSettingsPayload,
 } = require("../constants/tenantUpdateDefaults");
+const { ConnectionValidationError } = require("../helpers/connectionDefaultRole");
 
 // Phase 1C-2B: non-SU lookups are confined to the caller's trusted tenant (req.ctx), never a
 // caller-supplied value. SU (from trusted roles) is unrestricted.
@@ -20,6 +21,7 @@ module.exports.createTenant = async (req, res, next) => {
     const tenant = await TenantHandler.createTenant(req.body, createdBy);
     res.status(201).json({ status: "success", data: tenant });
   } catch (error) {
+    if (error instanceof ConnectionValidationError) return next(AppError.badRequest(error.message));
     return next(AppError.internalServerError("Failed to create tenant"));
   }
 };
@@ -99,6 +101,7 @@ module.exports.updateTenant = async (req, res, next) => {
     }
     res.status(200).json({ status: "success", data: tenant });
   } catch (error) {
+    if (error instanceof ConnectionValidationError) return next(AppError.badRequest(error.message));
     return next(AppError.internalServerError("Failed to update tenant"));
   }
 };
@@ -167,6 +170,7 @@ module.exports.addAuthenticationConnection = async (req, res) => {
     );
     res.success(tenant);
   } catch (error) {
+    if (error instanceof ConnectionValidationError) return res.sendBadRequest(error.message);
     if ((error.message || "").includes("Tenant not found")) {
       return res.sendNotFound("Tenant not found");
     }
@@ -190,6 +194,7 @@ module.exports.updateAuthenticationConnection = async (req, res) => {
     );
     res.success(tenant);
   } catch (error) {
+    if (error instanceof ConnectionValidationError) return res.sendBadRequest(error.message);
     if ((error.message || "").includes("Tenant not found")) {
       return res.sendNotFound("Tenant not found");
     }
@@ -201,6 +206,22 @@ module.exports.updateAuthenticationConnection = async (req, res) => {
     }
     console.error("[tenant]", error.message);
     return res.sendInternalError("Failed to update authentication connection");
+  }
+};
+
+// Default-role options for an authentication connection (eligible roles of THIS organisation,
+// never the caller's own organisation's list)
+module.exports.getDefaultRoleOptions = async (req, res) => {
+  try {
+    const roles = await TenantHandler.getDefaultRoleOptions(req.params.id, req.query.connectionType);
+    res.success(roles);
+  } catch (error) {
+    if (error instanceof ConnectionValidationError) return res.sendBadRequest(error.message);
+    if ((error.message || "").includes("Tenant not found")) {
+      return res.sendNotFound("Tenant not found");
+    }
+    console.error("[tenant]", error.message);
+    return res.sendInternalError("Failed to retrieve default role options");
   }
 };
 

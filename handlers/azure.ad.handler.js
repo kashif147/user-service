@@ -2,10 +2,13 @@ const axios = require("axios");
 const { jwtVerify, createRemoteJWKSet } = require("jose");
 const User = require("../models/user.model");
 const { buildUserTokensSubdocument } = require("../helpers/oauthTokenStorage");
-const Role = require("../models/role.model");
-const Tenant = require("../models/tenant.model");
 const jwt = require("jsonwebtoken");
-const { assignDefaultRole } = require("../helpers/roleAssignment");
+const {
+  isAutomatic,
+  resolveJitDefaultRoleId,
+  hasActiveRoleInTenant,
+  DefaultRoleError,
+} = require("../helpers/connectionDefaultRole");
 const {
   resolveApplicationTenant,
   resolveTenantScopedUser,
@@ -18,6 +21,22 @@ const {
 } = require("../rabbitMQ/publishers/user.crm.publisher");
 
 const { getEntraConfig } = require("../helpers/entraConfig");
+
+// Public message for a CRM user without any active role in the organisation.
+const NO_ORGANISATION_ACCESS = "You don't have access to this organisation";
+
+// An existing CRM user may sign in only while active and holding at least one active role of the
+// organisation. Checked before the user record is updated and before any token is issued.
+async function assertCrmSignInAllowed(user, tenantId) {
+  if (user.isActive === false) {
+    console.warn("Azure AD login denied:", { reason: "INACTIVE_USER", userId: String(user._id), tenantId });
+    throw AppError.forbidden("CRM sign-in is not available for this account");
+  }
+  if (!(await hasActiveRoleInTenant(user, tenantId))) {
+    console.warn("Azure AD login denied:", { reason: "NO_ACTIVE_ROLE", userId: String(user._id), tenantId });
+    throw AppError.forbidden(NO_ORGANISATION_ACCESS);
+  }
+}
 
 const GRAPH_ME_ENDPOINT = "https://graph.microsoft.com/v1.0/me";
 
@@ -259,9 +278,10 @@ class AzureADHandler {
         updatedAt: new Date(),
       };
 
-      // Application tenant = the ProjectShell user's own tenant among the tenants that trust this
-      // Entra directory (several tenants may share one directory). The directory never assigns or
-      // rewrites a user's tenant; first-login provisioning goes to the single auto-provisioning tenant.
+      // Application tenant = the organisation the login was started for (tenant-scoped), or, on the
+      // legacy no-code path, the existing user's own tenant among the tenants that trust this Entra
+      // directory. The directory never assigns or rewrites a user's tenant; first-login provisioning
+      // happens only on a tenant-scoped login through an automatic connection.
       const identity = {
         connectionType: "Entra ID (Azure AD)",
         directoryId: profile.microsoftDirectoryId,
@@ -271,9 +291,11 @@ class AzureADHandler {
       };
       let resolution;
       try {
+        // Without an organisation code (legacy path) only EXISTING users may sign in: a new user
+        // is never provisioned into an organisation chosen from the directory alone.
         resolution = loginContext
           ? await resolveTenantScopedUser({ ...identity, ...loginContext })
-          : await resolveApplicationTenant(identity);
+          : await resolveApplicationTenant({ ...identity, allowProvisioning: false });
       } catch (err) {
         if (err instanceof IdentityTenantError) {
           console.warn("Azure AD login denied:", {
@@ -287,26 +309,31 @@ class AzureADHandler {
       }
       tenantId = resolution.tenantId;
       updateData.tenantId = tenantId;
-      let existingUser = resolution.existingUser;
+      const existingUser = resolution.existingUser;
 
-      // Legacy migration only (directory-fallback logins): a user whose tenantId predates Tenant
-      // mapping (not a real Tenant, e.g. a raw directory id) is moved into the resolved tenant. A
-      // user in another REAL tenant is never moved. Tenant-scoped logins never look outside their
-      // tenant.
-      if (!existingUser && !loginContext) {
-        const legacy = await User.find({
-          userEmail: email,
-          tenantId: { $nin: resolution.candidateTenantIds },
-        }).lean();
-        const legacyOnly = [];
-        for (const u of legacy) {
-          const tid = String(u.tenantId || "");
-          const isRealTenant = /^[0-9a-f]{24}$/i.test(tid) && (await Tenant.exists({ _id: tid }));
-          if (!isRealTenant) legacyOnly.push(u);
+      // Access checks for an existing user, before any write, role processing or token:
+      // deactivated -> refused (as the portal); no active role in this organisation -> refused
+      // (zero roles is an intentional state, never repaired at sign-in).
+      if (existingUser) {
+        await assertCrmSignInAllowed(existingUser, tenantId);
+      }
+
+      // A new user (tenant-scoped login on an automatic connection only) gets the connection's
+      // default role in the same atomic insert, so a role-less user is never created.
+      let jitRoleId = null;
+      if (!existingUser) {
+        if (!loginContext || !isAutomatic(resolution.connection)) {
+          // resolveTenantScopedUser / resolveApplicationTenant already refuse this; kept fail-closed.
+          console.warn("Azure AD login denied:", { reason: "NOT_PROVISIONED", tenantId });
+          throw AppError.forbidden("CRM sign-in is not available for this account");
         }
-        if (legacyOnly.length === 1) {
-          existingUser = legacyOnly[0];
-          console.log("📌 Migrating legacy CRM user (pre-tenant-mapping tenantId) into resolved tenant");
+        try {
+          jitRoleId = await resolveJitDefaultRoleId({ tenantId, connection: resolution.connection, userType: "CRM" });
+        } catch (err) {
+          if (err instanceof DefaultRoleError) {
+            throw AppError.forbidden("CRM sign-in is not available for this account");
+          }
+          throw err;
         }
       }
 
@@ -319,46 +346,37 @@ class AzureADHandler {
         outcome: isNewUser ? "provisioned" : "existing",
       });
 
-      // Use atomic findOneAndUpdate with upsert to prevent race conditions
-      // If existing user found by email only, update their tenantId to new Tenant._id
+      // Atomic findOneAndUpdate. An existing user is updated by _id only while still active
+      // (re-checked atomically, never upserted); a new user is inserted keyed by the Entra oid.
       const user = await User.findOneAndUpdate(
         existingUser
-          ? { _id: existingUser._id } // the resolved (or legacy-migrated) user, by identity
-          : loginContext
-            ? { tenantId, userMicrosoftId: profile.userMicrosoftId } // JIT, keyed by the Entra oid
-            : { userEmail: email, tenantId: tenantId }, // first-login provisioning
+          ? { _id: existingUser._id, isActive: { $ne: false } }
+          : { tenantId, userMicrosoftId: profile.userMicrosoftId },
         {
           $set: updateData, // This includes the new tenantId (Tenant._id)
           $setOnInsert: {
             createdAt: new Date(),
+            ...(jitRoleId ? { roles: [jitRoleId] } : {}),
           },
         },
         {
-          upsert: true,
+          upsert: !existingUser,
           new: true,
           runValidators: true,
         }
       );
 
-      // Check if user needs role assignment (new user or existing user without roles)
-      const needsRoleAssignment =
-        isNewUser || !user.roles || user.roles.length === 0;
+      if (!user) {
+        // Deactivated (or removed) concurrently: deny rather than insert.
+        console.warn("Azure AD login denied:", { reason: "USER_CHANGED_DURING_LOGIN", userId: String(existingUser._id), tenantId });
+        throw AppError.forbidden("CRM sign-in is not available for this account");
+      }
 
       if (isNewUser) {
         console.log(`Created CRM user ${user._id} in tenant ${tenantId}`);
-        if (needsRoleAssignment) {
-          await assignDefaultRole(user, "CRM", tenantId);
-          // Save again to persist the role assignment
-          await user.save();
-        }
         await publishCrmUserCreated(user);
       } else {
         console.log(`Updated CRM user ${user._id} in tenant ${tenantId}`);
-        // If existing user doesn't have roles, assign them
-        if (needsRoleAssignment) {
-          await assignDefaultRole(user, "CRM", tenantId);
-          await user.save();
-        }
         await publishCrmUserUpdated(user, {
           userEmail: previousEmail,
           userFullName: previousFullName,
@@ -380,8 +398,9 @@ class AzureADHandler {
             : { userEmail: email, tenantId: tenantId }
         );
         // Only adopt the concurrently-created record of the SAME identity: an email collision with
-        // a different oid is a conflict, not a login.
+        // a different oid is a conflict, not a login. It passes the same access checks.
         if (user && (!loginContext || user.userMicrosoftId === profile.userMicrosoftId)) {
+          await assertCrmSignInAllowed(user, tenantId);
           // Update the user with latest data
           Object.assign(user, {
             ...profile,

@@ -5,6 +5,12 @@ const Tenant = require("../models/tenant.model");
 const { AppError } = require("../errors/AppError");
 const { resolveApplicationTenant, IdentityTenantError } = require("../helpers/identityTenantResolution");
 const {
+  isAutomatic,
+  resolveJitDefaultRoleId,
+  hasActiveRoleInTenant,
+  DefaultRoleError,
+} = require("../helpers/connectionDefaultRole");
+const {
   syncPortalUserRolesFromMembership,
 } = require("../helpers/portalRoleSync");
 const {
@@ -55,6 +61,18 @@ function assertPortalSignInAllowed(user) {
   if (reason) {
     console.warn("B2C login denied:", { reason, userId: String(user._id), tenantId: user.tenantId });
     throw AppError.forbidden(PORTAL_SIGN_IN_DENIED);
+  }
+}
+
+// Public message for a portal user without any active role in the organisation.
+const NO_ORGANISATION_ACCESS = "You don't have access to this organisation";
+
+// Zero active roles in the organisation is an intentional state (e.g. an administrator removed
+// them): the user is refused before any update, membership-role sync or token, never repaired.
+async function assertPortalUserHasAccess(user, tenantId) {
+  if (!(await hasActiveRoleInTenant(user, tenantId))) {
+    console.warn("B2C login denied:", { reason: "NO_ACTIVE_ROLE", userId: String(user._id), tenantId });
+    throw AppError.forbidden(NO_ORGANISATION_ACCESS);
   }
 }
 
@@ -250,15 +268,36 @@ class B2CUsersHandler {
       // If not found, look for a legacy PORTAL user created before tenant mapping (its tenantId is
       // not a real Tenant). Only that user is migrated to the resolved tenantId: a user in another
       // real tenant, or a CRM user, is never moved - a new PORTAL user is created instead.
+      let migratingLegacyUser = false;
       if (!existingUser) {
         existingUser = await findLegacyPortalUser(email, tenantId);
+        migratingLegacyUser = !!existingUser;
       }
 
       if (existingUser) {
         assertPortalSignInAllowed(existingUser);
+        // A legacy user's roles belong to its pre-mapping tenant; it is provisioned below instead.
+        if (!migratingLegacyUser) await assertPortalUserHasAccess(existingUser, tenantId);
       }
 
       const isNewUser = !existingUser;
+
+      // New (or legacy-migrated) users only arrive here through the single automatic connection
+      // (resolveApplicationTenant); they get its default role in the same atomic write, so a
+      // role-less portal user is never created.
+      let jitRoleId = null;
+      if (isNewUser || migratingLegacyUser) {
+        if (!isAutomatic(resolution.connection)) {
+          console.warn("B2C login denied:", { reason: "NOT_PROVISIONED", tenantId });
+          throw AppError.forbidden(PORTAL_SIGN_IN_DENIED);
+        }
+        try {
+          jitRoleId = await resolveJitDefaultRoleId({ tenantId, connection: resolution.connection, userType: "PORTAL" });
+        } catch (err) {
+          if (err instanceof DefaultRoleError) throw AppError.forbidden(PORTAL_SIGN_IN_DENIED);
+          throw err;
+        }
+      }
 
       // Capture previous values for update event (before update)
       const previousValues = existingUser
@@ -283,9 +322,10 @@ class B2CUsersHandler {
             }
           : { userEmail: email, tenantId: tenantId },
         {
-          $set: updateData, // This includes the new tenantId (Tenant._id)
+          $set: migratingLegacyUser ? { ...updateData, roles: [jitRoleId] } : updateData, // includes tenantId (Tenant._id)
           $setOnInsert: {
             createdAt: new Date(),
+            ...(isNewUser && jitRoleId ? { roles: [jitRoleId] } : {}),
           },
         },
         {
@@ -330,6 +370,7 @@ class B2CUsersHandler {
         });
         if (user) {
           assertPortalSignInAllowed(user);
+          await assertPortalUserHasAccess(user, tenantId);
           Object.assign(user, updateData);
           await user.save();
           await syncPortalUserRolesFromMembership(user, email, tenantId, {

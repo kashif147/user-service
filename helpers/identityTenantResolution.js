@@ -16,7 +16,9 @@
  *     More than one -> refuse (the same identity provisioned in two tenants needs an explicit
  *     tenant choice, which sign-in does not offer).
  *  3. No existing user -> first-login provisioning only into the single candidate tenant whose
- *     connection allows it (`autoProvisionUsers !== false`, the default). Zero or several -> refuse.
+ *     connection allows it (`autoProvisionUsers === true`; false or unset = pre-authorised users
+ *     only). Zero or several -> refuse. Callers that must never provision (the CRM login without
+ *     an organisation code) pass `allowProvisioning: false`: no existing user -> refuse.
  *
  * With one tenant per directory (today's INMO setup) the result is identical to the previous
  * directory -> tenant lookup. Nothing here reads a tenant from the request, the token's
@@ -48,13 +50,13 @@ async function findCandidateTenants(connectionType, directoryId) {
     .lean();
 }
 
-function allowsAutoProvision(tenant, connectionType, directoryId) {
-  return (tenant.authenticationConnections || []).some(
+function autoProvisionConnection(tenant, connectionType, directoryId) {
+  return (tenant.authenticationConnections || []).find(
     (c) =>
       c.connectionType === connectionType &&
       c.directoryId === directoryId &&
       c.isActive === true &&
-      c.autoProvisionUsers !== false
+      c.autoProvisionUsers === true
   );
 }
 
@@ -65,9 +67,11 @@ function allowsAutoProvision(tenant, connectionType, directoryId) {
  * @param {string|null} args.email
  * @param {string|null} args.microsoftId  token `oid`
  * @param {import("mongoose").Model} args.UserModel
- * @returns {Promise<{ tenantId: string, existingUser: object|null, candidateTenantIds: string[] }>}
+ * @param {boolean} [args.allowProvisioning=true]  false: existing users only
+ * @returns {Promise<{ tenantId: string, existingUser: object|null, candidateTenantIds: string[],
+ *   connection: object|null }>}  connection = the auto-provisioning connection (new users only)
  */
-async function resolveApplicationTenant({ connectionType, directoryId, email, microsoftId, UserModel }) {
+async function resolveApplicationTenant({ connectionType, directoryId, email, microsoftId, UserModel, allowProvisioning = true }) {
   const candidates = await findCandidateTenants(connectionType, directoryId);
   if (candidates.length === 0) {
     throw new IdentityTenantError(
@@ -91,17 +95,26 @@ async function resolveApplicationTenant({ connectionType, directoryId, email, mi
     );
   }
   if (users.length === 1) {
-    return { tenantId: String(users[0].tenantId), existingUser: users[0], candidateTenantIds };
+    return { tenantId: String(users[0].tenantId), existingUser: users[0], candidateTenantIds, connection: null };
   }
 
-  const provisioning = candidates.filter((t) => allowsAutoProvision(t, connectionType, directoryId));
+  const provisioning = allowProvisioning
+    ? candidates
+        .map((t) => ({ tenant: t, connection: autoProvisionConnection(t, connectionType, directoryId) }))
+        .filter((p) => p.connection)
+    : [];
   if (provisioning.length !== 1) {
     throw new IdentityTenantError(
       "NOT_PROVISIONED",
       "No ProjectShell account is provisioned for this identity"
     );
   }
-  return { tenantId: provisioning[0]._id.toString(), existingUser: null, candidateTenantIds };
+  return {
+    tenantId: provisioning[0].tenant._id.toString(),
+    existingUser: null,
+    candidateTenantIds,
+    connection: provisioning[0].connection,
+  };
 }
 
 const isPlaceholderMicrosoftId = (v) => !v || String(v).startsWith("pending-first-login");
@@ -116,11 +129,11 @@ const isPlaceholderMicrosoftId = (v) => !v || String(v).startsWith("pending-firs
  *     record's issuer must be the same directory), else by email but only to claim a record that
  *     has no real oid yet (pre-provisioned / legacy). An email match carrying a DIFFERENT oid is
  *     refused, never taken over.
- *  3. Nobody found -> just-in-time provisioning into this tenant, unless the connection has
- *     `autoProvisionUsers: false`.
+ *  3. Nobody found -> just-in-time provisioning into this tenant, only when the connection has
+ *     `autoProvisionUsers: true` (false or unset -> refuse).
  * Users in other tenants are never read, moved or created here.
  *
- * @returns {Promise<{ tenantId: string, existingUser: object|null }>}
+ * @returns {Promise<{ tenantId: string, existingUser: object|null, connection: object }>}
  */
 async function resolveTenantScopedUser({ tenantId, connectionId, connectionType, directoryId, email, microsoftId, UserModel }) {
   const tenant = await Tenant.findOne({ _id: tenantId, isActive: { $ne: false } })
@@ -149,7 +162,7 @@ async function resolveTenantScopedUser({ tenantId, connectionId, connectionType,
     if (issuer && !String(issuer).includes(`/${directoryId}/`)) {
       throw new IdentityTenantError("IDENTITY_CONFLICT", "User record belongs to a different directory");
     }
-    return { tenantId: scopedTenantId, existingUser: byOid[0] };
+    return { tenantId: scopedTenantId, existingUser: byOid[0], connection };
   }
 
   if (email) {
@@ -158,14 +171,14 @@ async function resolveTenantScopedUser({ tenantId, connectionId, connectionType,
       if (!isPlaceholderMicrosoftId(byEmail[0].userMicrosoftId)) {
         throw new IdentityTenantError("IDENTITY_CONFLICT", "Email belongs to a different identity in this tenant");
       }
-      return { tenantId: scopedTenantId, existingUser: byEmail[0] };
+      return { tenantId: scopedTenantId, existingUser: byEmail[0], connection };
     }
   }
 
-  if (connection.autoProvisionUsers === false) {
+  if (connection.autoProvisionUsers !== true) {
     throw new IdentityTenantError("NOT_PROVISIONED", "This tenant does not create users on first sign-in");
   }
-  return { tenantId: scopedTenantId, existingUser: null };
+  return { tenantId: scopedTenantId, existingUser: null, connection };
 }
 
 module.exports = { resolveApplicationTenant, resolveTenantScopedUser, IdentityTenantError };

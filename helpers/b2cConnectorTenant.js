@@ -13,8 +13,8 @@ async function resolveB2CConnectorTenantId(clientId) {
   const tenants = await Tenant.find({
     authenticationConnections: {
       // Sign-up provisions a user, so only auto-provisioning connections qualify
-      // (see autoProvisionUsers in models/tenant.model.js).
-      $elemMatch: { connectionType: "Azure B2C", audience: id, isActive: true, autoProvisionUsers: { $ne: false } },
+      // (autoProvisionUsers must be explicitly true; see models/tenant.model.js).
+      $elemMatch: { connectionType: "Azure B2C", audience: id, isActive: true, autoProvisionUsers: true },
     },
   })
     .select("_id")

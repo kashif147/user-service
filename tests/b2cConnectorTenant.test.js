@@ -4,21 +4,24 @@
 // profile-service as a genuine internal call (x-internal-request + x-tenant-id).
 const A = "aaaaaaaaaaaaaaaaaaaaaaaa";
 const B = "bbbbbbbbbbbbbbbbbbbbbbbb";
+const auto = { autoProvisionUsers: true };
 const mockTenants = [
-  { _id: A, authenticationConnections: [{ connectionType: "Azure B2C", audience: "app-A", isActive: true }] },
-  { _id: B, authenticationConnections: [{ connectionType: "Azure B2C", audience: "app-B", isActive: true }] },
-  { _id: "dup1", authenticationConnections: [{ connectionType: "Azure B2C", audience: "app-shared", isActive: true }] },
-  { _id: "dup2", authenticationConnections: [{ connectionType: "Azure B2C", audience: "app-shared", isActive: true }] },
-  { _id: "off", authenticationConnections: [{ connectionType: "Azure B2C", audience: "app-off", isActive: false }] },
+  { _id: A, authenticationConnections: [{ connectionType: "Azure B2C", audience: "app-A", isActive: true, ...auto }] },
+  { _id: B, authenticationConnections: [{ connectionType: "Azure B2C", audience: "app-B", isActive: true, ...auto }] },
+  { _id: "dup1", authenticationConnections: [{ connectionType: "Azure B2C", audience: "app-shared", isActive: true, ...auto }] },
+  { _id: "dup2", authenticationConnections: [{ connectionType: "Azure B2C", audience: "app-shared", isActive: true, ...auto }] },
+  { _id: "off", authenticationConnections: [{ connectionType: "Azure B2C", audience: "app-off", isActive: false, ...auto }] },
   // Phase 2E: two tenants share one B2C app; only the first auto-provisions (sign-up target).
-  { _id: "prov", authenticationConnections: [{ connectionType: "Azure B2C", audience: "app-sharedB", isActive: true }] },
+  { _id: "prov", authenticationConnections: [{ connectionType: "Azure B2C", audience: "app-sharedB", isActive: true, ...auto }] },
   { _id: "noprov", authenticationConnections: [{ connectionType: "Azure B2C", audience: "app-sharedB", isActive: true, autoProvisionUsers: false }] },
+  // Phase 2a: unset = pre-authorised users only, never a sign-up target.
+  { _id: "unset", authenticationConnections: [{ connectionType: "Azure B2C", audience: "app-unset", isActive: true }] },
 ];
 jest.mock("../models/tenant.model", () => ({
   find: jest.fn((q) => {
     const m = q.authenticationConnections.$elemMatch;
     const rows = mockTenants.filter((t) => t.authenticationConnections.some((c) => c.connectionType === m.connectionType && c.audience === m.audience && c.isActive === m.isActive
-      && (!m.autoProvisionUsers || c.autoProvisionUsers !== m.autoProvisionUsers.$ne)));
+      && (m.autoProvisionUsers === undefined || c.autoProvisionUsers === m.autoProvisionUsers)));
     const chain = { select: () => chain, limit: (n) => { chain._n = n; return chain; }, lean: async () => rows.slice(0, chain._n || rows.length) };
     return chain;
   }),
@@ -87,4 +90,10 @@ test("6 a B2C app shared by two tenants signs up only into the auto-provisioning
   expect(r.body.action).toBe("Continue");
   expect(mockPosts).toHaveLength(1);
   expect(mockPosts[0].headers["x-tenant-id"]).toBe("prov");
+});
+
+test("7 Phase 2a: a connection with autoProvisionUsers UNSET is not a sign-up target (fails closed)", async () => {
+  const r = await call({ email: "u@example.test", step: "PostAttributeCollection", client_id: "app-unset" });
+  expect(r.body.action).toBe("ShowBlockPage");
+  expect(mockPosts).toHaveLength(0);
 });

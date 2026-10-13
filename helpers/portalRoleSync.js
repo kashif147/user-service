@@ -1,11 +1,14 @@
 const Role = require("../models/role.model");
-const { assignDefaultRole, assignMemberRole } = require("./roleAssignment");
+const { assignMemberRole } = require("./roleAssignment");
 const { hasActiveMembership } = require("../services/membershipCheck.service");
 
 /**
- * For PORTAL users: if they need a role or only have NON-MEMBER, check profile-service +
- * subscription-service; assign MEMBER when active membership exists, otherwise NON-MEMBER
- * when they still need an initial role.
+ * For PORTAL users at sign-in: a new user (already given the connection's default role when it
+ * was created), or an existing user whose only role is NON-MEMBER, is checked against
+ * profile-service + subscription-service and upgraded to MEMBER when an active membership exists.
+ *
+ * It never assigns a role to a user without one: zero active roles is an intentional state that
+ * sign-in refuses before calling this (handlers/b2c.users.handler.js).
  *
  * @param {object} user - User document (mutated on assignment)
  * @param {string} email
@@ -15,8 +18,6 @@ const { hasActiveMembership } = require("../services/membershipCheck.service");
  */
 async function syncPortalUserRolesFromMembership(user, email, tenantId, options = {}) {
   const { isNewUser = false } = options;
-  const needsRoleAssignment =
-    isNewUser || !user.roles || user.roles.length === 0;
 
   const nonMemberRole = await Role.findOne({
     tenantId,
@@ -28,7 +29,7 @@ async function syncPortalUserRolesFromMembership(user, email, tenantId, options 
     user.roles?.length === 1 &&
     user.roles[0].equals(nonMemberRole._id);
 
-  const shouldCheckMembership = needsRoleAssignment || hasOnlyNonMember;
+  const shouldCheckMembership = isNewUser || hasOnlyNonMember;
   let assignedMemberFromCheck = false;
 
   if (shouldCheckMembership) {
@@ -37,11 +38,6 @@ async function syncPortalUserRolesFromMembership(user, email, tenantId, options 
       assignedMemberFromCheck = await assignMemberRole(user, tenantId);
       if (assignedMemberFromCheck) await user.save();
     }
-  }
-
-  if (needsRoleAssignment && !assignedMemberFromCheck) {
-    await assignDefaultRole(user, "PORTAL", tenantId);
-    await user.save();
   }
 
   return { assignedMemberFromCheck };

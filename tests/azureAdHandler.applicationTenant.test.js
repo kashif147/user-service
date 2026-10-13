@@ -9,6 +9,10 @@
  * Before: the tenant was whichever Tenant listed the directory, and ANY existing user found by
  * email alone was re-tenanted into it on login (a Tenant-B user would be moved to Tenant A).
  *
+ * Phase 2a: this no-organisation-code path signs in EXISTING users only; a new identity (or a
+ * legacy record outside every real tenant) is refused instead of being provisioned or moved into a
+ * tenant chosen from the directory alone.
+ *
  * Runs the REAL AzureADHandler.findOrCreateUser and helpers/identityTenantResolution.js against
  * in-memory User/Tenant models honouring the unique {tenantId,userEmail} index.
  */
@@ -23,6 +27,7 @@ const mockMatches = (u, q) =>
   Object.entries(q).every(([k, v]) => {
     if (v && typeof v === "object" && "$in" in v) return v.$in.map(String).includes(String(u[k]));
     if (v && typeof v === "object" && "$nin" in v) return !v.$nin.map(String).includes(String(u[k]));
+    if (v && typeof v === "object" && "$ne" in v) return u[k] !== v.$ne;
     return String(u[k]) === String(v);
   });
 const mockDoc = (u) => Object.assign(u, { save: async function save() { mockStore.calls.push(`save:${u._id}`); return this; } });
@@ -65,9 +70,18 @@ jest.mock("../models/tenant.model", () => ({
   },
 }));
 jest.mock("../models/role.model", () => ({}));
-jest.mock("../helpers/roleAssignment", () => ({
-  assignDefaultRole: async (u, type, t) => mockStore.calls.push(`defaultRole:${type}:${t}`),
-}));
+jest.mock("../helpers/connectionDefaultRole", () => {
+  class DefaultRoleError extends Error {}
+  return {
+    DefaultRoleError,
+    isAutomatic: (c) => c?.autoProvisionUsers === true,
+    hasActiveRoleInTenant: async (u) => (u.roles || []).length > 0,
+    resolveJitDefaultRoleId: async ({ tenantId, userType }) => {
+      mockStore.calls.push(`defaultRole:${userType}:${tenantId}`);
+      return "role-default";
+    },
+  };
+});
 jest.mock("../helpers/oauthTokenStorage", () => ({ buildUserTokensSubdocument: () => ({ stored: true }) }));
 jest.mock("../rabbitMQ/publishers/user.crm.publisher", () => ({
   publishCrmUserCreated: async () => mockStore.calls.push("publishCreated"),
@@ -95,7 +109,7 @@ beforeEach(() => {
   mockStore.calls = [];
   mockStore.realTenants = [TENANT_A, TENANT_B, OTHER_TENANT];
   mockStore.trustingTenants = [
-    { _id: TENANT_A, authenticationConnections: [conn()] },
+    { _id: TENANT_A, authenticationConnections: [conn(true)] },
     { _id: TENANT_B, authenticationConnections: [conn(false)] },
   ];
   jest.spyOn(console, "log").mockImplementation(() => {});
@@ -109,7 +123,7 @@ describe("CRM application tenant comes from the ProjectShell user, not the Entra
     mockStore.users = [crmUser({ id: "a1", email: "a@x.com", tenant: TENANT_A, oid: "oid-a" })];
     const u = await login("a@x.com", "oid-a");
     expect(String(u.tenantId)).toBe(TENANT_A);
-    expect(mockStore.calls).toContain(`update:{"_id":"a1"}`);
+    expect(mockStore.calls).toContain(`update:{"_id":"a1","isActive":{"$ne":false}}`);
   });
 
   test("C2 user provisioned in Tenant B (same directory) -> Tenant B; tenant never rewritten to A", async () => {
@@ -127,25 +141,30 @@ describe("CRM application tenant comes from the ProjectShell user, not the Entra
     expect(byId("b2").userMicrosoftId).toBe("oid-first-login");
   });
 
-  test("C4 new identity -> provisioned into the auto-provisioning tenant (A) with its default role", async () => {
-    const u = await login("new@x.com", "oid-new");
-    expect(String(u.tenantId)).toBe(TENANT_A);
-    expect(mockStore.calls).toEqual(expect.arrayContaining(["insert", `defaultRole:CRM:${TENANT_A}`, "publishCreated"]));
+  test("C4 new identity without an organisation code -> 403 even though tenant A auto-provisions; nothing written", async () => {
+    await expect(login("new@x.com", "oid-new")).rejects.toMatchObject({ name: "AppError", status: 403 });
+    expect(mockStore.calls).toEqual([]);
+    expect(mockStore.users).toHaveLength(0);
   });
 
-  test("C5 same email in a REAL tenant that does not trust the directory is NOT moved (old code re-tenanted it)", async () => {
+  test("C5 same email in a REAL tenant that does not trust the directory is NOT moved, and nothing is created", async () => {
     mockStore.users = [crmUser({ id: "o1", email: "o@x.com", tenant: OTHER_TENANT, oid: "oid-o" })];
-    const u = await login("o@x.com", "oid-o");
+    await expect(login("o@x.com", "oid-o")).rejects.toMatchObject({ status: 403 });
     expect(byId("o1").tenantId).toBe(OTHER_TENANT);
-    expect(String(u.tenantId)).toBe(TENANT_A);
-    expect(u._id).not.toBe("o1");
+    expect(mockStore.users).toHaveLength(1);
   });
 
-  test("C6 legacy user whose tenantId is not a real Tenant is still migrated into the resolved tenant", async () => {
+  test("C6 legacy user whose tenantId is not a real Tenant is no longer moved into a directory-chosen tenant", async () => {
     mockStore.users = [crmUser({ id: "l1", email: "legacy@x.com", tenant: "raw-directory-guid", oid: "oid-l" })];
-    const u = await login("legacy@x.com", "oid-l");
-    expect(u._id).toBe("l1");
-    expect(String(byId("l1").tenantId)).toBe(TENANT_A);
+    await expect(login("legacy@x.com", "oid-l")).rejects.toMatchObject({ status: 403 });
+    expect(byId("l1").tenantId).toBe("raw-directory-guid");
+    expect(mockStore.calls).toEqual([]);
+  });
+
+  test("C6b existing user, inactive -> 403 before any write", async () => {
+    mockStore.users = [{ ...crmUser({ id: "b1", email: "b.staff@x.com", tenant: TENANT_B, oid: "oid-b" }), isActive: false }];
+    await expect(login("b.staff@x.com", "oid-b")).rejects.toMatchObject({ status: 403 });
+    expect(mockStore.calls).toEqual([]);
   });
 
   test("C7 identity provisioned in both A and B -> 403, nothing written", async () => {

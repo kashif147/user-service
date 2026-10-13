@@ -33,11 +33,36 @@ restores it from the state only (`takeLoginTransaction`); body/query/`x-tenant-i
 active and its `directoryId` equals the token `tid`, finds the user ONLY in that tenant by `oid`
 (record issuer must be the same directory), else claims an email match that has no real oid yet
 (pre-provisioned/legacy; an email match with a different oid is a 403, never a takeover), else JIT
-creates the user in that tenant keyed by `{tenantId, userMicrosoftId}` unless the connection has
-`autoProvisionUsers: false`. Users in other tenants are never read, moved or created.
+creates the user in that tenant keyed by `{tenantId, userMicrosoftId}` only when the connection has
+`autoProvisionUsers: true`. Users in other tenants are never read, moved or created.
 
 **CRM without `?tenant` / B2C portal (fallback):** `resolveApplicationTenant` finds the user (oid,
 then email) among the tenants that trust the directory and uses that user's own `tenantId`, never
-rewriting it; first-login provisioning only into the single trusting tenant whose connection has
-`autoProvisionUsers !== false` (zero or several -> 403). The B2C sign-up connector
-(`helpers/b2cConnectorTenant.js`) follows the same flag.
+rewriting it. The CRM no-code path is existing-users-only (`allowProvisioning: false`; to be retired
+once every CRM entry point resolves an organisation first). B2C provisions first-login users only into
+the single trusting tenant whose connection has `autoProvisionUsers: true` (zero or several -> 403).
+The B2C sign-up connector (`helpers/b2cConnectorTenant.js`) follows the same flag.
+
+## Provisioning rules (Phase 2a, `helpers/connectionDefaultRole.js`)
+
+- `autoProvisionUsers`: only explicit `true` is automatic; `false` **or unset** = pre-authorised users
+  only (the schema has no default on purpose). Existing users sign in regardless of the flag.
+- `defaultRoleId` (per connection): the role a JIT user gets, written in the same atomic insert (a
+  role-less user is never created). It must be a role of the same organisation, active, of the
+  connection's user type (Entra -> CRM, B2C -> PORTAL), not SU/ASU/`isSystemRole`/category SYSTEM,
+  without reserved permissions (`isReservedPermission`). Role `level` is NOT a privilege signal
+  (DEV DEVTENANTB's SU/ASU have level 1).
+- Every connection write path enforces this (400): POST/PUT `/tenants/:id/auth-connections`, POST
+  `/tenants` and PUT `/tenants/:id` with a full `authenticationConnections` array (what the CRM
+  Tenant Management form sends) - only new/changed connections are validated, unknown fields are
+  dropped. An automatic connection needs a default role, so it cannot be created together with a new
+  organisation (its roles do not exist yet). The role picker uses
+  `GET /tenants/:id/auth-connections/default-role-options?connectionType=...`.
+- At sign-in a configured but unusable default role refuses JIT. **2a migration only:** an automatic
+  connection without `defaultRoleId` falls back to REO (CRM) / NON-MEMBER (portal) and logs an
+  id-only `LEGACY_DEFAULT_ROLE` warning; Phase 2b removes that fallback, and must not be deployed to
+  an environment until a read-only check shows every automatic connection there has a valid role.
+- Existing users: `isActive: false` -> 403 (CRM and portal); zero ACTIVE roles of the organisation ->
+  403 "You don't have access to this organisation", before any update, role sync or token. Roles are
+  never restored at sign-in. Note: the membership promotion/approval/demotion listeners still set
+  MEMBER/NON-MEMBER regardless of the user's current roles (unchanged).

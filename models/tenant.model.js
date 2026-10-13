@@ -187,13 +187,20 @@ const TenantSchema = new mongoose.Schema({
         type: Boolean,
         default: true,
       },
-      // false: this tenant trusts the directory for sign-in of users already provisioned in it,
-      // but first-login auto-provisioning (and the B2C sign-up connector) never targets it.
-      // Lets several tenants share one directory while exactly one auto-provisions
-      // (helpers/identityTenantResolution.js).
+      // true: users signing in through this connection for the first time are created
+      // just-in-time (and the B2C sign-up connector may target this tenant). false or unset:
+      // pre-authorised users only. Deliberately no default, so an unset value stays visible and
+      // is treated as false (helpers/connectionDefaultRole.js). Existing users sign in either way.
       autoProvisionUsers: {
         type: Boolean,
-        default: true,
+      },
+      // Role given to a user created just-in-time through this connection. Required when
+      // autoProvisionUsers is true; validated on save and again at sign-in
+      // (helpers/connectionDefaultRole.js).
+      defaultRoleId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Role",
+        default: undefined,
       },
       createdAt: {
         type: Date,
