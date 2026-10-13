@@ -48,10 +48,12 @@ The B2C sign-up connector (`helpers/b2cConnectorTenant.js`) follows the same fla
 - `autoProvisionUsers`: only explicit `true` is automatic; `false` **or unset** = pre-authorised users
   only (the schema has no default on purpose). Existing users sign in regardless of the flag.
 - `defaultRoleId` (per connection): the role a JIT user gets, written in the same atomic insert (a
-  role-less user is never created). It must be a role of the same organisation, active, of the
-  connection's user type (Entra -> CRM, B2C -> PORTAL), not SU/ASU/`isSystemRole`/category SYSTEM,
-  without reserved permissions (`isReservedPermission`). Role `level` is NOT a privilege signal
-  (DEV DEVTENANTB's SU/ASU have level 1).
+  role-less user is never created). It must be a role of the same organisation, active, not
+  SU/ASU/`isSystemRole`/category SYSTEM, without reserved permissions (`isReservedPermission`), and:
+  Entra -> any such CRM-category role (configurable); **Azure B2C -> exactly that organisation's
+  NON-MEMBER role** (never MEMBER - portalRoleSync upgrades NON-MEMBER -> MEMBER - and never a staff
+  role: existing data gives staff roles such as GS/DIR/AM category PORTAL, so category alone cannot
+  decide). Role `level` is NOT a privilege signal (DEV DEVTENANTB's SU/ASU have level 1).
 - Every connection write path enforces this (400): POST/PUT `/tenants/:id/auth-connections`, POST
   `/tenants` and PUT `/tenants/:id` with a full `authenticationConnections` array (what the CRM
   Tenant Management form sends) - only new/changed connections are validated, unknown fields are

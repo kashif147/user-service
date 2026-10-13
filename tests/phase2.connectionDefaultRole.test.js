@@ -13,6 +13,7 @@
  */
 const ORG_A = "68cbf7806080b4621d469d34";
 const ORG_B = "6acd6119b28a863c61361ae0";
+const ORG_C = "7acd6119b28a863c61361ae0";
 const ENTRA = "Entra ID (Azure AD)";
 const B2C = "Azure B2C";
 const PERM_ADMIN = "70000000000000000000000a";
@@ -80,6 +81,12 @@ beforeEach(() => {
     mockRole(12, { permissions: [PERM_READ, "profile:read"] }), // ObjectId -> profile:read (fine)
     mockRole(13, { permissions: [PERM_GONE] }), // unresolvable
     mockRole(14, { code: "MEMBER", category: "PORTAL", isActive: false }),
+    // B2C provider rule fixtures (existing DEV data: staff roles carry category PORTAL)
+    mockRole(15, { code: "MEMBER", category: "PORTAL", tenantId: ORG_B }),
+    mockRole(16, { code: "GS", category: "PORTAL", level: 90 }),
+    mockRole(17, { code: "NON-MEMBER", category: "PORTAL", tenantId: ORG_B }),
+    mockRole(18, { code: "NON-MEMBER", category: "PORTAL", tenantId: ORG_C, isActive: false }),
+    mockRole(19, { code: "DIR", category: "PORTAL" }),
   );
   warns = [];
   jest.spyOn(console, "warn").mockImplementation((...a) => warns.push(JSON.stringify(a)));
@@ -120,9 +127,54 @@ describe("default role eligibility (save and login use the same rule)", () => {
   });
   test("role picker lists only eligible, active roles of THIS organisation for the type", async () => {
     expect((await H.eligibleDefaultRoles(ORG_A, ENTRA)).map((r) => r.code)).toEqual(["REO", "R12"]);
-    expect((await H.eligibleDefaultRoles(ORG_A, B2C)).map((r) => r.code)).toEqual(["NON-MEMBER"]);
+    expect((await H.eligibleDefaultRoles(ORG_A, B2C)).map((r) => r._id)).toEqual([id(2)]);
+    expect((await H.eligibleDefaultRoles(ORG_B, B2C)).map((r) => r._id)).toEqual([id(17)]);
+    expect(await H.eligibleDefaultRoles(ORG_C, B2C)).toEqual([]); // its NON-MEMBER is inactive
     expect((await H.eligibleDefaultRoles(ORG_B, ENTRA)).map((r) => r._id)).toEqual([id(3)]);
     await expect(H.eligibleDefaultRoles(ORG_A, "SAML")).rejects.toBeInstanceOf(H.ConnectionValidationError);
+  });
+});
+
+describe("B2C (portal) provider rule: only the organisation's own active NON-MEMBER", () => {
+  test("B2C NON-MEMBER of the same organisation is accepted", async () => {
+    expect(await check(2, B2C, ORG_A)).toBeNull();
+    expect(await check(17, B2C, ORG_B)).toBeNull();
+  });
+  test("B2C MEMBER is rejected as the configured JIT default (portalRoleSync upgrades instead)", async () => {
+    expect(await check(15, B2C, ORG_B)).toBe("NOT_PORTAL_DEFAULT");
+  });
+  test("B2C staff roles (GS, DIR) are rejected even though their category is PORTAL", async () => {
+    expect(await check(16, B2C)).toBe("NOT_PORTAL_DEFAULT");
+    expect(await check(19, B2C)).toBe("NOT_PORTAL_DEFAULT");
+  });
+  test("B2C REO / SU are rejected", async () => {
+    expect(await check(1, B2C)).toBe("WRONG_TYPE");
+    expect(await check(5, B2C)).toBe("PROTECTED");
+  });
+  test("B2C NON-MEMBER of another organisation is rejected", async () => {
+    expect(await check(17, B2C, ORG_A)).toBe("NOT_FOUND");
+  });
+  test("inactive NON-MEMBER is rejected", async () => {
+    expect(await check(18, B2C, ORG_C)).toBe("INACTIVE");
+  });
+  test("save: B2C automatic connection with GS or MEMBER -> 400 with the provider message", async () => {
+    for (const [tenantId, n] of [[ORG_A, 16], [ORG_B, 15]]) {
+      await expect(H.assertConnectionWritable(tenantId, { connectionType: B2C, autoProvisionUsers: true, defaultRoleId: id(n) }))
+        .rejects.toMatchObject({ status: 400, message: "Portal (Azure B2C) connections must use this organisation's NON-MEMBER role as the default role" });
+    }
+    await expect(H.assertConnectionWritable(ORG_A, { connectionType: B2C, autoProvisionUsers: true, defaultRoleId: id(2) })).resolves.toBeUndefined();
+  });
+  test("JIT revalidates: a B2C connection whose stored default is GS / MEMBER / inactive NON-MEMBER refuses", async () => {
+    for (const [tenantId, n] of [[ORG_A, 16], [ORG_B, 15], [ORG_C, 18]]) {
+      await expect(H.resolveJitDefaultRoleId({ tenantId, connection: { connectionType: B2C, autoProvisionUsers: true, defaultRoleId: id(n) }, userType: "PORTAL" }))
+        .rejects.toBeInstanceOf(H.DefaultRoleError);
+    }
+    expect(String(await H.resolveJitDefaultRoleId({ tenantId: ORG_A, connection: { connectionType: B2C, autoProvisionUsers: true, defaultRoleId: id(2) }, userType: "PORTAL" }))).toBe(id(2));
+  });
+  test("Entra CRM configurable default still works (any eligible CRM role)", async () => {
+    expect(await check(1, ENTRA)).toBeNull();
+    expect(await check(12, ENTRA)).toBeNull();
+    expect(String(await H.resolveJitDefaultRoleId({ tenantId: ORG_A, connection: { connectionType: ENTRA, autoProvisionUsers: true, defaultRoleId: id(12) }, userType: "CRM" }))).toBe(id(12));
   });
 });
 

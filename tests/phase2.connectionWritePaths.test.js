@@ -22,6 +22,8 @@ const NONMEMBER_A = rid(2);
 const REO_B = rid(3);
 const INACTIVE_A = rid(4);
 const SU_A = rid(5);
+const GS_A = rid(6);
+const MEMBER_A = rid(7);
 
 const mockState = { tenants: {}, writes: [], created: [] };
 const mockRoles = [
@@ -30,6 +32,9 @@ const mockRoles = [
   { _id: rid(3), tenantId: B, code: "REO", name: "Read Only", category: "CRM", isActive: true, permissions: [] },
   { _id: rid(4), tenantId: A, code: "OLD", name: "Old", category: "CRM", isActive: false, permissions: [] },
   { _id: rid(5), tenantId: A, code: "SU", name: "Super User", category: "SYSTEM", isActive: true, isSystemRole: true, permissions: ["*"] },
+  // existing DEV data: staff roles carry category PORTAL
+  { _id: rid(6), tenantId: A, code: "GS", name: "General Secretary", category: "PORTAL", isActive: true, permissions: [] },
+  { _id: rid(7), tenantId: A, code: "MEMBER", name: "Member", category: "PORTAL", isActive: true, permissions: [] },
 ];
 const mockConn = (id, o) => ({ _id: id, id, issuerUrl: "https://login.microsoftonline.com/d/v2.0", directoryId: `dir-${id}`, audience: "aud", isActive: true, ...o });
 const mockReset = () => {
@@ -233,6 +238,29 @@ describe("PUT /tenants/:id/auth-connections/:connectionId", () => {
   });
 });
 
+describe("B2C connections: default role must be the organisation's NON-MEMBER on every write path", () => {
+  const MSG = "Portal (Azure B2C) connections must use this organisation's NON-MEMBER role as the default role";
+  test("PUT auth-connection: GS (category PORTAL) and MEMBER -> 400; NON-MEMBER -> saved", async () => {
+    for (const roleId of [GS_A, MEMBER_A]) {
+      const r = await call("PUT", P(A, CONN_B), { body: { defaultRoleId: roleId } });
+      expect(r.status).toBe(400);
+      expect(errMsg(r)).toBe(MSG);
+    }
+    expect(mockState.writes).toEqual([]);
+    expect((await call("PUT", P(A, CONN_B), { body: { defaultRoleId: NONMEMBER_A } })).status).toBe(200);
+  });
+  test("POST auth-connection and PUT /tenants/:id full array: GS -> 400, nothing written", async () => {
+    const post = await call("POST", P(A), { body: newConn({ connectionType: B2C, autoProvisionUsers: true, defaultRoleId: GS_A }) });
+    expect(post.status).toBe(400);
+    const body = conns(A).map((c) => ({ ...c }));
+    body[1].defaultRoleId = GS_A;
+    const put = await call("PUT", `/api/tenants/${A}`, { body: { authenticationConnections: body } });
+    expect(put.status).toBe(400);
+    expect(errMsg(put)).toBe(MSG);
+    expect(mockState.writes).toEqual([]);
+  });
+});
+
 describe("PUT /tenants/:id with a full authenticationConnections array (Tenant Management form)", () => {
   const formArray = () => conns(A).map((c) => ({ ...c }));
   test("cannot bypass the rules: enabling automatic without a role -> 400, nothing written", async () => {
@@ -295,7 +323,8 @@ describe("GET /tenants/:id/auth-connections/default-role-options", () => {
   });
   test("only active, non-privileged roles of the matching type", async () => {
     expect((await opts(A, ENTRA)).body.data.map((x) => x.code)).toEqual(["REO"]);
-    expect((await opts(A, B2C)).body.data.map((x) => x.code)).toEqual(["NON-MEMBER"]);
+    // B2C: only the organisation's NON-MEMBER, never GS/MEMBER even though they are category PORTAL
+    expect((await opts(A, B2C)).body.data.map((x) => x._id)).toEqual([NONMEMBER_A]);
   });
   test("unknown connection type -> 400; a non-SU caller cannot read another organisation's roles", async () => {
     expect((await opts(A, "SAML")).status).toBe(400);

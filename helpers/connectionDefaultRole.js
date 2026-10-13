@@ -4,8 +4,13 @@
  *  - autoProvisionUsers: only an explicit `true` lets a connection create users on first sign-in.
  *    false or unset = pre-authorised users only. Existing users sign in regardless of the flag.
  *  - defaultRoleId: the role a just-in-time (JIT) user receives. It must be a role of the same
- *    organisation, active, of the connection's user type (Entra -> CRM, B2C -> PORTAL), not a
- *    protected role (SU/ASU, isSystemRole, category SYSTEM) and without reserved permissions.
+ *    organisation, active, not a protected role (SU/ASU, isSystemRole, category SYSTEM) and without
+ *    reserved permissions, and fit the provider:
+ *      - Entra (CRM): a CRM-category role (configurable);
+ *      - Azure B2C (portal): exactly that organisation's NON-MEMBER role. Role categories are not
+ *        reliable enough to decide this (staff roles carry category PORTAL in existing data), and
+ *        portalRoleSync upgrades NON-MEMBER -> MEMBER once membership is confirmed, so MEMBER or
+ *        any staff role is never a JIT default.
  *    An automatic connection cannot be saved without one.
  *  - Phase 2a migration fallback: an automatic connection saved before defaultRoleId existed has
  *    none; JIT then still uses the legacy role (CRM -> REO, PORTAL -> NON-MEMBER) and logs an
@@ -22,6 +27,9 @@ const ENTRA = "Entra ID (Azure AD)";
 const B2C = "Azure B2C";
 const ROLE_CATEGORY_BY_CONNECTION = { [ENTRA]: "CRM", [B2C]: "PORTAL" };
 const LEGACY_DEFAULT_ROLE_CODE = { CRM: "REO", PORTAL: "NON-MEMBER" };
+// The only role a B2C (portal) connection may provision with.
+const PORTAL_DEFAULT_ROLE_CODE = "NON-MEMBER";
+const roleCode = (role) => String(role?.code == null ? "" : role.code).trim().toUpperCase();
 const OBJECT_ID_RE = /^[0-9a-fA-F]{24}$/;
 
 // Writable fields of a connection; anything else in a request body is ignored.
@@ -83,6 +91,7 @@ async function defaultRoleIneligibility(role, connectionType) {
   if (isProtectedRole(role) || String(role.category || "").toUpperCase() === "SYSTEM") return "PROTECTED";
   const category = ROLE_CATEGORY_BY_CONNECTION[connectionType];
   if (!category || role.category !== category) return "WRONG_TYPE";
+  if (connectionType === B2C && roleCode(role) !== PORTAL_DEFAULT_ROLE_CODE) return "NOT_PORTAL_DEFAULT";
   const perms = await canonicalRolePermissions(role);
   if (perms.some((p) => p === null)) return "UNVERIFIABLE_PERMISSION";
   if (perms.some(isReservedPermission)) return "RESERVED_PERMISSION";
@@ -107,6 +116,7 @@ async function eligibleDefaultRoles(tenantId, connectionType) {
     tenantId: String(tenantId),
     category: ROLE_CATEGORY_BY_CONNECTION[connectionType],
     isActive: true,
+    ...(connectionType === B2C ? { code: PORTAL_DEFAULT_ROLE_CODE } : {}),
   })
     .sort({ name: 1 })
     .lean();
@@ -125,6 +135,7 @@ const DEFAULT_ROLE_MESSAGES = {
   INACTIVE: "Default role is inactive",
   PROTECTED: "Privileged or system roles cannot be a default role",
   WRONG_TYPE: "Default role does not match the connection's user type",
+  NOT_PORTAL_DEFAULT: "Portal (Azure B2C) connections must use this organisation's NON-MEMBER role as the default role",
   UNVERIFIABLE_PERMISSION: "Default role has permissions that cannot be verified",
   RESERVED_PERMISSION: "Default role includes reserved system permissions",
 };
