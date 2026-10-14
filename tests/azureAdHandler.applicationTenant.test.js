@@ -76,9 +76,13 @@ jest.mock("../helpers/connectionDefaultRole", () => {
     DefaultRoleError,
     isAutomatic: (c) => c?.autoProvisionUsers === true,
     hasActiveRoleInTenant: async (u) => (u.roles || []).length > 0,
-    resolveJitDefaultRoleId: async ({ tenantId, userType }) => {
-      mockStore.calls.push(`defaultRole:${userType}:${tenantId}`);
-      return "role-default";
+    resolveJitDefaultRoleId: async ({ tenantId, connection }) => {
+      mockStore.calls.push(`defaultRole:${tenantId}`);
+      // Same contract as the real helper (Phase 2b): no explicit defaultRoleId -> NOT_CONFIGURED,
+      // never a fallback role; otherwise the configured role.
+      if (!connection?.defaultRoleId) throw new DefaultRoleError("NOT_CONFIGURED");
+      if (connection.defaultRoleId === "broken") throw new DefaultRoleError("INACTIVE");
+      return connection.defaultRoleId;
     },
   };
 });
@@ -93,6 +97,7 @@ const AzureADHandler = require("../handlers/azure.ad.handler");
 const conn = (autoProvisionUsers) => ({
   connectionType: "Entra ID (Azure AD)", directoryId: DIR, isActive: true,
   ...(autoProvisionUsers === undefined ? {} : { autoProvisionUsers }),
+  ...(autoProvisionUsers === true ? { defaultRoleId: "role-default" } : {}),
 });
 // What decodeIdToken returns after validating the trusted directory: tenantId is the
 // directory's (first) tenant and must NOT be taken as the application tenant.

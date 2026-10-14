@@ -292,7 +292,7 @@ class B2CUsersHandler {
           throw AppError.forbidden(PORTAL_SIGN_IN_DENIED);
         }
         try {
-          jitRoleId = await resolveJitDefaultRoleId({ tenantId, connection: resolution.connection, userType: "PORTAL" });
+          jitRoleId = await resolveJitDefaultRoleId({ tenantId, connection: resolution.connection });
         } catch (err) {
           if (err instanceof DefaultRoleError) throw AppError.forbidden(PORTAL_SIGN_IN_DENIED);
           throw err;

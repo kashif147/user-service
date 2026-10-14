@@ -41,9 +41,11 @@ then email) among the tenants that trust the directory and uses that user's own 
 rewriting it. The CRM no-code path is existing-users-only (`allowProvisioning: false`; to be retired
 once every CRM entry point resolves an organisation first). B2C provisions first-login users only into
 the single trusting tenant whose connection has `autoProvisionUsers: true` (zero or several -> 403).
-The B2C sign-up connector (`helpers/b2cConnectorTenant.js`) follows the same flag.
+The B2C sign-up connector (`helpers/b2cConnectorTenant.js`) follows the same flag and also requires
+the connection to have a `defaultRoleId` (presence only; the role is validated at provisioning), so a
+B2C account is never created for a connection whose first sign-in would refuse JIT.
 
-## Provisioning rules (Phase 2a, `helpers/connectionDefaultRole.js`)
+## Provisioning rules (`helpers/connectionDefaultRole.js`)
 
 - `autoProvisionUsers`: only explicit `true` is automatic; `false` **or unset** = pre-authorised users
   only (the schema has no default on purpose). Existing users sign in regardless of the flag.
@@ -60,10 +62,13 @@ The B2C sign-up connector (`helpers/b2cConnectorTenant.js`) follows the same fla
   dropped. An automatic connection needs a default role, so it cannot be created together with a new
   organisation (its roles do not exist yet). The role picker uses
   `GET /tenants/:id/auth-connections/default-role-options?connectionType=...`.
-- At sign-in a configured but unusable default role refuses JIT. **2a migration only:** an automatic
-  connection without `defaultRoleId` falls back to REO (CRM) / NON-MEMBER (portal) and logs an
-  id-only `LEGACY_DEFAULT_ROLE` warning; Phase 2b removes that fallback, and must not be deployed to
-  an environment until a read-only check shows every automatic connection there has a valid role.
+- **Automatic provisioning requires an explicit configured `defaultRoleId`. There is no legacy
+  REO/NON-MEMBER fallback** (removed in Phase 2b): at sign-in a missing default role
+  (`NOT_CONFIGURED`) or one that `checkDefaultRole` rejects refuses JIT with a 403, before any user
+  write, event or token - for new users and for a legacy portal user being moved into the
+  organisation. Existing users never depend on `defaultRoleId`. Before deploying this to an
+  environment, a read-only check must show every active automatic connection there has a valid role
+  (an automatic connection saved before Phase 2a may have none).
 - Existing users: `isActive: false` -> 403 (CRM and portal); zero ACTIVE roles of the organisation ->
   403 "You don't have access to this organisation", before any update, role sync or token. Roles are
   never restored at sign-in. Note: the membership promotion/approval/demotion listeners still set

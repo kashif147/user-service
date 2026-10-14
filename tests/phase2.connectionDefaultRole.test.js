@@ -6,9 +6,8 @@
  *    (Entra -> CRM, B2C -> PORTAL), not SU/ASU/isSystemRole/category SYSTEM, without reserved
  *    permissions.
  *  - autoProvisionUsers === true requires a valid default role when a connection is saved.
- *  - JIT: a configured but unusable default role refuses; an automatic connection without one
- *    (saved before Phase 2a) falls back to REO / NON-MEMBER with an id-only LEGACY_DEFAULT_ROLE
- *    warning (removed in Phase 2b).
+ *  - JIT (Phase 2b): only the connection's explicit defaultRoleId; missing -> NOT_CONFIGURED,
+ *    unusable -> refused. No fallback role chosen by code.
  *  - Access: only ACTIVE roles of the organisation count.
  */
 const ORG_A = "68cbf7806080b4621d469d34";
@@ -240,31 +239,90 @@ describe("full authenticationConnections array (Tenant Management form / PUT /te
   });
 });
 
-describe("JIT default role at sign-in", () => {
+describe("JIT default role at sign-in (Phase 2b: explicit defaultRoleId only)", () => {
   const conn = (o) => ({ _id: "c10000000000000000000009", connectionType: ENTRA, autoProvisionUsers: true, ...o });
-  test("configured valid role -> that role", async () => {
-    expect(String(await H.resolveJitDefaultRoleId({ tenantId: ORG_A, connection: conn({ defaultRoleId: id(1) }), userType: "CRM" }))).toBe(id(1));
+  // userType is passed as the Phase 2a call sites did, so a code-based fallback keyed on it would
+  // show up here; the Phase 2b helper ignores it.
+  const userTypeOf = (connection) => (connection.connectionType === B2C ? "PORTAL" : "CRM");
+  const reasonOf = (connection, tenantId = ORG_A) =>
+    H.resolveJitDefaultRoleId({ tenantId, connection, userType: userTypeOf(connection) }).then(
+      () => null,
+      (e) => {
+        expect(e).toBeInstanceOf(H.DefaultRoleError);
+        return e.reason;
+      },
+    );
+
+  test("Entra Automatic + configured valid CRM role -> that role", async () => {
+    expect(String(await H.resolveJitDefaultRoleId({ tenantId: ORG_A, connection: conn({ defaultRoleId: id(1) }) }))).toBe(id(1));
+    expect(String(await H.resolveJitDefaultRoleId({ tenantId: ORG_A, connection: conn({ defaultRoleId: id(12) }) }))).toBe(id(12));
+  });
+  test("B2C Automatic + the organisation's NON-MEMBER -> that role", async () => {
+    expect(String(await H.resolveJitDefaultRoleId({ tenantId: ORG_A, connection: conn({ connectionType: B2C, defaultRoleId: id(2) }) }))).toBe(id(2));
+  });
+  test("Automatic without a default role -> NOT_CONFIGURED (Entra and B2C), even though REO / NON-MEMBER exist", async () => {
+    const Role = require("../models/role.model");
+    const findOne = jest.spyOn(Role, "findOne");
+    const find = jest.spyOn(Role, "find");
+    for (const type of [ENTRA, B2C]) {
+      for (const missing of [{}, { defaultRoleId: null }, { defaultRoleId: undefined }, { defaultRoleId: "" }]) {
+        expect(await reasonOf(conn({ connectionType: type, ...missing }))).toBe("NOT_CONFIGURED");
+      }
+    }
+    // No role is looked up at all: nothing is chosen by code or category.
+    expect(findOne).not.toHaveBeenCalled();
+    expect(find).not.toHaveBeenCalled();
+    const refused = warns.filter((w) => w.includes("JIT refused: automatic connection has no default role"));
+    expect(refused).toHaveLength(8);
+    expect(refused[0]).toContain(ORG_A);
+    expect(refused[0]).toContain("c10000000000000000000009");
+    expect(warns.join()).not.toMatch(/@|REO|NON-MEMBER/);
+  });
+  test("invalid / other-organisation / inactive / deleted role -> refused", async () => {
+    expect(await reasonOf(conn({ defaultRoleId: "not-an-id" }))).toBe("INVALID_ID");
+    expect(await reasonOf(conn({ defaultRoleId: id(3) }))).toBe("NOT_FOUND"); // REO of ORG_B
+    expect(await reasonOf(conn({ connectionType: B2C, defaultRoleId: id(17) }))).toBe("NOT_FOUND"); // NON-MEMBER of ORG_B
+    expect(await reasonOf(conn({ defaultRoleId: id(4) }))).toBe("INACTIVE");
+    expect(await reasonOf(conn({ connectionType: B2C, defaultRoleId: id(18) }), ORG_C)).toBe("INACTIVE");
+    expect(await reasonOf(conn({ defaultRoleId: id(99) }))).toBe("NOT_FOUND");
+  });
+  test("Entra: SU / ASU / system / reserved-permission roles -> refused", async () => {
+    for (const n of [5, 6, 7, 8]) expect(await reasonOf(conn({ defaultRoleId: id(n) }))).toBe("PROTECTED");
+    for (const n of [9, 10, 11]) expect(await reasonOf(conn({ defaultRoleId: id(n) }))).toBe("RESERVED_PERMISSION");
+    expect(await reasonOf(conn({ defaultRoleId: id(2) }))).toBe("WRONG_TYPE"); // PORTAL role on Entra
+  });
+  test("B2C: MEMBER / staff PORTAL roles / a CRM role -> refused", async () => {
+    expect(await reasonOf(conn({ connectionType: B2C, defaultRoleId: id(15) }), ORG_B)).toBe("NOT_PORTAL_DEFAULT"); // MEMBER
+    expect(await reasonOf(conn({ connectionType: B2C, defaultRoleId: id(16) }))).toBe("NOT_PORTAL_DEFAULT"); // GS
+    expect(await reasonOf(conn({ connectionType: B2C, defaultRoleId: id(19) }))).toBe("NOT_PORTAL_DEFAULT"); // DIR
+    expect(await reasonOf(conn({ connectionType: B2C, defaultRoleId: id(1) }))).toBe("WRONG_TYPE"); // REO
+  });
+  test("zero LEGACY_DEFAULT_ROLE warnings in any outcome", async () => {
+    await H.resolveJitDefaultRoleId({ tenantId: ORG_A, connection: conn({ defaultRoleId: id(1) }), userType: "CRM" });
+    expect(await reasonOf(conn({}))).toBe("NOT_CONFIGURED");
+    expect(await reasonOf(conn({ connectionType: B2C }))).toBe("NOT_CONFIGURED");
+    expect(await reasonOf(conn({ defaultRoleId: id(4) }))).toBe("INACTIVE");
     expect(warns.join()).not.toContain("LEGACY_DEFAULT_ROLE");
   });
-  test("10 configured role deleted / deactivated / made privileged after saving -> JIT refused", async () => {
-    for (const roleId of [id(99), id(4), id(5)]) {
-      await expect(H.resolveJitDefaultRoleId({ tenantId: ORG_A, connection: conn({ defaultRoleId: roleId }), userType: "CRM" }))
-        .rejects.toBeInstanceOf(H.DefaultRoleError);
+});
+
+describe("Phase 2b source check: the legacy fallback is gone", () => {
+  const fs = require("fs");
+  const path = require("path");
+  const read = (f) => fs.readFileSync(path.join(__dirname, "..", f), "utf8");
+  test("no LEGACY_DEFAULT_ROLE constant / warning / code lookup in the provisioning code", () => {
+    const helper = read("helpers/connectionDefaultRole.js");
+    for (const f of ["helpers/connectionDefaultRole.js", "handlers/azure.ad.handler.js", "handlers/b2c.users.handler.js"]) {
+      expect(read(f)).not.toMatch(/LEGACY_DEFAULT_ROLE|LEGACY_ROLE_MISSING/);
     }
-  });
-  test("2a migration: automatic connection without a role -> legacy REO / NON-MEMBER + id-only LEGACY_DEFAULT_ROLE", async () => {
-    expect(String(await H.resolveJitDefaultRoleId({ tenantId: ORG_A, connection: conn({}), userType: "CRM" }))).toBe(id(1));
-    expect(String(await H.resolveJitDefaultRoleId({ tenantId: ORG_A, connection: conn({ connectionType: B2C }), userType: "PORTAL" }))).toBe(id(2));
-    const legacy = warns.filter((w) => w.includes("LEGACY_DEFAULT_ROLE"));
-    expect(legacy).toHaveLength(2);
-    expect(legacy[0]).toContain(ORG_A);
-    expect(legacy.join()).not.toMatch(/@/);
-  });
-  test("2a migration: legacy role missing in the organisation -> JIT refused", async () => {
-    mockRoles.splice(0, mockRoles.length, ...mockRoles.filter((r) => r.code !== "REO"));
-    await expect(H.resolveJitDefaultRoleId({ tenantId: ORG_A, connection: conn({}), userType: "CRM" })).rejects.toBeInstanceOf(H.DefaultRoleError);
+    expect(helper).not.toMatch(/["']REO["']/);
+    const jit = helper.slice(helper.indexOf("async function resolveJitDefaultRoleId"), helper.indexOf("async function hasActiveRoleInTenant"));
+    expect(jit).toContain("NOT_CONFIGURED");
+    expect(jit).toContain("checkDefaultRole(");
+    expect(jit).not.toMatch(/Role\.find|code\s*[:,]|category/);
   });
 });
+
 
 describe("11 access requires at least one ACTIVE role of the organisation", () => {
   test("zero roles, only inactive roles, or only another organisation's roles -> no access", async () => {

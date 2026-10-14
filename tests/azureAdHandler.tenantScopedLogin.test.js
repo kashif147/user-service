@@ -74,17 +74,20 @@ jest.mock("../models/tenant.model", () => ({
 }));
 jest.mock("../models/role.model", () => ({}));
 // Provisioning rules are tested for real in phase2.connectionDefaultRole.test.js; here: a user has
-// access when it holds any role, and JIT gets "role-default".
+// access when it holds any role, and JIT gets the connection's configured defaultRoleId.
 jest.mock("../helpers/connectionDefaultRole", () => {
   class DefaultRoleError extends Error {}
   return {
     DefaultRoleError,
     isAutomatic: (c) => c?.autoProvisionUsers === true,
     hasActiveRoleInTenant: async (u) => (u.roles || []).length > 0,
-    resolveJitDefaultRoleId: async ({ tenantId, userType, connection }) => {
-      mockStore.calls.push(`defaultRole:${userType}:${tenantId}`);
+    resolveJitDefaultRoleId: async ({ tenantId, connection }) => {
+      mockStore.calls.push(`defaultRole:${tenantId}`);
+      // Same contract as the real helper (Phase 2b): no explicit defaultRoleId -> NOT_CONFIGURED,
+      // never a fallback role; otherwise the configured role.
+      if (!connection?.defaultRoleId) throw new DefaultRoleError("NOT_CONFIGURED");
       if (connection.defaultRoleId === "broken") throw new DefaultRoleError("INACTIVE");
-      return "role-default";
+      return connection.defaultRoleId;
     },
   };
 });
@@ -97,7 +100,7 @@ jest.mock("../rabbitMQ/publishers/user.crm.publisher", () => ({
 const AzureADHandler = require("../handlers/azure.ad.handler");
 
 const conn = (id, extra = {}) => ({
-  _id: id, connectionType: "Entra ID (Azure AD)", issuerUrl: ISSUER, directoryId: DIR, isActive: true, autoProvisionUsers: true, ...extra,
+  _id: id, connectionType: "Entra ID (Azure AD)", issuerUrl: ISSUER, directoryId: DIR, isActive: true, autoProvisionUsers: true, defaultRoleId: "role-default", ...extra,
 });
 // decodeIdToken's profile: tenantId is whatever tenant the directory lookup found first (A). It
 // must never decide the application tenant.
@@ -146,7 +149,7 @@ describe("positive cases: same Entra directory, tenant chosen by the login conte
     expect(u.userEmail).toBe(EMAIL_B);
     expect(usersIn(TENANT_B)).toHaveLength(1);
     expect(usersIn(TENANT_A)).toHaveLength(1);
-    expect(mockStore.calls).toEqual(expect.arrayContaining([`insert:${TENANT_B}`, `defaultRole:CRM:${TENANT_B}`, "publishCreated"]));
+    expect(mockStore.calls).toEqual(expect.arrayContaining([`insert:${TENANT_B}`, `defaultRole:${TENANT_B}`, "publishCreated"]));
     expect(mockStore.calls).toContain(`update:${JSON.stringify({ tenantId: TENANT_B, userMicrosoftId: OID_B })}`);
     expect(u.roles).toEqual(["role-default"]); // assigned in the same insert, never role-less
   });
@@ -341,5 +344,38 @@ describe("Phase 2a: access checks and default role at CRM sign-in", () => {
       User.findOneAndUpdate = orig;
     }
     expect(mockStore.users).toHaveLength(1);
+  });
+});
+
+describe("Phase 2b: automatic provisioning requires an explicit default role", () => {
+  test("Q1 Automatic connection without a default role: a new identity -> 403, no user, no event", async () => {
+    for (const missing of [{ defaultRoleId: undefined }, { defaultRoleId: null }]) {
+      mockStore.tenants[1].authenticationConnections = [conn(CONN_B, missing)];
+      mockStore.users = [];
+      mockStore.calls = [];
+      await expect(login(EMAIL_B, OID_B, ctxB)).rejects.toMatchObject({ status: 403, message: "CRM sign-in is not available for this account" });
+      expect(mockStore.users).toHaveLength(0);
+      expect(mockStore.calls).toEqual([`defaultRole:${TENANT_B}`]); // refused there: no insert, update or publish
+    }
+  });
+
+  test("Q2 an existing user signs in through an Automatic connection without a default role", async () => {
+    mockStore.tenants[1].authenticationConnections = [conn(CONN_B, { defaultRoleId: undefined })];
+    mockStore.users = [crmUser({ id: "b1", email: EMAIL_B, tenant: TENANT_B, oid: OID_B })];
+    const u = await login(EMAIL_B, OID_B, ctxB);
+    expect(u._id).toBe("b1");
+    expect(byId("b1").roles).toEqual(["r"]);
+    expect(mockStore.calls).not.toEqual(expect.arrayContaining([expect.stringMatching(/^(insert|defaultRole)/)]));
+  });
+
+  test("Q3 pre-authorised (false or unset) connection: an unknown identity is refused without any JIT step", async () => {
+    for (const flag of [false, undefined]) {
+      mockStore.tenants[1].authenticationConnections = [conn(CONN_B, { autoProvisionUsers: flag, defaultRoleId: undefined })];
+      mockStore.users = [];
+      mockStore.calls = [];
+      await expect(login(EMAIL_B, OID_B, ctxB)).rejects.toMatchObject({ status: 403 });
+      expect(mockStore.users).toHaveLength(0);
+      expect(mockStore.calls).toEqual([]);
+    }
   });
 });

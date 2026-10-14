@@ -4,7 +4,7 @@
 // profile-service as a genuine internal call (x-internal-request + x-tenant-id).
 const A = "aaaaaaaaaaaaaaaaaaaaaaaa";
 const B = "bbbbbbbbbbbbbbbbbbbbbbbb";
-const auto = { autoProvisionUsers: true };
+const auto = { autoProvisionUsers: true, defaultRoleId: "r-non-member" };
 const mockTenants = [
   { _id: A, authenticationConnections: [{ connectionType: "Azure B2C", audience: "app-A", isActive: true, ...auto }] },
   { _id: B, authenticationConnections: [{ connectionType: "Azure B2C", audience: "app-B", isActive: true, ...auto }] },
@@ -16,12 +16,19 @@ const mockTenants = [
   { _id: "noprov", authenticationConnections: [{ connectionType: "Azure B2C", audience: "app-sharedB", isActive: true, autoProvisionUsers: false }] },
   // Phase 2a: unset = pre-authorised users only, never a sign-up target.
   { _id: "unset", authenticationConnections: [{ connectionType: "Azure B2C", audience: "app-unset", isActive: true }] },
+  // Phase 2b: automatic but no default role -> first sign-in would refuse JIT, so no sign-up.
+  { _id: "norole", authenticationConnections: [{ connectionType: "Azure B2C", audience: "app-norole", isActive: true, autoProvisionUsers: true }] },
+  { _id: "nullrole", authenticationConnections: [{ connectionType: "Azure B2C", audience: "app-nullrole", isActive: true, autoProvisionUsers: true, defaultRoleId: null }] },
 ];
+const mockQueries = [];
 jest.mock("../models/tenant.model", () => ({
   find: jest.fn((q) => {
     const m = q.authenticationConnections.$elemMatch;
+    mockQueries.push(m);
+    // Mongo semantics of { $ne: null }: a missing field counts as null.
+    const roleOk = (c) => !m.defaultRoleId || (m.defaultRoleId.$ne === null && c.defaultRoleId != null);
     const rows = mockTenants.filter((t) => t.authenticationConnections.some((c) => c.connectionType === m.connectionType && c.audience === m.audience && c.isActive === m.isActive
-      && (m.autoProvisionUsers === undefined || c.autoProvisionUsers === m.autoProvisionUsers)));
+      && (m.autoProvisionUsers === undefined || c.autoProvisionUsers === m.autoProvisionUsers) && roleOk(c)));
     const chain = { select: () => chain, limit: (n) => { chain._n = n; return chain; }, lean: async () => rows.slice(0, chain._n || rows.length) };
     return chain;
   }),
@@ -48,7 +55,7 @@ function call(body) {
     validateUser({ body, headers: {}, query: {} }, res, () => {});
   });
 }
-beforeEach(() => { mockPosts.length = 0; mockAxiosBehaviour = "ok"; });
+beforeEach(() => { mockPosts.length = 0; mockQueries.length = 0; mockAxiosBehaviour = "ok"; });
 
 test("1 an unknown B2C application cannot validate sign-up (no profile-service call)", async () => {
   const r = await call({ email: "x@example.test", step: "PostAttributeCollection", client_id: "app-unknown" });
@@ -96,4 +103,22 @@ test("7 Phase 2a: a connection with autoProvisionUsers UNSET is not a sign-up ta
   const r = await call({ email: "u@example.test", step: "PostAttributeCollection", client_id: "app-unset" });
   expect(r.body.action).toBe("ShowBlockPage");
   expect(mockPosts).toHaveLength(0);
+});
+
+test("8 Phase 2b: an Automatic connection without a default role is not a sign-up target (no B2C account is created)", async () => {
+  for (const client_id of ["app-norole", "app-nullrole"]) {
+    const r = await call({ email: "n@example.test", step: "PostAttributeCollection", client_id });
+    expect(r.body.action).toBe("ShowBlockPage");
+  }
+  expect(mockPosts).toHaveLength(0);
+});
+
+test("9 Phase 2b: sign-up stays available for an Automatic connection with a default role; the query requires one", async () => {
+  const r = await call({ email: "ok@example.test", step: "PostAttributeCollection", client_id: "app-A" });
+  expect(r.body.action).toBe("Continue");
+  expect(mockPosts[0].headers["x-tenant-id"]).toBe(A);
+  // Presence only: the role itself is validated at provisioning (checkDefaultRole), not here.
+  expect(mockQueries[0]).toEqual({
+    connectionType: "Azure B2C", audience: "app-A", isActive: true, autoProvisionUsers: true, defaultRoleId: { $ne: null },
+  });
 });

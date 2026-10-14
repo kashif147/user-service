@@ -78,17 +78,20 @@ jest.mock("../models/tenant.model", () => ({
   },
 }));
 // Provisioning rules are tested for real in phase2.connectionDefaultRole.test.js; here a user has
-// access when it holds any role, and JIT gets "role-default".
+// access when it holds any role, and JIT gets the connection's configured defaultRoleId.
 jest.mock("../helpers/connectionDefaultRole", () => {
   class DefaultRoleError extends Error {}
   return {
     DefaultRoleError,
     isAutomatic: (c) => c?.autoProvisionUsers === true,
     hasActiveRoleInTenant: async (u) => (u.roles || []).length > 0,
-    resolveJitDefaultRoleId: async ({ tenantId, userType, connection }) => {
-      mockStore.calls.push(`defaultRole:${userType}:${tenantId}`);
+    resolveJitDefaultRoleId: async ({ tenantId, connection }) => {
+      mockStore.calls.push(`defaultRole:${tenantId}`);
+      // Same contract as the real helper (Phase 2b): no explicit defaultRoleId -> NOT_CONFIGURED,
+      // never a fallback role; otherwise the configured role.
+      if (!connection?.defaultRoleId) throw new DefaultRoleError("NOT_CONFIGURED");
       if (connection.defaultRoleId === "broken") throw new DefaultRoleError("INACTIVE");
-      return "role-default";
+      return connection.defaultRoleId;
     },
   };
 });
@@ -160,7 +163,7 @@ beforeEach(() => {
   // Default: only the B2C tenant trusts the B2C directory (today's single-tenant DEV setup).
   // OTHER_TENANT is a real tenant that does NOT trust it.
   mockStore.trustingTenants = [
-    { _id: B2C_TENANT, authenticationConnections: [{ connectionType: "Azure B2C", directoryId: "b2c-dir", isActive: true, autoProvisionUsers: true }] },
+    { _id: B2C_TENANT, authenticationConnections: [{ connectionType: "Azure B2C", directoryId: "b2c-dir", isActive: true, autoProvisionUsers: true, defaultRoleId: "role-default" }] },
   ];
   warnLogs = [];
   process.env.MS_B2C_DIRECTORY_ID = "b2c-dir";
@@ -199,7 +202,7 @@ describe("allowed logins (unchanged)", () => {
     const out = await login("new@x.com", "oid-new");
     expect(out.status).toBe(200);
     expect(mockStore.calls).toEqual([
-      `defaultRole:PORTAL:${B2C_TENANT}`,
+      `defaultRole:${B2C_TENANT}`,
       `update:{"userEmail":"new@x.com","tenantId":"${B2C_TENANT}"}:upsert=true`,
       "insert",
       "roleSync:new@x.com:new=true",
@@ -363,7 +366,7 @@ describe("controller error mapping", () => {
 // validates who signed in; the application tenant comes from the ProjectShell user record.
 describe("several tenants trusting one B2C directory (application tenant from the user record)", () => {
   const TENANT_B = "cccccccccccccccccccccccc";
-  const conn = (autoProvisionUsers) => ({ connectionType: "Azure B2C", directoryId: "b2c-dir", isActive: true, ...(autoProvisionUsers === undefined ? {} : { autoProvisionUsers }) });
+  const conn = (autoProvisionUsers) => ({ connectionType: "Azure B2C", directoryId: "b2c-dir", isActive: true, ...(autoProvisionUsers === undefined ? {} : { autoProvisionUsers }), ...(autoProvisionUsers === true ? { defaultRoleId: "role-default" } : {}) });
   beforeEach(() => {
     mockStore.realTenants.push(TENANT_B);
     mockStore.trustingTenants = [
@@ -571,5 +574,38 @@ describe("Phase 2a: portal provisioning and access", () => {
     const out = await login("leg@x.com", "oid-leg");
     expect(out.status).toBe(200);
     expect(byId("l1")).toMatchObject({ tenantId: B2C_TENANT, roles: ["role-default"] });
+  });
+
+  test("P7 Phase 2b: Automatic connection without a default role -> new identity refused, nothing written, no JWT", async () => {
+    for (const missing of [{}, { defaultRoleId: null }]) {
+      setConn({ autoProvisionUsers: true, ...missing });
+      mockStore.users = [];
+      mockStore.calls = [];
+      const out = await login("p7@x.com", "oid-p7");
+      expectDenied(out);
+      noSideEffects();
+      expect(mockStore.calls).toEqual([`defaultRole:${B2C_TENANT}`]);
+      expect(mockStore.users).toHaveLength(0);
+    }
+  });
+
+  test("P8 Phase 2b: legacy portal user move with no / an unusable default role -> 403, user NOT moved, no event or JWT", async () => {
+    for (const roleConfig of [{}, { defaultRoleId: "broken" }]) {
+      setConn({ autoProvisionUsers: true, ...roleConfig });
+      mockStore.users = [user({ id: "l2", email: "leg2@x.com", tenant: "legacy-directory-id", type: "PORTAL", oid: "oid-leg2", roles: ["stale-role"] })];
+      mockStore.calls = [];
+      const out = await login("leg2@x.com", "oid-leg2");
+      expectDenied(out);
+      noSideEffects();
+      expect(byId("l2")).toMatchObject({ tenantId: "legacy-directory-id", roles: ["stale-role"], userLastLogin: OLD_LOGIN });
+    }
+  });
+
+  test("P9 Phase 2b: an existing user signs in through an Automatic connection without a default role", async () => {
+    setConn({ autoProvisionUsers: true });
+    mockStore.users = [user({ id: "e2", email: "e2@x.com", tenant: B2C_TENANT, type: "PORTAL", oid: "oid-e2" })];
+    const out = await login("e2@x.com", "oid-e2");
+    expect(out.status).toBe(200);
+    expect(mockStore.calls).not.toEqual(expect.arrayContaining([expect.stringMatching(/^(insert|defaultRole)/)]));
   });
 });

@@ -328,7 +328,7 @@ class AzureADHandler {
           throw AppError.forbidden("CRM sign-in is not available for this account");
         }
         try {
-          jitRoleId = await resolveJitDefaultRoleId({ tenantId, connection: resolution.connection, userType: "CRM" });
+          jitRoleId = await resolveJitDefaultRoleId({ tenantId, connection: resolution.connection });
         } catch (err) {
           if (err instanceof DefaultRoleError) {
             throw AppError.forbidden("CRM sign-in is not available for this account");

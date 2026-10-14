@@ -1,5 +1,5 @@
 /**
- * Authentication-connection provisioning rules (Phase 2a).
+ * Authentication-connection provisioning rules.
  *
  *  - autoProvisionUsers: only an explicit `true` lets a connection create users on first sign-in.
  *    false or unset = pre-authorised users only. Existing users sign in regardless of the flag.
@@ -12,10 +12,9 @@
  *        portalRoleSync upgrades NON-MEMBER -> MEMBER once membership is confirmed, so MEMBER or
  *        any staff role is never a JIT default.
  *    An automatic connection cannot be saved without one.
- *  - Phase 2a migration fallback: an automatic connection saved before defaultRoleId existed has
- *    none; JIT then still uses the legacy role (CRM -> REO, PORTAL -> NON-MEMBER) and logs an
- *    id-only LEGACY_DEFAULT_ROLE warning. Phase 2b removes the fallback. A defaultRoleId that is
- *    set but no longer valid always refuses JIT: a user is never created without a role.
+ *  - JIT requires that explicit defaultRoleId: a missing one (NOT_CONFIGURED) or one that is no
+ *    longer valid refuses JIT. There is no fallback role chosen by code or category, and a user is
+ *    never created without a role.
  *  - Access: an existing user may sign in only with at least one active role of the organisation.
  */
 const mongoose = require("mongoose");
@@ -26,7 +25,6 @@ const { isProtectedRole, isReservedPermission } = require("../handlers/role.hand
 const ENTRA = "Entra ID (Azure AD)";
 const B2C = "Azure B2C";
 const ROLE_CATEGORY_BY_CONNECTION = { [ENTRA]: "CRM", [B2C]: "PORTAL" };
-const LEGACY_DEFAULT_ROLE_CODE = { CRM: "REO", PORTAL: "NON-MEMBER" };
 // The only role a B2C (portal) connection may provision with.
 const PORTAL_DEFAULT_ROLE_CODE = "NON-MEMBER";
 const roleCode = (role) => String(role?.code == null ? "" : role.code).trim().toUpperCase();
@@ -211,34 +209,25 @@ async function prepareConnectionsForWrite(tenantId, incoming, stored = []) {
 
 /**
  * Role for a user about to be created just-in-time through `connection` (already known to be
- * automatic). Returns the role id; throws DefaultRoleError when the configured role is unusable
- * or, during the 2a migration, the legacy role is missing.
+ * automatic): its explicit defaultRoleId, checked by checkDefaultRole. Returns the role id; throws
+ * DefaultRoleError when none is configured (NOT_CONFIGURED) or the configured role is unusable.
  */
-async function resolveJitDefaultRoleId({ tenantId, connection, userType }) {
+async function resolveJitDefaultRoleId({ tenantId, connection }) {
   const ids = { tenantId: String(tenantId), connectionId: connection?._id ? String(connection._id) : null };
-  if (connection?.defaultRoleId) {
-    const { role, reason } = await checkDefaultRole({
-      tenantId,
-      connectionType: connection.connectionType,
-      roleId: connection.defaultRoleId,
-    });
-    if (!role) {
-      console.warn("JIT refused: default role not usable", { ...ids, reason });
-      throw new DefaultRoleError(reason);
-    }
-    return role._id;
+  if (!connection?.defaultRoleId) {
+    console.warn("JIT refused: automatic connection has no default role", ids);
+    throw new DefaultRoleError("NOT_CONFIGURED");
   }
-  // Phase 2a migration only: connections that were automatic before defaultRoleId existed.
-  const code = LEGACY_DEFAULT_ROLE_CODE[userType];
-  const legacy = code
-    ? await Role.findOne({ code, tenantId: String(tenantId), isActive: true }).select("_id").lean()
-    : null;
-  if (!legacy) {
-    console.warn("JIT refused: no default role configured and legacy role missing", { ...ids, userType });
-    throw new DefaultRoleError("LEGACY_ROLE_MISSING");
+  const { role, reason } = await checkDefaultRole({
+    tenantId,
+    connectionType: connection.connectionType,
+    roleId: connection.defaultRoleId,
+  });
+  if (!role) {
+    console.warn("JIT refused: default role not usable", { ...ids, reason });
+    throw new DefaultRoleError(reason);
   }
-  console.warn("LEGACY_DEFAULT_ROLE", { ...ids, userType, roleId: String(legacy._id) });
-  return legacy._id;
+  return role._id;
 }
 
 /** True when the user holds at least one active role of organisation `tenantId`. */
