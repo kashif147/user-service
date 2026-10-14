@@ -174,10 +174,6 @@ class PolicyAdapter {
         };
       }
 
-      console.log("PolicyAdapter.evaluate called with:", {
-        token: token.substring(0, 20) + "...",
-        request,
-      });
       const { resource, action, context = {} } = request;
 
       // Add correlation ID to context if not present
@@ -185,10 +181,11 @@ class PolicyAdapter {
         context.correlationId = generateCorrelationId();
       }
 
-      console.log("Calling policyService.evaluatePolicy with:", {
+      // Request identifiers only: no part of the token, and not the caller-supplied context.
+      console.log("PolicyAdapter.evaluate:", {
         resource,
         action,
-        context,
+        correlationId: context.correlationId,
       });
       const result = await policyService.evaluatePolicy({
         token,

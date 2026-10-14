@@ -29,7 +29,7 @@ jest.mock("../handlers/azure.ad.handler", () => ({
     if (m === "ok") return { user: { _id: "u1", userEmail: "a@x", tokens: {}, userType: "CRM" } };
     if (m === "invalid_grant") throw mockAzErr({ error: "invalid_grant", error_description: PROV });
     if (m === "invalid_client") throw mockAzErr({ error: "invalid_client", error_description: PROV });
-    if (m === "provider_other") throw mockAzErr({ error: "server_error", error_description: PROV });
+    if (m === "provider_other") throw mockAzErr({ error: "server_error", error_description: PROV, error_codes: [9002313], trace_id: "trace-safe-1", correlation_id: "corr-safe-1" });
     if (m === "email") throw new Error("Email not found in Azure AD token");
     if (m === "tenant") throw new Error("Tenant ID not found in Azure AD token");
     if (m === "token") { const e = new Error("signature verification failed"); e.code = "ERR_JWS_SIGNATURE_VERIFICATION_FAILED"; throw e; }
@@ -129,13 +129,21 @@ describe("POST /auth/azure-crm (handleAzureADCallback)", () => {
     expect(msg(r)).toBe(message);
     noLeak(r);
   });
-  test("other Azure error response -> 500 generic, no error_description/trace IDs; Azure data still logged", async () => {
+  test("other Azure error response -> 500 generic, no error_description/trace IDs; only explicit Azure fields logged", async () => {
     mockMode.v = "provider_other";
     const r = await post("/auth/azure-crm", CB);
     expect(r.status).toBe(500);
     expect(r.body.error).toEqual({ message: "Azure AD authentication failed", code: "INTERNAL_SERVER_ERROR", status: 500 });
     noLeak(r);
-    expect(errorLogs.some((l) => l.includes("AZURE_PROVIDER_SECRET_DETAIL"))).toBe(true);
+    // Server log: Microsoft's explicit fields only (status, error code(s), trace/correlation ids);
+    // the raw error_description (AADSTS text) is never logged.
+    const logs = errorLogs.join("\n");
+    expect(logs).not.toMatch(/AZURE_PROVIDER_SECRET_DETAIL|SECRET-TRACE|error_description/);
+    expect(errorLogs).toContainEqual(
+      expect.stringContaining(
+        JSON.stringify({ status: 400, error: "server_error", errorCodes: [9002313], traceId: "trace-safe-1", correlationId: "corr-safe-1" }),
+      ),
+    );
   });
   test("unexpected error -> 500 generic, no raw text; full error still logged", async () => {
     mockMode.v = "internal";

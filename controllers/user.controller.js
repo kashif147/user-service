@@ -39,6 +39,14 @@ module.exports.getUserByEmail = async (req, res, next) => {
   }
 };
 
+// Loggable fields of an error on the B2C sign-up path. An HTTP client (axios) error carries the
+// forwarded request body and headers in its config, so it is never logged whole.
+const safeErrorFields = (error) => ({
+  name: error?.name || null,
+  code: error?.code || null,
+  status: error?.response?.status || null,
+});
+
 const validateUserInternal = async (req, res, next) => {
   // CRITICAL: Don't call next() with errors - Azure B2C requires HTTP 200 always
   // Wrap entire function to catch any unhandled errors
@@ -70,11 +78,10 @@ const validateUserInternal = async (req, res, next) => {
     if (!res.headersSent) {
       clearTimeout(timeoutId);
       try {
-        console.log(`[${requestId}] 🚀 Sending response: HTTP ${status}`);
-        console.log(
-          `[${requestId}] 📦 Response data:`,
-          JSON.stringify(data, null, 2)
-        );
+        // Action only: the response can carry the user's email and names.
+        console.log(`[${requestId}] 🚀 Sending response: HTTP ${status}`, {
+          action: data?.action || null,
+        });
         // CRITICAL: Azure B2C requires explicit Content-Type header
         res.setHeader('Content-Type', 'application/json');
         const response = res.status(status).json(data);
@@ -83,8 +90,7 @@ const validateUserInternal = async (req, res, next) => {
         );
         return response;
       } catch (err) {
-        console.error(`[${requestId}] ❌ Error sending response:`, err);
-        console.error(`[${requestId}] Error stack:`, err.stack);
+        console.error(`[${requestId}] ❌ Error sending response:`, safeErrorFields(err));
         // If response already sent, ignore
         return;
       }
@@ -100,14 +106,8 @@ const validateUserInternal = async (req, res, next) => {
     console.log(`\n${"=".repeat(80)}`);
     console.log(`[${requestId}] === Azure B2C User Flow Validation ===`);
     console.log(`[${requestId}] Timestamp: ${new Date().toISOString()}`);
-    console.log(
-      `[${requestId}] Request body:`,
-      JSON.stringify(req.body, null, 2)
-    );
-    console.log(
-      `[${requestId}] Request headers:`,
-      JSON.stringify(req.headers, null, 2)
-    );
+    // The request body (email, names, member number, phone) and headers (Basic auth) are
+    // never logged.
 
     // Azure B2C User Flows send data in a different format
     // Extension attributes come with format: extension_<appId>_<attributeName>
@@ -157,13 +157,11 @@ const validateUserInternal = async (req, res, next) => {
     memberno = memberno || req.body.memberno || null;
     mobilephone = mobilephone || req.body.mobilephone || null;
 
-    // Log extracted values for debugging
-    if (memberno || mobilephone) {
-      console.log(`[${requestId}] 📋 Extracted extension attributes:`, {
-        memberno: memberno || "not provided",
-        mobilephone: mobilephone || "not provided",
-      });
-    }
+    // Presence only, never the values.
+    console.log(`[${requestId}] 📋 Extension attributes present:`, {
+      memberno: Boolean(memberno),
+      mobilephone: Boolean(mobilephone),
+    });
 
     // Validate required fields for User Flows
     // NOTE: Azure B2C supports both HTTP 200 and HTTP 400 for ValidationError
@@ -273,7 +271,12 @@ const validateUserInternal = async (req, res, next) => {
 
       const profileServiceDuration = Date.now() - profileServiceStartTime;
       console.log(`[${requestId}] ⏱️  Profile service response time: ${profileServiceDuration}ms`);
-      console.log(`[${requestId}] 📥 Profile service response:`, JSON.stringify(profileResponse.data, null, 2));
+      // Outcome only: the profile-service response can carry personal data.
+      console.log(`[${requestId}] 📥 Profile service response:`, {
+        status: profileResponse.status,
+        action: profileResponse.data?.action || null,
+        tenantId: trustedTenantId,
+      });
 
       // Forward the profile-service response directly to Azure B2C
       const duration = Date.now() - startTime;
@@ -316,8 +319,8 @@ const validateUserInternal = async (req, res, next) => {
       throw profileServiceError;
     }
   } catch (error) {
-    console.error(`[${requestId}] ❌ User Validation Error:`, error);
-    console.error(`[${requestId}] Stack:`, error.stack);
+    // Never the error object: an HTTP client error carries the forwarded request body.
+    console.error(`[${requestId}] ❌ User Validation Error:`, safeErrorFields(error));
     const duration = Date.now() - startTime;
     console.log(`[${requestId}] ⏱️  Error response time: ${duration}ms`);
     console.log(`[${requestId}] ${"=".repeat(80)}\n`);
@@ -338,7 +341,7 @@ module.exports.validateUser = async (req, res, next) => {
     await validateUserInternal(req, res, next);
   } catch (outerError) {
     // Final catch-all for any errors that escaped (should never happen)
-    console.error("FATAL: validateUser threw synchronously:", outerError);
+    console.error("FATAL: validateUser threw synchronously:", safeErrorFields(outerError));
     if (!res.headersSent) {
       res.setHeader('Content-Type', 'application/json');
       return res.status(200).json({

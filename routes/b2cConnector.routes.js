@@ -25,7 +25,11 @@ router.post(
       await UserController.validateUser(req, res, next);
     } catch (error) {
       // Final safety net - ensure we never return unhandled errors to Azure B2C
-      console.error("FATAL: validateUser error escaped:", error);
+      console.error("FATAL: validateUser error escaped:", {
+        name: error?.name || null,
+        code: error?.code || null,
+        status: error?.response?.status || null,
+      });
       if (!res.headersSent) {
         res.setHeader('Content-Type', 'application/json');
         return res.status(200).json({

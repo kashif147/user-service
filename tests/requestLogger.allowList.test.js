@@ -143,6 +143,30 @@ describe("request logger: safe metadata is still logged", () => {
     expect(entry).toEqual({ method: "GET", route: "/api/me", status: 200, durationMs: 5, tenantId: TENANT_ID });
   });
 
+  test("the mount prefix is kept when a mounted router's handler fails through next(err)", async () => {
+    const app = express();
+    app.use(loggerMiddleware);
+    const pkce = express.Router();
+    pkce.get("/generate", (req, res, next) => next(new Error("refused")));
+    const tenants = express.Router();
+    tenants.get("/tenants/:id", (req, res, next) => next(new Error("boom")));
+    tenants.get("/", (req, res) => res.status(204).end());
+    app.use("/pkce", pkce);
+    app.use("/api", tenants);
+    // eslint-disable-next-line no-unused-vars
+    app.use((err, req, res, next) => res.status(err.message === "refused" ? 400 : 500).end());
+
+    await request(app).get(`/pkce/generate?tenant=${SECRETS.code}`).expect(400);
+    await request(app).get(`/api/tenants/${TENANT_ID}?state=${SECRETS.state}`).expect(500);
+    await request(app).get("/api/").expect(204);
+    expect(entries().map((e) => [e.route, e.status])).toEqual([
+      ["/pkce/generate", 400],
+      ["/api/tenants/:id", 500],
+      ["/api", 204],
+    ]);
+    expectNoSecrets();
+  });
+
   test("health checks are not logged", async () => {
     await request(buildApp()).get("/health").expect(200);
     expect(entries()).toHaveLength(0);

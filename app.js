@@ -154,23 +154,7 @@ app.use(
   })
 );
 
-app.get("/", (req, res) => {
-  // Check if this is an Azure B2C callback with authorization code
-  if (req.query.code && req.query.state) {
-    console.log("=== Azure B2C Callback at Root ===");
-    console.log("Code received:", req.query.code.substring(0, 50) + "...");
-    console.log("State:", req.query.state);
-    console.log("Redirecting to /auth/azure-portal for proper handling");
-
-    // Redirect to the proper auth endpoint
-    return res.redirect(
-      `/auth/azure-portal?code=${req.query.code}&state=${req.query.state}`
-    );
-  }
-
-  // Regular homepage
-  res.render("index", { title: "User Service" });
-});
+app.get("/", require("./controllers/root.controller").root);
 
 app.get("/health", (req, res) => {
   res.status(200).json({ status: "UP" });

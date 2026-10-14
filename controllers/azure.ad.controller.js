@@ -3,6 +3,7 @@ const jwtHelper = require("../helpers/jwt");
 const { AppError } = require("../errors/AppError");
 const { takeLoginTransaction } = require("../helpers/pkceStateStore");
 const { EntraConfigError } = require("../helpers/entraConfig");
+const { microsoftErrorFields, isMicrosoftTokenError } = require("../helpers/microsoftErrorLog");
 
 // Handle GET request from Azure redirect
 module.exports.handleAzureADRedirect = async (req, res, next) => {
@@ -143,15 +144,23 @@ module.exports.handleAzureADCallback = async (req, res, next) => {
       return next(AppError.internalServerError("Microsoft sign-in is not configured"));
     }
     console.error("=== Azure AD Authentication Error ===");
-    console.error("Error message:", error.message);
-    console.error("Error stack:", error.stack);
+    if (isMicrosoftTokenError(error)) {
+      // Its message embeds Microsoft's error_description: explicit fields only.
+      console.error(
+        "Error: token exchange failed",
+        microsoftErrorFields(error.statusCode, error.azureError),
+      );
+    } else {
+      console.error("Error message:", error.message);
+      console.error("Error stack:", error.stack);
+    }
 
     // Handle Azure AD specific errors
     if (error.response) {
-      console.error("Azure AD Response Status:", error.response.status);
+      // Explicit fields only, never the raw response.
       console.error(
-        "Azure AD Response Data:",
-        JSON.stringify(error.response.data, null, 2)
+        "Azure AD response error:",
+        microsoftErrorFields(error.response.status, error.response.data),
       );
 
       const azureError = error.response.data;
@@ -167,8 +176,8 @@ module.exports.handleAzureADCallback = async (req, res, next) => {
             AppError.internalServerError("Azure AD client configuration error")
           );
         }
-        // Phase 1C-2W: Azure's error_description (AADSTS text, trace/correlation IDs) is logged
-        // above, never returned to the client.
+        // Phase 1C-2W: Azure's error_description (AADSTS text) is never returned to the client,
+        // and is not logged either (only the error codes and trace/correlation ids, above).
         return next(AppError.internalServerError("Azure AD authentication failed"));
       }
     }

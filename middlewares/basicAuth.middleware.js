@@ -73,7 +73,7 @@ function azureB2CBasicAuth() {
       } else {
         // Invalid credentials - return HTTP 200 with ShowBlockPage
         console.warn(
-          `⚠️  Basic Auth failed - Invalid credentials for user: ${providedUsername}`
+          "⚠️  Basic Auth failed - invalid credentials"
         );
         return res.status(200).json({
           version: "1.0.0",

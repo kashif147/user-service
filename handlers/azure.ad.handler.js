@@ -21,6 +21,7 @@ const {
 } = require("../rabbitMQ/publishers/user.crm.publisher");
 
 const { getEntraConfig } = require("../helpers/entraConfig");
+const { microsoftErrorFields, isMicrosoftTokenError } = require("../helpers/microsoftErrorLog");
 
 // Public message for a CRM user without any active role in the organisation.
 const NO_ORGANISATION_ACCESS = "You don't have access to this organisation";
@@ -109,10 +110,9 @@ class AzureADHandler {
       console.error("Error code:", error.code);
 
       if (error.response) {
-        console.error("Azure AD Error Status:", error.response.status);
         console.error(
-          "Azure AD Error Data:",
-          JSON.stringify(error.response.data, null, 2)
+          "Azure AD token exchange error:",
+          microsoftErrorFields(error.response.status, error.response.data),
         );
 
         const azureError = error.response.data;
@@ -478,13 +478,15 @@ class AzureADHandler {
       return { user, tokens };
     } catch (error) {
       console.error("=== Azure AD Handler Error ===");
-      console.error("Error in handleAzureADAuth:", error.message);
-      console.error("Error stack:", error.stack);
-      if (error.azureError) {
+      if (isMicrosoftTokenError(error)) {
+        // Its message embeds Microsoft's error_description: explicit fields only.
         console.error(
-          "Azure AD specific error:",
-          JSON.stringify(error.azureError, null, 2)
+          "Error in handleAzureADAuth: token exchange failed",
+          microsoftErrorFields(error.statusCode, error.azureError),
         );
+      } else {
+        console.error("Error in handleAzureADAuth:", error.message);
+        console.error("Error stack:", error.stack);
       }
       if (error.statusCode) {
         console.error("HTTP Status Code:", error.statusCode);

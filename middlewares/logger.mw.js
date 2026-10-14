@@ -13,17 +13,28 @@ const SAFE_SEGMENT = /^[A-Za-z0-9_-]{1,64}$/;
 
 const safeId = (value) => (typeof value === "string" && SAFE_ID.test(value) ? value : undefined);
 
-// The matched route template (e.g. /api/users/:id) when Express matched one; otherwise the path
-// without its query string, with any segment that is not a plain identifier replaced.
-function routeOf(req) {
-  if (req.route && typeof req.route.path === "string") {
-    return `${req.baseUrl || ""}${req.route.path}`;
-  }
-  const path = String(req.originalUrl || req.url || "").split("?")[0];
-  return path
+const redactPath = (path) =>
+  path
     .split("/")
     .map((segment) => (segment === "" || SAFE_SEGMENT.test(segment) ? segment : ":redacted"))
     .join("/");
+
+// The matched route template (e.g. /api/users/:id) when Express matched one; otherwise the path
+// without its query string, with any segment that is not a plain identifier replaced.
+// req.baseUrl cannot be used: Express resets it when a request leaves its router through
+// next(err), so the mount prefix is taken from the request path instead - the route template
+// matched the trailing segments, everything before them is the (redacted) mount path.
+function routeOf(req) {
+  const path = String(req.originalUrl || req.url || "").split("?")[0];
+  const template = req.route && req.route.path;
+  if (typeof template === "string" && !/[*?()+]/.test(template)) {
+    const trim = (p) => (p.length > 1 && p.endsWith("/") ? p.slice(0, -1) : p);
+    const pathSegments = trim(path).split("/");
+    const templateSegments = trim(template).split("/").filter(Boolean);
+    const prefix = pathSegments.slice(0, pathSegments.length - templateSegments.length).join("/");
+    return `${redactPath(prefix)}${template === "/" && prefix ? "" : template}`;
+  }
+  return redactPath(path);
 }
 
 function requestLogEntry(req, res, durationMs) {
