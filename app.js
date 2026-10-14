@@ -120,7 +120,7 @@ app.use(express.json({ limit: "200mb" }));
 
 app.use("/api", createSystemLogsRouter(bizLogger));
 
-// Logger middleware should be after body parsing to log request bodies
+// Request log: safe metadata only (method, route, status, duration, ids) - never bodies or headers
 app.use(loggerMiddleware);
 
 // Security middleware
