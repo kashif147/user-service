@@ -134,21 +134,20 @@ beforeEach(() => {
 });
 afterEach(() => jest.restoreAllMocks());
 
-describe("server-side app registry", () => {
-  test("A1 crm-entra comes from the server configuration; the secret is non-enumerable and never serialised", () => {
-    const app = load.registry().getAuthApp("crm-entra", ENTRA);
-    expect(app).toMatchObject({ appRef: "crm-entra", clientId: CLIENT_ID, redirectUri: TRUSTED_REDIRECT });
+describe("server-side application configuration", () => {
+  test("A1 entraCrm comes from the server configuration; the secret is non-enumerable and never serialised", () => {
+    const app = load.registry().getEntraCrmApp();
+    expect(app).toMatchObject({ application: "entraCrm", clientId: CLIENT_ID, redirectUri: TRUSTED_REDIRECT });
     expect(app.clientSecret).toBe(SECRET);
     expect(Object.keys(app)).not.toContain("clientSecret");
     expect(JSON.stringify(app)).not.toContain(SECRET);
     expect(Object.isFrozen(app)).toBe(true);
   });
 
-  test("A2 an unknown appRef, or an application of another provider, fails closed", () => {
-    const { getAuthApp } = load.registry();
-    expect(thrown(() => getAuthApp("portal-client-x", B2C))).toMatchObject({ code: "UNKNOWN_APP_REF" });
-    expect(thrown(() => getAuthApp("crm-entra", B2C))).toMatchObject({ code: "UNKNOWN_APP_REF" });
-    expect(thrown(() => getAuthApp("__proto__", ENTRA))).toMatchObject({ code: "UNKNOWN_APP_REF" });
+  test("A2 applications are fixed per provider: no per-connection application selection exists", () => {
+    const reg = load.registry();
+    expect(Object.keys(reg).sort()).toEqual(["AuthConfigError", "B2C", "ENTRA", "getEntraCrmApp", "getLegacySharedB2CApp"]);
+    expect(reg.getLegacySharedB2CApp()).toMatchObject({ application: "legacySharedB2C", clientId: process.env.MS_CLIENT_ID });
   });
 });
 
@@ -161,7 +160,7 @@ describe("resolveConnectionAuthConfig - Entra", () => {
       mode: "connection",
       connectionId: "connA",
       directoryId: HOME_DIR,
-      appRef: "crm-entra",
+      application: "entraCrm",
       clientId: CLIENT_ID,
       audience: CLIENT_ID,
       redirectUri: TRUSTED_REDIRECT,
@@ -229,7 +228,7 @@ describe("resolveConnectionAuthConfig - Azure B2C (legacy shared directory)", ()
     expect(c).toMatchObject({
       provider: "azure-b2c",
       mode: "legacy-shared-directory",
-      appRef: "portal-b2c",
+      application: "legacySharedB2C",
       clientId: process.env.MS_CLIENT_ID,
       audience: process.env.MS_CLIENT_ID,
       redirectUri: process.env.MS_REDIRECT_URI,

@@ -19,8 +19,12 @@ const {
   assertConnectionWritable,
   pickConnectionFields,
   prepareConnectionsForWrite,
+  assertConnectionIdentity,
   eligibleDefaultRoles,
 } = require("../helpers/connectionDefaultRole");
+
+const plainConnections = (tenant) =>
+  (tenant.authenticationConnections || []).map((c) => (typeof c.toObject === "function" ? c.toObject() : c));
 
 // An organisation is identified only by its internal Tenant._id (code and domain have their own
 // lookups). A Microsoft directory id identifies an authentication connection, never an
@@ -158,6 +162,7 @@ module.exports.createTenant = async (tenantData, createdBy) => {
           "Create the organisation first, then enable automatic provisioning with a default role"
         );
       }
+      assertConnectionIdentity(payload.authenticationConnections, []);
       for (const c of payload.authenticationConnections) {
         await assertConnectionWritable(null, c);
       }
@@ -368,19 +373,11 @@ module.exports.addAuthenticationConnection = async (
       throw new Error("Tenant not found");
     }
 
-    // Check if connection with same directory ID already exists
-    const existingConnection = tenant.authenticationConnections.find(
-      (conn) => conn.directoryId === connectionData.directoryId && conn.isActive
-    );
-
-    if (existingConnection) {
-      throw new Error(
-        "Authentication connection with this Directory ID already exists"
-      );
-    }
-
-    // Add new connection (writable fields only, provisioning rules checked)
+    // Add new connection (writable fields only; identity rules on the resulting list, then the
+    // provisioning rules)
     const fields = pickConnectionFields(connectionData);
+    const storedList = plainConnections(tenant);
+    assertConnectionIdentity([...storedList, fields], storedList);
     await assertConnectionWritable(String(tenant._id), fields);
     tenant.authenticationConnections.push({
       ...fields,
@@ -415,28 +412,15 @@ module.exports.updateAuthenticationConnection = async (
       throw new Error("Authentication connection not found");
     }
 
-    // Check if updating directory ID would create a duplicate
-    if (
-      updateData.directoryId &&
-      updateData.directoryId !== connection.directoryId
-    ) {
-      const existingConnection = tenant.authenticationConnections.find(
-        (conn) =>
-          conn.directoryId === updateData.directoryId &&
-          conn._id.toString() !== connectionId &&
-          conn.isActive
-      );
-
-      if (existingConnection) {
-        throw new Error(
-          "Authentication connection with this Directory ID already exists"
-        );
-      }
-    }
-
-    // Update connection: writable fields only; the merged result must satisfy the provisioning rules
+    // Update connection: writable fields only (stored-only fields stay on the subdocument); the
+    // resulting list must satisfy the identity rules and the merged connection the provisioning rules
     const fields = pickConnectionFields(updateData);
     const stored = typeof connection.toObject === "function" ? connection.toObject() : connection;
+    const storedList = plainConnections(tenant);
+    assertConnectionIdentity(
+      storedList.map((c) => (String(c._id) === String(stored._id) ? { ...c, ...fields } : c)),
+      storedList
+    );
     const merged = { ...pickConnectionFields(stored), ...fields };
     await assertConnectionWritable(String(tenant._id), merged);
     Object.assign(connection, fields);

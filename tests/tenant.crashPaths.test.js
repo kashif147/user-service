@@ -201,7 +201,8 @@ describe("authentication connections", () => {
     expect(mockState.mutations).toEqual([`save:${A}`]);
   });
   test("add: duplicate Directory ID -> 400, nothing saved", async () => {
-    const r = await call("POST", P(A), { body: { directoryId: "dir-1" } });
+    // Same provider + same directory as a stored active connection (identity = provider + directory).
+    const r = await call("POST", P(A), { body: { connectionType: "AZURE_B2C", directoryId: "dir-1" } });
     expect(r.status).toBe(400);
     expect(errMsg(r)).toBe("Authentication connection with this Directory ID already exists");
     expect(mockState.mutations).toEqual([]);

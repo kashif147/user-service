@@ -191,87 +191,107 @@ const thrown = (fn) => {
   return null;
 };
 
-describe("resolver and appRef", () => {
-  test("A existing connections without appRef resolve to the compatibility applications (logged by id)", () => {
-    const e = resolve(mockStoredEntra({ appRef: undefined }));
-    const b = resolve(mockStoredB2C(), { policy: "B2C_1_projectshell_signin" });
-    expect(e.appRef).toBe("crm-entra");
-    expect(b.appRef).toBe("portal-b2c");
-    const lines = console.log.mock.calls.filter((c) => /compatibility application/.test(String(c[0])));
-    expect(lines.map((c) => c[1])).toEqual([
-      { connectionId: CONN_E, appRef: "crm-entra" },
-      { connectionId: CONN_B, appRef: "portal-b2c" },
-    ]);
-    expect(JSON.stringify(lines)).not.toMatch(/client|redirect|secret/i);
+describe("resolver: the application is fixed server configuration (stored appRef is inert)", () => {
+  const VARIANTS = [undefined, "crm-entra", "portal-b2c", "forged-app", { $ne: null }];
+  test("A/B/C/D Entra always resolves to entraCrm, whatever appRef is stored (missing, valid, wrong provider, forged)", () => {
+    const configs = VARIANTS.map((appRef) => resolve(mockStoredEntra({ appRef })));
+    for (const c of configs) {
+      expect(c).toMatchObject({ application: "entraCrm", clientId: process.env.AZURE_AD_CLIENT_ID, audience: process.env.AZURE_AD_CLIENT_ID, directoryId: HOME_DIR });
+      expect(c).not.toHaveProperty("appRef");
+    }
+    const json = configs.map((c) => JSON.stringify(c));
+    expect(new Set(json).size).toBe(1);
+    expect(new Set(configs.map((c) => c.clientSecret)).size).toBe(1);
   });
 
-  test("B an explicit, registered appRef is used (no compatibility fallback)", () => {
-    const e = resolve(mockStoredEntra({ appRef: "crm-entra" }));
-    expect(e).toMatchObject({ appRef: "crm-entra", directoryId: HOME_DIR, clientId: process.env.AZURE_AD_CLIENT_ID });
-    expect(resolve(mockStoredB2C({ appRef: "portal-b2c" }), { policy: "B2C_1_projectshell_signin" }).appRef).toBe("portal-b2c");
+  test("B2C always resolves to the legacy shared configuration, whatever appRef is stored", () => {
+    const configs = VARIANTS.map((appRef) => resolve(mockStoredB2C({ appRef }), { policy: "B2C_1_projectshell_signin" }));
+    for (const c of configs) expect(c).toMatchObject({ application: "legacySharedB2C", clientId: process.env.MS_CLIENT_ID });
+    expect(new Set(configs.map((c) => JSON.stringify(c))).size).toBe(1);
+  });
+
+  test("O no per-connection fallback exists any more: no compatibility-application log line", () => {
+    resolve(mockStoredEntra({ appRef: undefined }));
+    resolve(mockStoredB2C(), { policy: "B2C_1_projectshell_signin" });
     expect(console.log.mock.calls.some((c) => /compatibility application/.test(String(c[0])))).toBe(false);
   });
 
-  test("C/D an unknown appRef, or one of another provider, fails closed at sign-in", () => {
-    expect(thrown(() => resolve(mockStoredEntra({ appRef: "nope" })))).toMatchObject({ code: "UNKNOWN_APP_REF" });
-    expect(thrown(() => resolve(mockStoredEntra({ appRef: "portal-b2c" })))).toMatchObject({ code: "UNKNOWN_APP_REF" });
-    expect(thrown(() => resolve(mockStoredB2C({ appRef: "crm-entra" }), { policy: "P" }))).toMatchObject({ code: "UNKNOWN_APP_REF" });
+  test("organisations are distinguished by directory only: same application, each its own directory", async () => {
+    const OTHER = "33333333-3333-4333-8333-333333333333";
+    const prev = process.env.AZURE_AD_TENANT_ID;
+    process.env.AZURE_AD_TENANT_ID = OTHER;
+    try {
+      const b = resolve(mockStoredEntra({ directoryId: OTHER, appRef: "anything" }));
+      expect(b.directoryId).toBe(OTHER);
+      expect(b.issuer).toContain(`/${OTHER}/`);
+      expect(b.clientId).toBe(process.env.AZURE_AD_CLIENT_ID);
+    } finally {
+      process.env.AZURE_AD_TENANT_ID = prev;
+    }
+    const a = resolve(mockStoredEntra());
+    expect(a.directoryId).toBe(HOME_DIR);
+    // The compatibility assertion still refuses a directory that is not enabled, whatever appRef says.
+    expect(thrown(() => resolve(mockStoredEntra({ directoryId: OTHER, appRef: "crm-entra" })))).toMatchObject({ code: "DIRECTORY_NOT_ENABLED" });
   });
 
-  test("O Phase 3A sign-in configuration is identical with and without the explicit default appRef", () => {
-    const implicit = resolve(mockStoredEntra({ appRef: undefined }));
-    const explicit = resolve(mockStoredEntra({ appRef: "crm-entra" }));
-    expect(JSON.stringify(implicit)).toBe(JSON.stringify(explicit));
-    expect(implicit.clientSecret).toBe(explicit.clientSecret);
-  });
-
-  test("registry: entries carry label / redirectUris / multiDirectory; the secret reference never leaves the registry", () => {
-    const { getAuthApp, isRegisteredAppRef, effectiveAppRef } = require("../helpers/authAppRegistry");
-    const app = getAuthApp("crm-entra", ENTRA);
-    expect(app).toMatchObject({ appRef: "crm-entra", multiDirectory: false, redirectUris: { default: process.env.AZURE_AD_REDIRECT_URI } });
-    expect(app.redirectUri).toBe(app.redirectUris.default);
-    expect(Object.keys(app)).not.toContain("secretRef");
+  test("application configuration: fixed profiles only; the secret reference never leaves the module", () => {
+    const reg = require("../helpers/authAppRegistry");
+    expect(reg.getAuthApp).toBeUndefined();
+    expect(reg.isRegisteredAppRef).toBeUndefined();
+    expect(reg.effectiveAppRef).toBeUndefined();
+    const app = reg.getEntraCrmApp();
+    expect(app).toMatchObject({ application: "entraCrm", multiDirectory: false, redirectUris: { default: process.env.AZURE_AD_REDIRECT_URI } });
     expect(JSON.stringify(app)).not.toMatch(/secretRef|AZURE_AD_CLIENT_SECRET/);
     expect(JSON.stringify(app)).not.toContain(SECRET);
-    expect(isRegisteredAppRef("crm-entra", ENTRA)).toBe(true);
-    expect(isRegisteredAppRef("crm-entra", B2C)).toBe(false);
-    expect(isRegisteredAppRef("__proto__", ENTRA)).toBe(false);
-    expect(effectiveAppRef({ connectionType: B2C })).toBe("portal-b2c");
-    expect(effectiveAppRef({ connectionType: ENTRA, appRef: "crm-entra" })).toBe("crm-entra");
   });
 });
 
 describe("saving connections (all write paths)", () => {
-  test("C/D unknown appRef or provider mismatch -> 400, nothing written", async () => {
-    for (const appRef of ["nope", "portal-b2c"]) {
-      mockReset();
-      const r = await call("PUT", `/api/tenants/${A}/auth-connections/${CONN_E}`, { appRef });
-      expect(r.status).toBe(400);
-      expect(r.raw).toMatch(/appRef/);
-      expect(mockState.writes).toEqual([]);
-    }
-    const add = await call("POST", `/api/tenants/${A}/auth-connections`, { connectionType: B2C, directoryId: "b2c-2", appRef: "crm-entra" });
-    expect(add.status).toBe(400);
-    const full = await call("PUT", `/api/tenants/${A}`, {
-      authenticationConnections: [{ ...oldFormConnection(entraNow()), appRef: "unknown-app" }, oldFormConnection(mockStoredB2C())],
+  test("C/D incoming appRef / directoryOwnership are ignored on every write path; stored values stay", async () => {
+    const forged = { appRef: "forged-app", directoryOwnership: "customer" };
+    let r = await call("PUT", `/api/tenants/${A}/auth-connections/${CONN_E}`, forged);
+    expect(r.status).toBe(200);
+    expect(entraNow()).toMatchObject({ appRef: "crm-entra", directoryOwnership: "shared-nonprod" });
+    r = await call("PUT", `/api/tenants/${A}`, {
+      authenticationConnections: [{ ...oldFormConnection(entraNow()), ...forged }, oldFormConnection(mockStoredB2C())],
     });
-    expect(full.status).toBe(400);
-    expect(mockState.writes).toEqual([]);
+    expect(r.status).toBe(200);
+    expect(entraNow()).toMatchObject({ appRef: "crm-entra", directoryOwnership: "shared-nonprod" });
+    // A stored connection without them never acquires them from a request.
+    const b2c = () => conns().find((c) => String(c._id) === CONN_B);
+    r = await call("PUT", `/api/tenants/${A}/auth-connections/${CONN_B}`, { appRef: "portal-b2c", directoryOwnership: "projectshell-shared" });
+    expect(r.status).toBe(200);
+    expect(b2c()).not.toHaveProperty("appRef");
+    expect(b2c()).not.toHaveProperty("directoryOwnership");
   });
 
-  test("valid appRef / directoryOwnership per provider are saved; wrong ownership for the provider -> 400", async () => {
-    mockReset([mockStoredEntra({ appRef: undefined, directoryOwnership: undefined }), mockStoredB2C()]);
-    let r = await call("PUT", `/api/tenants/${A}/auth-connections/${CONN_E}`, { appRef: "crm-entra", directoryOwnership: "customer" });
+  test("C/D new connections never acquire appRef / directoryOwnership from request data (add, full array, create)", async () => {
+    const forged = { appRef: "crm-entra", directoryOwnership: "customer" };
+    let r = await call("POST", `/api/tenants/${A}/auth-connections`, { connectionType: B2C, directoryId: "b2c-new", ...forged });
     expect(r.status).toBe(200);
-    expect(entraNow()).toMatchObject({ appRef: "crm-entra", directoryOwnership: "customer" });
-    r = await call("PUT", `/api/tenants/${A}/auth-connections/${CONN_E}`, { directoryOwnership: "projectshell-shared" });
-    expect(r.status).toBe(400);
-    r = await call("PUT", `/api/tenants/${A}/auth-connections/${CONN_B}`, { directoryOwnership: "shared-nonprod" });
-    expect(r.status).toBe(400);
-    r = await call("PUT", `/api/tenants/${A}/auth-connections/${CONN_B}`, { directoryOwnership: "projectshell-shared", appRef: "portal-b2c" });
+    let added = conns().find((c) => c.directoryId === "b2c-new");
+    expect(added).not.toHaveProperty("appRef");
+    expect(added).not.toHaveProperty("directoryOwnership");
+    r = await call("PUT", `/api/tenants/${A}`, {
+      authenticationConnections: [...conns().map(oldFormConnection), { connectionType: B2C, directoryId: "b2c-3", ...forged }],
+    });
     expect(r.status).toBe(200);
-    r = await call("PUT", `/api/tenants/${A}/auth-connections/${CONN_E}`, { directoryOwnership: "anything" });
-    expect(r.status).toBe(400);
+    added = conns().find((c) => c.directoryId === "b2c-3");
+    expect(added).not.toHaveProperty("appRef");
+    expect(added).not.toHaveProperty("directoryOwnership");
+    const created = [];
+    const Tenant = require("../models/tenant.model");
+    const orig = Tenant.create;
+    Tenant.create = async (p) => { created.push(p); return { ...p, _id: "7ddddddddddddddddddddddd" }; };
+    try {
+      r = await call("POST", `/api/tenants`, { name: "New", code: "NEWORG", domain: "new.example", authenticationConnections: [{ connectionType: ENTRA, directoryId: OTHER_GUID, ...forged }] });
+    } finally {
+      Tenant.create = orig;
+    }
+    expect(r.status).toBe(201);
+    expect(created).toHaveLength(1);
+    expect(created[0].authenticationConnections[0]).not.toHaveProperty("appRef");
+    expect(created[0].authenticationConnections[0]).not.toHaveProperty("directoryOwnership");
   });
 
   test("E/F/H the old CRM form's full-array save keeps appRef, directoryOwnership and server-managed fields", async () => {
@@ -316,18 +336,19 @@ describe("saving connections (all write paths)", () => {
     for (const f of Object.keys(forged)) expect(third[f]).toBeUndefined();
   });
 
-  test("H unknown fields are dropped; an emptied appRef clears it explicitly", async () => {
+  test("H unknown fields are dropped; an emptied appRef / directoryOwnership is ignored (stored values stay)", async () => {
     let r = await call("PUT", `/api/tenants/${A}/auth-connections/${CONN_E}`, { clientSecret: "x", clientId: "y", secretRef: "z", foo: 1 });
     expect(r.status).toBe(200);
     expect(entraNow()).not.toHaveProperty("clientSecret");
     expect(entraNow()).not.toHaveProperty("secretRef");
     expect(entraNow()).not.toHaveProperty("foo");
-    r = await call("PUT", `/api/tenants/${A}/auth-connections/${CONN_E}`, { appRef: "" });
+    r = await call("PUT", `/api/tenants/${A}/auth-connections/${CONN_E}`, { appRef: "", directoryOwnership: null });
     expect(r.status).toBe(200);
-    expect(entraNow().appRef).toBeNull();
+    expect(entraNow()).toMatchObject({ appRef: "crm-entra", directoryOwnership: "shared-nonprod" });
   });
 
   test("I issuerUrl / audience may be absent on a new connection (schema and save rules)", async () => {
+    mockReset([mockStoredEntra({ isActive: false }), mockStoredB2C()]); // one active Entra connection per organisation
     const r = await call("POST", `/api/tenants/${A}/auth-connections`, { connectionType: ENTRA, directoryId: OTHER_GUID });
     expect(r.status).toBe(200);
     const Tenant = jest.requireActual("../models/tenant.model");
@@ -338,6 +359,7 @@ describe("saving connections (all write paths)", () => {
   });
 
   test("J issuerUrl is still validated when supplied", async () => {
+    mockReset([mockStoredEntra({ isActive: false }), mockStoredB2C()]); // one active Entra connection per organisation
     const r = await call("POST", `/api/tenants/${A}/auth-connections`, { connectionType: ENTRA, directoryId: OTHER_GUID, issuerUrl: "https://evil.example/v2.0" });
     expect(r.status).toBe(400);
     expect(r.raw).toMatch(/Issuer URL/);
@@ -347,6 +369,7 @@ describe("saving connections (all write paths)", () => {
   });
 
   test("K a new or changed Entra connection needs a GUID directory id", async () => {
+    mockReset([mockStoredEntra({ isActive: false }), mockStoredB2C()]); // one active Entra connection per organisation
     let r = await call("POST", `/api/tenants/${A}/auth-connections`, { connectionType: ENTRA, directoryId: "your-ad-directory-id" });
     expect(r.status).toBe(400);
     expect(r.raw).toMatch(/GUID/);
@@ -378,7 +401,7 @@ describe("saving connections (all write paths)", () => {
 describe("responses (allow-list)", () => {
   const ALLOWED = new Set([
     "_id", "connectionType", "directoryId", "issuerUrl", "audience", "isActive", "autoProvisionUsers", "defaultRoleId",
-    "appRef", "effectiveAppRef", "directoryOwnership", "connectedAt", "connectedBy", "lastTestedAt", "lastTestResult",
+    "connectedAt", "connectedBy", "lastTestedAt", "lastTestResult",
     "createdAt", "updatedAt",
   ]);
   const poison = () => {
@@ -391,7 +414,7 @@ describe("responses (allow-list)", () => {
     for (const c of connections) {
       for (const k of Object.keys(c)) expect(ALLOWED.has(k)).toBe(true);
       if (c.lastTestResult) expect(Object.keys(c.lastTestResult).sort()).toEqual(["code", "ok"]);
-      expect(c.effectiveAppRef).toBe(c.connectionType === ENTRA ? "crm-entra" : "portal-b2c");
+      for (const k of ["appRef", "effectiveAppRef", "directoryOwnership"]) expect(c).not.toHaveProperty(k);
     }
   };
 
@@ -402,7 +425,7 @@ describe("responses (allow-list)", () => {
       const r = await call(method, p, body);
       if (r.status >= 300) throw new Error(`${method} ${p} -> ${r.status} ${r.raw.slice(0, 120)}`);
       expect(r.raw).not.toContain(SECRET);
-      expect(r.raw).not.toMatch(/leak-client|leak\.example|secretRef|AZURE_AD_CLIENT_SECRET|internalNote|provider-message/);
+      expect(r.raw).not.toMatch(/leak-client|leak\.example|secretRef|AZURE_AD_CLIENT_SECRET|internalNote|provider-message|appRef|directoryOwnership|crm-entra|shared-nonprod/);
       responses.push(p);
       expectSafe(pick(r.body.data));
     };

@@ -1,13 +1,10 @@
 /**
  * The one response shape of an authentication connection (and of a tenant's
  * authenticationConnections). Only the allow-listed fields below leave the service, so nothing
- * stored on a connection now or later - and nothing from the server-side app registry (client id,
- * redirect URIs, scopes, secret references or values) - reaches a client unless it is added here.
- *
- * `effectiveAppRef` is the application the connection actually signs in through: its explicit
- * appRef, else the provider's compatibility default (helpers/authAppRegistry.js).
+ * stored on a connection now or later - and nothing from the server-side application
+ * configuration (client id, redirect URIs, scopes, secret references or values) - reaches a client
+ * unless it is added here. The inert legacy fields appRef / directoryOwnership are not returned.
  */
-const { effectiveAppRef } = require("./authAppRegistry");
 
 const CONNECTION_RESPONSE_FIELDS = [
   "_id",
@@ -18,8 +15,6 @@ const CONNECTION_RESPONSE_FIELDS = [
   "isActive",
   "autoProvisionUsers",
   "defaultRoleId",
-  "appRef",
-  "directoryOwnership",
   "connectedAt",
   "connectedBy",
   "lastTestedAt",
@@ -40,7 +35,6 @@ function toConnectionView(connection) {
   if (c.lastTestResult && typeof c.lastTestResult === "object") {
     out.lastTestResult = { ok: c.lastTestResult.ok === true, code: c.lastTestResult.code ?? null };
   }
-  out.effectiveAppRef = effectiveAppRef(c);
   return out;
 }
 

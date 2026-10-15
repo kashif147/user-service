@@ -182,6 +182,11 @@ const conns = (t) => mockState.tenants[t].authenticationConnections;
 const newConn = (o) => ({ connectionType: ENTRA, issuerUrl: "https://login.microsoftonline.com/n/v2.0", directoryId: mockGuid("new"), audience: "aud", ...o });
 
 describe("POST /tenants/:id/auth-connections", () => {
+  // These tests add an Entra connection; an organisation may have only one ACTIVE Entra connection
+  // (Stage 4 identity rule), so the stored one is inactive here.
+  beforeEach(() => {
+    mockState.tenants[A].authenticationConnections[0].isActive = false;
+  });
   test("automatic without a default role -> 400, nothing saved", async () => {
     const r = await call("POST", P(A), { body: newConn({ autoProvisionUsers: true }) });
     expect(r.status).toBe(400);

@@ -187,15 +187,15 @@ const TenantSchema = new mongoose.Schema({
         type: String,
         trim: true,
       },
-      // Registered application (helpers/authAppRegistry.js) this connection signs in through.
-      // Optional: unset = the provider's compatibility default (crm-entra / portal-b2c).
+      // Legacy (inert): written by the Phase 3B DEV backfill, never read for sign-in, never accepted
+      // from a request, never returned. Preserved on save until a controlled cleanup migration.
       appRef: {
         type: String,
         trim: true,
         default: undefined,
       },
-      // Who owns the directory. Entra: customer | shared-nonprod; Azure B2C: customer |
-      // projectshell-shared (validated per provider, helpers/connectionDefaultRole.js).
+      // Legacy (inert): directory ownership moves to directory claims (Stage 5). Never accepted from
+      // a request, never returned; preserved on save until a controlled cleanup migration.
       directoryOwnership: {
         type: String,
         enum: ["customer", "shared-nonprod", "projectshell-shared"],

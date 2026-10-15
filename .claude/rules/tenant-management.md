@@ -3,36 +3,31 @@
 `models/tenant.model.js`'s `authenticationConnections[]` is how one tenant maps to one-or-more Azure
 AD/B2C directories — a tenant is not necessarily backed by a single Azure directory.
 
-**Connection fields (Phase 3B).** Admin-writable (the only fields a request body may set, list
-`ADMIN_WRITABLE_CONNECTION_FIELDS` in `helpers/connectionDefaultRole.js`): `connectionType`,
-`directoryId`, `isActive`, `autoProvisionUsers`, `defaultRoleId`, `appRef` (a registered application
-of the connection's provider, `helpers/authAppRegistry.js`; unset = the compatibility default
-crm-entra / portal-b2c), `directoryOwnership` (Entra: `customer` | `shared-nonprod`; B2C: `customer` |
-`projectshell-shared` - recorded only, no uniqueness rule yet), and the legacy `issuerUrl` / `audience`
-(optional, never read for sign-in; `issuerUrl` validated when supplied). Server-managed (never from a
-request; carried over on every save): `connectedAt`, `connectedBy`, `lastTestedAt`, `lastTestResult
-{ok, code}`. Every write path (tenant create/update incl. the CRM form's full-array replace, add/update
-connection) keeps admin-writable fields a client did not send and all server-managed fields, drops
-unknown fields, and validates new or changed connections only (`assertConnectionWritable`: Entra
-`directoryId` must be a GUID, appRef/ownership/issuer rules, provisioning rules) - untouched stored
-connections are grandfathered. Responses: every tenant/connection response goes through
-`helpers/authConnectionView.js` (explicit field allow-list + `effectiveAppRef`); nothing from the app
-registry (client ids, redirect URIs, secret references) is ever returned. No secret is stored on a
-connection.
-
-`tenantLifecycle.controller.js` is a **read-only internal API with no JWT auth at all** — gated only
-by `x-internal-request: true`/`"1"` — composing `Tenant.settings.lifecycleBatches` + primary office +
-active public holidays + notification-recipient role lookups into one config blob for
-`subscription-service`'s reminder/renewal-batch scheduler (`GET
-/api/internal/tenant-lifecycle-configs`, `.../lifecycle-config`, `.../notification-recipients`). Any
-new internal route added near this one inherits the same exposure: the header check is the *only*
-thing standing between it and being a fully open unauthenticated endpoint, so treat it as effectively
-public unless real auth is added.
-
-`tenantScoped.controller.js` (`/api/tenant/*`) is not a generic tenant-scoped CRUD helper — it's
-specifically a restricted subset of role/permission management for `ASU` admins, re-verifying every
-target role belongs to `req.ctx.tenantId` before mutating; it wraps the same
-`RoleHandler`/`PermissionHandler` used elsewhere rather than duplicating logic.
+**Connection model (approved architecture, Stage 4).** A connection identifies the customer's
+DIRECTORY (`directoryId` = Microsoft Directory (tenant) ID / `tid`); the application is fixed server
+configuration (`helpers/authAppRegistry.js`: `entraCrm` = the one shared CRM app registration, same
+Application (client) ID for every organisation; `legacySharedB2C` for the shared B2C portal). The
+customer is distinguished by directory, never by client id, scope, audience or appRef; the
+ProjectShell `tenantId` stays the isolation boundary. Fields (`helpers/connectionDefaultRole.js`):
+- Admin-writable (the only fields a request body may set): `connectionType`, `directoryId`,
+  `isActive`, `autoProvisionUsers`, `defaultRoleId`, and the legacy `issuerUrl` / `audience`
+  (optional, never read for sign-in; `issuerUrl` validated when supplied; B2C `audience` still feeds
+  the sign-up connector).
+- Server-managed (never from a request; carried over on every save): `connectedAt`, `connectedBy`,
+  `lastTestedAt`, `lastTestResult {ok, code}`.
+- Preserved legacy, INERT: `appRef`, `directoryOwnership` (Phase 3B DEV backfill). Never read for
+  sign-in, never accepted from a request (new connections never get them), never returned; stored
+  values are carried over by `_id` until a controlled cleanup migration. Directory ownership moves
+  to directory claims (Stage 5).
+- Identity (`assertConnectionIdentity`, on the final proposed list of every write path: create,
+  add, update, full-array replace): among active connections at most ONE Microsoft Entra connection
+  per organisation and no two connections of the same provider for the same directory
+  (case-insensitive). Existing conflicts are grandfathered for unrelated saves; new conflicts or
+  edits that create/touch one -> 400. Cross-organisation directory uniqueness is Stage 5.
+New or changed connections also pass `assertConnectionWritable` (Entra `directoryId` is a GUID,
+issuer rule, provisioning/default-role rules); untouched stored connections are grandfathered.
+Responses: every tenant/connection response goes through `helpers/authConnectionView.js` (explicit
+allow-list; appRef / directoryOwnership / application configuration are never returned).
 
 ## IdP directory vs ProjectShell tenant (sign-in)
 
@@ -66,10 +61,10 @@ B2C account is never created for a connection whose first sign-in would refuse J
 
 `resolveConnectionAuthConfig(connection, providerContext)` is the only place that produces a
 sign-in's protocol configuration. The **directory** comes from the selected connection
-(`directoryId`); the **application** (client id, redirect URI, scopes, client secret) comes from the
-server-side app registry (`helpers/authAppRegistry.js`: `crm-entra` -> `AZURE_AD_*`, `portal-b2c` ->
-`MS_*`), never from MongoDB or the request; issuer, JWKS URI and authorize/token/logout endpoints
-are derived. The stored `issuerUrl`/`audience` are NOT read for sign-in (DEV holds placeholders
+(`directoryId`); the **application** (client id, redirect URI, scopes, client secret) is fixed server
+configuration (`helpers/authAppRegistry.js`: Entra -> `entraCrm` from `AZURE_AD_*`, B2C ->
+`legacySharedB2C` from `MS_*`), never from MongoDB, the request or a stored appRef; issuer, JWKS URI
+and authorize/token/logout endpoints are derived. The stored `issuerUrl`/`audience` are NOT read for sign-in (DEV holds placeholders
 there; `audience` is still what the B2C sign-up connector matches). The secret is non-enumerable on
 every resolved object. The CRM authorize URL, token exchange (`exchangeCodeForTokens(code, verifier,
 config)`) and ID token verification (`verifyIdToken(token, nonce, config)`: issuer, audience,
@@ -89,7 +84,7 @@ the redirect URI is always the app registration's.
   `MS_TENANT_NAME`/`MS_CLIENT_ID`/`MS_REDIRECT_URI`/`MS_B2C_DIRECTORY_ID` fails closed (the CRM
   sign-in start still works without them). Shared B2C is a compatibility arrangement; the target is
   per-organisation member identity (B2C or External ID; portal and mobile of one organisation may
-  share one connection), resolved through a connection + appRef later.
+  share one connection), each with its own Application (client) ID - not appRef.
 
 ## Provisioning rules (`helpers/connectionDefaultRole.js`)
 

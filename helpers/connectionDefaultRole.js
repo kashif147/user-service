@@ -21,7 +21,6 @@ const mongoose = require("mongoose");
 const Role = require("../models/role.model");
 const Permission = require("../models/permission.model");
 const { isProtectedRole, isReservedPermission } = require("../handlers/role.handler");
-const { isRegisteredAppRef } = require("./authAppRegistry");
 
 const ENTRA = "Entra ID (Azure AD)";
 const B2C = "Azure B2C";
@@ -37,6 +36,10 @@ const OBJECT_ID_RE = /^[0-9a-fA-F]{24}$/;
 //    still sends them.
 //  - SERVER-MANAGED: set only by server flows (connect / test); never taken from a request body and
 //    always carried over from the stored connection when the connection is saved.
+//  - PRESERVED LEGACY (inert): appRef / directoryOwnership (Phase 3B) are not part of the approved
+//    connection model - the CRM application is fixed server configuration and directory ownership
+//    moves to directory claims. Never taken from a request body (a new connection never gets them);
+//    a stored connection keeps its values, matched by _id, until a controlled cleanup migration.
 const ADMIN_WRITABLE_CONNECTION_FIELDS = [
   "connectionType",
   "issuerUrl",
@@ -45,20 +48,14 @@ const ADMIN_WRITABLE_CONNECTION_FIELDS = [
   "isActive",
   "autoProvisionUsers",
   "defaultRoleId",
-  "appRef",
-  "directoryOwnership",
 ];
 const SERVER_MANAGED_CONNECTION_FIELDS = ["connectedAt", "connectedBy", "lastTestedAt", "lastTestResult"];
+const PRESERVED_LEGACY_CONNECTION_FIELDS = ["appRef", "directoryOwnership"];
+const STORED_ONLY_CONNECTION_FIELDS = [...SERVER_MANAGED_CONNECTION_FIELDS, ...PRESERVED_LEGACY_CONNECTION_FIELDS];
 const CONNECTION_FIELDS = ADMIN_WRITABLE_CONNECTION_FIELDS;
 
 const DIRECTORY_GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ISSUER_URL = /^https:\/\/login\.microsoftonline\.com\/[^\/]+\/v2\.0$/;
-// directoryOwnership values allowed per provider. Recorded only; cross-organisation directory
-// uniqueness (and its non-production exception) is not enforced yet.
-const DIRECTORY_OWNERSHIP = {
-  [ENTRA]: ["customer", "shared-nonprod"],
-  [B2C]: ["customer", "projectshell-shared"],
-};
 const isBlank = (v) => v === undefined || v === null || v === "";
 
 class ConnectionValidationError extends Error {
@@ -170,15 +167,6 @@ async function assertConnectionWritable(tenantId, connection) {
   if (!isBlank(connection.issuerUrl) && !ISSUER_URL.test(connection.issuerUrl)) {
     throw new ConnectionValidationError("Issuer URL must be a valid Microsoft login URL");
   }
-  if (!isBlank(connection.appRef) && !isRegisteredAppRef(connection.appRef, connectionType)) {
-    throw new ConnectionValidationError("Application (appRef) is not registered for this connection type");
-  }
-  if (
-    !isBlank(connection.directoryOwnership) &&
-    !(DIRECTORY_OWNERSHIP[connectionType] || []).includes(connection.directoryOwnership)
-  ) {
-    throw new ConnectionValidationError("Directory ownership is not valid for this connection type");
-  }
   if (autoProvisionUsers !== undefined && typeof autoProvisionUsers !== "boolean") {
     throw new ConnectionValidationError("autoProvisionUsers must be true or false");
   }
@@ -203,33 +191,90 @@ const pickConnectionFields = (input) => {
     if (input && Object.prototype.hasOwnProperty.call(input, f)) out[f] = input[f];
   }
   // An emptied selector clears the value.
-  for (const f of ["defaultRoleId", "appRef", "directoryOwnership"]) {
-    if (out[f] === "") out[f] = null;
-  }
+  if (out.defaultRoleId === "") out.defaultRoleId = null;
   return out;
 };
 
 const plain = (v) => (v?.toObject ? v.toObject() : v);
 
-/** The server-managed fields of a STORED connection (never of a request body). */
-const serverManagedFields = (stored) => {
+const storedFields = (stored, fields) => {
   const out = {};
   const s = plain(stored);
-  for (const f of SERVER_MANAGED_CONNECTION_FIELDS) {
+  for (const f of fields) {
     if (s && s[f] !== undefined && s[f] !== null) out[f] = s[f];
   }
   return out;
 };
+/** The server-managed fields of a STORED connection (never of a request body). */
+const serverManagedFields = (stored) => storedFields(stored, SERVER_MANAGED_CONNECTION_FIELDS);
+/** Server-managed + preserved legacy fields of a STORED connection (never of a request body). */
+const storedOnlyFields = (stored) => storedFields(stored, STORED_ONLY_CONNECTION_FIELDS);
+
+// --- Connection identity: provider + directory ---------------------------------------------------
+// Within one organisation, among ACTIVE connections (isActive unset counts as active, the schema
+// default): at most one Microsoft Entra connection (sign-in requires exactly one), and no two
+// connections of the same provider for the same directory (directory ids compared
+// case-insensitively). Cross-organisation directory uniqueness is a later stage (directory claims).
+const normDirectory = (v) => String(v ?? "").trim().toLowerCase();
+const isActiveConnection = (c) => c?.isActive !== false;
+const identityConflicts = (entries) => {
+  const active = entries.filter((e) => isActiveConnection(e.c));
+  const out = [];
+  const entra = active.filter((e) => e.c.connectionType === ENTRA);
+  if (entra.length > 1) out.push({ rule: "MULTIPLE_ACTIVE_ENTRA", ids: entra.map((e) => e.id) });
+  const byKey = new Map();
+  for (const e of active) {
+    const key = `${e.c.connectionType}|${normDirectory(e.c.directoryId)}`;
+    byKey.set(key, [...(byKey.get(key) || []), e.id]);
+  }
+  for (const ids of byKey.values()) if (ids.length > 1) out.push({ rule: "DUPLICATE_DIRECTORY", ids });
+  return out;
+};
+const IDENTITY_MESSAGES = {
+  MULTIPLE_ACTIVE_ENTRA: "An organisation can have only one active Microsoft Entra connection",
+  DUPLICATE_DIRECTORY: "Authentication connection with this Directory ID already exists",
+};
+const sameIds = (a, b) => a.length === b.length && [...a].sort().join() === [...b].sort().join();
+const sameIdentity = (a, b) =>
+  a.connectionType === b.connectionType &&
+  normDirectory(a.directoryId) === normDirectory(b.directoryId) &&
+  isActiveConnection(a) === isActiveConnection(b);
+
+/**
+ * Identity rules for the FINAL proposed connection list of an organisation (`proposed`, stored
+ * connections keep their _id), compared with what is stored. A conflict is refused unless it is
+ * grandfathered: it already existed in the stored list between the same connections and none of
+ * them changed provider, directory or active state (an unrelated save never fails on an old
+ * conflict; a new connection or an edit that creates or touches a conflict does).
+ * Throws ConnectionValidationError.
+ */
+function assertConnectionIdentity(proposed, stored = []) {
+  const idOf = (c, i) => (c && c._id != null ? String(c._id) : `new:${i}`);
+  const storedPlain = (stored || []).map(plain);
+  const storedById = new Map(storedPlain.map((c) => [String(c._id), c]));
+  const proposedEntries = (proposed || []).map((c, i) => ({ id: idOf(plain(c), i), c: plain(c) }));
+  const before = identityConflicts(storedPlain.map((c) => ({ id: String(c._id), c })));
+  for (const conflict of identityConflicts(proposedEntries)) {
+    const grandfathered =
+      before.some((b) => b.rule === conflict.rule && sameIds(b.ids, conflict.ids)) &&
+      conflict.ids.every((id) => {
+        const was = storedById.get(id);
+        const now = proposedEntries.find((e) => e.id === id)?.c;
+        return was && now && sameIdentity(was, now);
+      });
+    if (!grandfathered) throw new ConnectionValidationError(IDENTITY_MESSAGES[conflict.rule]);
+  }
+}
 const sameValue = (a, b) => String(a ?? "") === String(b ?? "");
 
 /**
  * Full authenticationConnections array from a tenant create/update body -> the array to store.
  * A connection is matched to a stored one by _id (anything else is new). From the body only
  * admin-writable fields are taken; an admin-writable field the body does not send keeps its stored
- * value (an older client that does not know appRef never erases it), and the server-managed fields
- * are always carried over from the stored connection. New or changed connections must pass
- * assertConnectionWritable; unchanged stored ones are kept as they are (grandfathered).
- * Throws ConnectionValidationError.
+ * value, and the server-managed and preserved legacy fields are always carried over from the stored
+ * connection (never from the body). New or changed connections must pass assertConnectionWritable;
+ * unchanged stored ones are kept as they are (grandfathered). The final list must pass
+ * assertConnectionIdentity. Throws ConnectionValidationError.
  */
 async function prepareConnectionsForWrite(tenantId, incoming, stored = []) {
   if (!Array.isArray(incoming)) {
@@ -251,12 +296,13 @@ async function prepareConnectionsForWrite(tenantId, incoming, stored = []) {
     if (changed) await assertConnectionWritable(tenantId, merged);
     result.push({
       ...merged,
-      ...serverManagedFields(previous),
+      ...storedOnlyFields(previous),
       _id: previous._id,
       createdAt: previous.createdAt,
       updatedAt: changed ? now : previous.updatedAt,
     });
   }
+  assertConnectionIdentity(result, stored);
   return result;
 }
 
@@ -297,7 +343,10 @@ module.exports = {
   CONNECTION_FIELDS,
   ADMIN_WRITABLE_CONNECTION_FIELDS,
   SERVER_MANAGED_CONNECTION_FIELDS,
+  PRESERVED_LEGACY_CONNECTION_FIELDS,
   serverManagedFields,
+  storedOnlyFields,
+  assertConnectionIdentity,
   ConnectionValidationError,
   DefaultRoleError,
   isAutomatic,
