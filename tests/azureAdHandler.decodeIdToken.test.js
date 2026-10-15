@@ -17,6 +17,9 @@ jest.mock("../rabbitMQ/publishers/user.crm.publisher", () => ({
 
 const Tenant = require("../models/tenant.model");
 const AzureADHandler = require("../handlers/azure.ad.handler");
+const { resolveConnectionAuthConfig } = require("../helpers/connectionAuthConfig");
+// The configuration a sign-in verifies against (here: the CRM app's home directory).
+const entraConfig = () => resolveConnectionAuthConfig(null, { connectionType: "Entra ID (Azure AD)" });
 const {
   makeTestKeypairAndJwks,
   signTestJwt,
@@ -56,7 +59,7 @@ describe("AzureADHandler.decodeIdToken", () => {
   test("valid token with matching nonce returns the identity profile; no tenant is looked up", async () => {
     const token = await signTestJwt(privateKey, baseClaims({ nonce: expectedNonce }));
 
-    const profile = await AzureADHandler.decodeIdToken(token, expectedNonce);
+    const profile = await AzureADHandler.decodeIdToken(token, expectedNonce, entraConfig());
 
     expect(profile.userEmail).toBe("staff@example.com");
     expect(profile.microsoftDirectoryId).toBe(TEST_TENANT_ID);
@@ -69,7 +72,7 @@ describe("AzureADHandler.decodeIdToken", () => {
   test("missing expectedNonce is rejected before any verification is attempted", async () => {
     const token = await signTestJwt(privateKey, baseClaims());
 
-    await expect(AzureADHandler.decodeIdToken(token, undefined)).rejects.toThrow(
+    await expect(AzureADHandler.decodeIdToken(token, undefined, entraConfig())).rejects.toThrow(
       /missing expected nonce/i,
     );
     expect(Tenant.findOne).not.toHaveBeenCalled();
@@ -78,7 +81,7 @@ describe("AzureADHandler.decodeIdToken", () => {
   test("nonce mismatch (replay of a valid token against a different session) fails", async () => {
     const token = await signTestJwt(privateKey, baseClaims({ nonce: "a-different-nonce" }));
 
-    await expect(AzureADHandler.decodeIdToken(token, expectedNonce)).rejects.toThrow(
+    await expect(AzureADHandler.decodeIdToken(token, expectedNonce, entraConfig())).rejects.toThrow(
       /nonce mismatch/i,
     );
     expect(Tenant.findOne).not.toHaveBeenCalled();
@@ -93,7 +96,7 @@ describe("AzureADHandler.decodeIdToken", () => {
       baseClaims({ nonce: expectedNonce, tid: "11111111-1111-1111-1111-111111111111" }),
     );
 
-    await expect(AzureADHandler.decodeIdToken(token, expectedNonce)).rejects.toThrow();
+    await expect(AzureADHandler.decodeIdToken(token, expectedNonce, entraConfig())).rejects.toThrow();
     expect(Tenant.findOne).not.toHaveBeenCalled();
   });
 
@@ -103,7 +106,7 @@ describe("AzureADHandler.decodeIdToken", () => {
       baseClaims({ nonce: expectedNonce, aud: "some-other-client-id" }),
     );
 
-    await expect(AzureADHandler.decodeIdToken(token, expectedNonce)).rejects.toThrow();
+    await expect(AzureADHandler.decodeIdToken(token, expectedNonce, entraConfig())).rejects.toThrow();
   });
 
   test("expired token fails", async () => {
@@ -113,14 +116,14 @@ describe("AzureADHandler.decodeIdToken", () => {
       { expiresInSeconds: -60 },
     );
 
-    await expect(AzureADHandler.decodeIdToken(token, expectedNonce)).rejects.toThrow();
+    await expect(AzureADHandler.decodeIdToken(token, expectedNonce, entraConfig())).rejects.toThrow();
   });
 
   test("modified payload with the original signature fails", async () => {
     const token = await signTestJwt(privateKey, baseClaims({ nonce: expectedNonce }));
     const tampered = tamperPayload(token, (claims) => ({ ...claims, oid: "attacker-oid" }));
 
-    await expect(AzureADHandler.decodeIdToken(tampered, expectedNonce)).rejects.toThrow();
+    await expect(AzureADHandler.decodeIdToken(tampered, expectedNonce, entraConfig())).rejects.toThrow();
   });
 
   test("forged signature (different keypair) fails", async () => {
@@ -130,7 +133,7 @@ describe("AzureADHandler.decodeIdToken", () => {
       baseClaims({ nonce: expectedNonce }),
     );
 
-    await expect(AzureADHandler.decodeIdToken(token, expectedNonce)).rejects.toThrow();
+    await expect(AzureADHandler.decodeIdToken(token, expectedNonce, entraConfig())).rejects.toThrow();
   });
 
   test("a directory shared by several tenants is never resolved to a first-found tenant here", async () => {
@@ -138,7 +141,7 @@ describe("AzureADHandler.decodeIdToken", () => {
     Tenant.findOne.mockResolvedValue({ _id: { toString: () => "first-found-tenant" } });
     const token = await signTestJwt(privateKey, baseClaims({ nonce: expectedNonce }));
 
-    const profile = await AzureADHandler.decodeIdToken(token, expectedNonce);
+    const profile = await AzureADHandler.decodeIdToken(token, expectedNonce, entraConfig());
 
     expect(Tenant.findOne).not.toHaveBeenCalled();
     expect(JSON.stringify(profile)).not.toMatch(/first-found-tenant/);
@@ -150,11 +153,14 @@ describe("AzureADHandler.decodeIdToken", () => {
       const saved = process.env[name];
       delete process.env[name];
       try {
-        const token = await signTestJwt(privateKey, baseClaims({ nonce: expectedNonce }));
-        await expect(AzureADHandler.decodeIdToken(token, expectedNonce)).rejects.toMatchObject({
-          code: "ENTRA_NOT_CONFIGURED",
-          missing: [name],
-        });
+        // The configuration cannot be resolved, so no verification can start.
+        let err;
+        try {
+          entraConfig();
+        } catch (e) {
+          err = e;
+        }
+        expect(err).toMatchObject({ code: "ENTRA_NOT_CONFIGURED", missing: [name] });
       } finally {
         process.env[name] = saved;
       }

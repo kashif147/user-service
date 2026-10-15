@@ -7,6 +7,8 @@ jest.mock("axios", () => ({ post: jest.fn(), get: jest.fn() }));
 const axios = require("axios");
 const B2CUsersHandler = require("../handlers/b2c.users.handler");
 const AzureADHandler = require("../handlers/azure.ad.handler");
+const { resolveConnectionAuthConfig } = require("../helpers/connectionAuthConfig");
+const entraConfig = () => resolveConnectionAuthConfig(null, { connectionType: "Entra ID (Azure AD)" });
 
 const CODE = "SECRET-AUTH-CODE-0123456789abcdefghijklmnopqrstuvwxyz0123456789";
 const VERIFIER = "SECRET-PKCE-VERIFIER-0123456789abcdefghijklmnopqrstuvwxyz";
@@ -51,7 +53,7 @@ describe("B2C token exchange logging", () => {
 describe("Entra (CRM) token exchange logging", () => {
   test("success: no code, verifier or client secret", async () => {
     axios.post.mockResolvedValueOnce({ status: 200, data: { id_token: "x" } });
-    await AzureADHandler.exchangeCodeForTokens(CODE, VERIFIER);
+    await AzureADHandler.exchangeCodeForTokens(CODE, VERIFIER, entraConfig());
     expect(logged()).not.toMatch(/SECRET-AUTH-CODE|SECRET-PKCE-VERIFIER|test-client-secret/);
   });
 
@@ -59,7 +61,7 @@ describe("Entra (CRM) token exchange logging", () => {
     const e = httpError(`client_secret=test-client-secret&code=${CODE}&code_verifier=${VERIFIER}`);
     delete e.response;
     axios.post.mockRejectedValueOnce(e);
-    await expect(AzureADHandler.exchangeCodeForTokens(CODE, VERIFIER)).rejects.toThrow();
+    await expect(AzureADHandler.exchangeCodeForTokens(CODE, VERIFIER, entraConfig())).rejects.toThrow();
     expect(logged()).not.toMatch(/SECRET-AUTH-CODE|SECRET-PKCE-VERIFIER|test-client-secret/);
   });
 });

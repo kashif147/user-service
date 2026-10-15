@@ -18,33 +18,32 @@ const {
   publishPortalUserUpdated,
 } = require("../rabbitMQ/publishers/user.portal.publisher");
 const { buildUserTokensSubdocument } = require("../helpers/oauthTokenStorage");
-const {
-  b2cTokenEndpoint,
-  b2cJwksUrl,
-  b2cExpectedIssuer,
-  getAllowedPolicies,
-} = require("../helpers/b2cPolicy");
+const { getAllowedPolicies } = require("../helpers/b2cPolicy");
+const { resolveConnectionAuthConfig } = require("../helpers/connectionAuthConfig");
 
-// One remote JWKS set per B2C policy (Azure AD B2C publishes signing keys per policy),
-// reused across requests: createRemoteJWKSet caches fetched keys and handles kid-based
-// key selection internally.
-const jwksByPolicy = new Map();
-function getJwksForPolicy(policyName) {
-  if (!jwksByPolicy.has(policyName)) {
-    jwksByPolicy.set(
-      policyName,
-      createRemoteJWKSet(new URL(b2cJwksUrl(policyName))),
-    );
+// Shared (legacy) B2C configuration for one user flow: endpoints, client id, redirect URI,
+// issuer and JWKS come only from the resolver (no built-in fallbacks; missing config fails closed).
+const b2cAuthConfig = (policyName) =>
+  resolveConnectionAuthConfig(null, { connectionType: "Azure B2C", policy: policyName });
+
+// One remote JWKS set per JWKS URI (Azure AD B2C publishes signing keys per directory and
+// policy), reused across requests: createRemoteJWKSet caches fetched keys and handles kid-based
+// key selection internally. Keyed by URI, so keys of one directory/flow never verify another's.
+const jwksByUri = new Map();
+function getJwks(jwksUri) {
+  if (!jwksByUri.has(jwksUri)) {
+    jwksByUri.set(jwksUri, createRemoteJWKSet(new URL(jwksUri)));
   }
-  return jwksByPolicy.get(policyName);
+  return jwksByUri.get(jwksUri);
 }
 /** Exposed for tests only, so a forged-signature test can inject a JWKS pointed at a
- * throwaway keypair instead of a real Microsoft tenant. */
+ * throwaway keypair instead of a real Microsoft tenant, for one policy's JWKS URI. */
 function _resetJwksForTests(policyName, jwks) {
+  const { jwksUri } = b2cAuthConfig(policyName);
   if (jwks) {
-    jwksByPolicy.set(policyName, jwks);
+    jwksByUri.set(jwksUri, jwks);
   } else {
-    jwksByPolicy.delete(policyName);
+    jwksByUri.delete(jwksUri);
   }
 }
 
@@ -94,23 +93,20 @@ async function findLegacyPortalUser(email, tenantId) {
   return legacy.length === 1 ? legacy[0] : null;
 }
 
-const CLIENT_ID =
-  process.env.MS_CLIENT_ID || "e3688a2f-3956-42f9-8c98-6fea7a60a5b4";
-const REDIRECT_URI = process.env.MS_REDIRECT_URI || "http://localhost:3000";
-
 class B2CUsersHandler {
   static async exchangeCodeForTokens(code, codeVerifier, policyName) {
-    const tokenEndpoint = b2cTokenEndpoint(policyName);
+    const config = b2cAuthConfig(policyName);
+    const tokenEndpoint = config.tokenEndpoint;
     // Never log the authorization code, the PKCE verifier or the request body built from them.
     console.log("B2C token exchange:", { policy: policyName });
 
     const data = new URLSearchParams({
       grant_type: "authorization_code",
-      client_id: CLIENT_ID,
+      client_id: config.clientId,
       code,
-      redirect_uri: REDIRECT_URI,
+      redirect_uri: config.redirectUri,
       code_verifier: codeVerifier,
-      scope: "openid offline_access",
+      scope: config.scopes,
     });
 
     try {
@@ -160,11 +156,9 @@ class B2CUsersHandler {
       throw new Error("B2C policy not allowed");
     }
 
-    if (!process.env.MS_B2C_DIRECTORY_ID) {
-      // b2cExpectedIssuer() below already throws on this, but fail here too with an
-      // unambiguous message before any network/JWKS work happens.
-      throw new Error("MS_B2C_DIRECTORY_ID is not configured");
-    }
+    // Fails closed (AuthConfigError naming the missing variables) before any network/JWKS work
+    // when the shared B2C directory, tenant or client id is not configured.
+    const config = b2cAuthConfig(policyName);
 
     // Signature/issuer/audience/algorithm/exp/nbf verification against Microsoft's real
     // JWKS for the single configured B2C tenant/policy. jwtVerify throws before returning
@@ -172,9 +166,9 @@ class B2CUsersHandler {
     // unverified/forged/tampered/expired/wrong-issuer/wrong-audience token. Deliberately
     // does not log the token or its decoded payload: both carry PII/identity claims and a
     // captured log line would be as good as a captured token for anyone who can read logs.
-    const { payload } = await jwtVerify(idToken, getJwksForPolicy(policyName), {
-      issuer: b2cExpectedIssuer(),
-      audience: CLIENT_ID,
+    const { payload } = await jwtVerify(idToken, getJwks(config.jwksUri), {
+      issuer: config.issuer,
+      audience: config.audience,
       algorithms: ["RS256"],
     });
 
@@ -196,7 +190,7 @@ class B2CUsersHandler {
     // (tid/extension_tenantId/tenantId/iss). The directory never selects a ProjectShell tenant
     // (several tenants share the B2C directory): findOrCreateUser resolves the tenant from the
     // user's own record (helpers/identityTenantResolution.js).
-    const extractedDirectoryId = process.env.MS_B2C_DIRECTORY_ID;
+    const extractedDirectoryId = config.directoryId;
 
     return {
       userEmail: payload.emails?.[0] || null,

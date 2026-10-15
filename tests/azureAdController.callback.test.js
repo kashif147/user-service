@@ -73,7 +73,6 @@ describe("handleAzureADCallback", () => {
     expect(AzureADHandler.handleAzureADAuth).toHaveBeenCalledWith(
       "auth-code",
       "verifier",
-      undefined,
       "nonce-ok",
       null, // no tenant-scoped login context: /pkce/generate was called without ?tenant
     );

@@ -26,9 +26,10 @@ app registration, issuer and audience, so the token can never say which ProjectS
 
 **CRM, tenant-scoped (the target flow):** the login is started for a tenant —
 `GET /pkce/generate?tenant=<code|_id>` (`helpers/loginTenantContext.js`) resolves that tenant's
-active Entra connection for the configured directory and stores `{tenantId, connectionId}` next to
-the nonce under the random, single-use OAuth `state` (`helpers/pkceStateStore.js`). The callback
-restores it from the state only (`takeLoginTransaction`); body/query/`x-tenant-id` are never read.
+single active Entra connection (none or several -> the same generic 400; never chosen by the env
+directory) and stores `{tenantId, connectionId}` next to the nonce under the random, single-use
+OAuth `state` (`helpers/pkceStateStore.js`). The callback restores it from the state only
+(`takeLoginTransaction`, then `loadLoginConnection`); body/query/`x-tenant-id` are never read.
 `resolveTenantScopedUser` (`helpers/identityTenantResolution.js`) then re-checks the connection is
 active and its `directoryId` equals the token `tid`, finds the user ONLY in that tenant by `oid`
 (record issuer must be the same directory), else claims an email match that has no real oid yet
@@ -44,6 +45,35 @@ the single trusting tenant whose connection has `autoProvisionUsers: true` (zero
 The B2C sign-up connector (`helpers/b2cConnectorTenant.js`) follows the same flag and also requires
 the connection to have a `defaultRoleId` (presence only; the role is validated at provisioning), so a
 B2C account is never created for a connection whose first sign-in would refuse JIT.
+
+## Protocol configuration (`helpers/connectionAuthConfig.js`, Phase 3A)
+
+`resolveConnectionAuthConfig(connection, providerContext)` is the only place that produces a
+sign-in's protocol configuration. The **directory** comes from the selected connection
+(`directoryId`); the **application** (client id, redirect URI, scopes, client secret) comes from the
+server-side app registry (`helpers/authAppRegistry.js`: `crm-entra` -> `AZURE_AD_*`, `portal-b2c` ->
+`MS_*`), never from MongoDB or the request; issuer, JWKS URI and authorize/token/logout endpoints
+are derived. The stored `issuerUrl`/`audience` are NOT read for sign-in (DEV holds placeholders
+there; `audience` is still what the B2C sign-up connector matches). The secret is non-enumerable on
+every resolved object. The CRM authorize URL, token exchange (`exchangeCodeForTokens(code, verifier,
+config)`) and ID token verification (`verifyIdToken(token, nonce, config)`: issuer, audience,
+`tid` = the connection's directory) all take the resolved config; JWKS are cached per JWKS URI
+(directory). The CRM callback ignores any `redirectUri` in the body and the Origin/Referer header -
+the redirect URI is always the app registration's.
+
+- **Compatibility mode:** an Entra connection is usable only when its `directoryId` equals the CRM
+  app's home directory (`AZURE_AD_TENANT_ID`); otherwise `DIRECTORY_NOT_ENABLED` - generic 400 at
+  `/pkce/generate`, 403 at the callback, before any token request. Multi-directory sign-in removes
+  this assertion (plus a multi-tenant app registration, cross-organisation directory uniqueness).
+- **Without a connection** (CRM login without an organisation code, and logout) the home directory is
+  used. That path is existing-users-only and cannot support several directories: it is to be retired
+  or redesigned with multi-directory sign-in.
+- **Azure B2C** resolves the legacy shared ProjectShell B2C directory/app (no connection; the portal
+  selects no organisation), per user flow. No hardcoded tenant/client/redirect fallbacks: missing
+  `MS_TENANT_NAME`/`MS_CLIENT_ID`/`MS_REDIRECT_URI`/`MS_B2C_DIRECTORY_ID` fails closed (the CRM
+  sign-in start still works without them). Shared B2C is a compatibility arrangement; the target is
+  per-organisation member identity (B2C or External ID; portal and mobile of one organisation may
+  share one connection), resolved through a connection + appRef later.
 
 ## Provisioning rules (`helpers/connectionDefaultRole.js`)
 

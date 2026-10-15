@@ -5,7 +5,13 @@ const {
   rememberNonceForState,
 } = require("../helpers/pkceStateStore");
 const { resolveLoginTenant, LoginTenantError } = require("../helpers/loginTenantContext");
-const { getEntraConfig, EntraConfigError } = require("../helpers/entraConfig");
+const { EntraConfigError } = require("../helpers/entraConfig");
+const {
+  resolveConnectionAuthConfig,
+  isOrganisationConfigError,
+  AuthConfigError,
+} = require("../helpers/connectionAuthConfig");
+const { ENTRA, B2C } = require("../helpers/authAppRegistry");
 const {
   resolveB2CPolicy,
   b2cAuthorizationUrl,
@@ -48,15 +54,49 @@ function generateCodeVerifier() {
   return crypto.randomBytes(96).toString("base64url");
 }
 
-/** Entra settings for the CRM authorize URL, or null (logged) when Entra is not configured. */
-function entraConfigOrNull() {
+/**
+ * Entra settings for the CRM sign-in without an organisation code (and logout), or null (logged)
+ * when Entra is not configured. No connection is selected there, so the resolver uses the CRM
+ * app's home directory (legacy, existing users only; see helpers/connectionAuthConfig.js).
+ */
+function legacyEntraConfigOrNull() {
   try {
-    return getEntraConfig();
+    return resolveConnectionAuthConfig(null, { connectionType: ENTRA });
   } catch (e) {
     if (!(e instanceof EntraConfigError)) throw e;
     console.error(e.message); // variable names only, never values
     return null;
   }
+}
+
+/** Shared (legacy) Azure B2C settings, or null (logged) when B2C is not configured. */
+function b2cConfiguredOrNull() {
+  try {
+    return resolveConnectionAuthConfig(null, { connectionType: B2C });
+  } catch (e) {
+    if (!(e instanceof AuthConfigError) || e.code !== "B2C_NOT_CONFIGURED") throw e;
+    console.error(e.message); // variable names only, never values
+    return null;
+  }
+}
+
+/** Microsoft authorize URL for a resolved Entra configuration. */
+function entraAuthorizeUrl(auth, { state, nonce, codeChallenge }) {
+  return (
+    `${auth.authorizeEndpoint}?` +
+    `client_id=${auth.clientId}&` +
+    `response_type=code&` +
+    `redirect_uri=${encodeURIComponent(auth.redirectUri)}&` +
+    `scope=${encodeURIComponent(auth.scopes)}&` +
+    `state=${state}&` +
+    `nonce=${nonce}&` +
+    `code_challenge=${codeChallenge}&` +
+    `code_challenge_method=S256&` +
+    // Without this, Azure AD silently re-authenticates from its own session cookie -
+    // logging our own token out never touches that cookie - so a user who just logged
+    // out gets signed straight back in on the next click with no credential prompt.
+    `prompt=login`
+  );
 }
 
 /**
@@ -76,27 +116,30 @@ module.exports.generatePKCE = async (req, res, next) => {
 
     // Entra (CRM) authorize URL. No built-in fallbacks: without configuration there is no CRM
     // URL (B2C portal URLs below are unaffected), and a tenant-scoped CRM login is refused.
-    const entra = entraConfigOrNull();
-    if (!entra && req.query.tenant !== undefined) {
+    const legacyEntra = legacyEntraConfigOrNull();
+    if (!legacyEntra && req.query.tenant !== undefined) {
       return next(AppError.internalServerError("Microsoft sign-in is not configured"));
     }
-    const scope = "openid profile email offline_access";
     // crypto.randomBytes, not Math.random(): this state doubles as the lookup key for the
     // nonce below, so it needs to be unguessable, not just unique.
     const azureADState = crypto.randomBytes(12).toString("base64url");
     const azureADNonce = crypto.randomBytes(16).toString("base64url");
 
     // Tenant-scoped sign-in: ?tenant=<code> names the ProjectShell tenant this login is for. It is
-    // resolved to that tenant's active Entra connection and bound to the state server-side; the
-    // callback restores it from the state, never from anything the browser sends back. Without
-    // ?tenant the login falls back to the directory-wide user lookup (CRM builds that predate
-    // tenant-scoped sign-in).
+    // resolved to that tenant's one active Entra connection, whose resolved configuration (its
+    // directory + the server-side app registration) builds the authorize URL; {tenantId,
+    // connectionId} are bound to the state server-side and the callback restores them from the
+    // state only. Without ?tenant the login uses the legacy directory-wide lookup (existing users
+    // only; CRM builds that predate tenant-scoped sign-in).
     let loginContext = null;
+    let entra = legacyEntra;
     if (req.query.tenant !== undefined) {
       try {
-        loginContext = await resolveLoginTenant(req.query.tenant, entra.tenantId);
+        const selected = await resolveLoginTenant(req.query.tenant);
+        entra = resolveConnectionAuthConfig(selected.connection);
+        loginContext = { tenantId: selected.tenantId, connectionId: selected.connectionId };
       } catch (e) {
-        if (e instanceof LoginTenantError) {
+        if (e instanceof LoginTenantError || isOrganisationConfigError(e)) {
           console.warn("Tenant-scoped sign-in refused:", { reason: e.code });
           // Same message for unknown and unconfigured tenants (no tenant-code enumeration).
           return next(AppError.badRequest("Microsoft sign-in is not available for this organisation"));
@@ -107,21 +150,25 @@ module.exports.generatePKCE = async (req, res, next) => {
     let azureADAuthUrl = null;
     if (entra) {
       rememberNonceForState(azureADState, azureADNonce, loginContext);
+      azureADAuthUrl = entraAuthorizeUrl(entra, {
+        state: azureADState,
+        nonce: azureADNonce,
+        codeChallenge,
+      });
+    }
 
-      azureADAuthUrl =
-        `https://login.microsoftonline.com/${entra.tenantId}/oauth2/v2.0/authorize?` +
-        `client_id=${entra.clientId}&` +
-        `response_type=code&` +
-        `redirect_uri=${encodeURIComponent(entra.redirectUri)}&` +
-        `scope=${encodeURIComponent(scope)}&` +
-        `state=${azureADState}&` +
-        `nonce=${azureADNonce}&` +
-        `code_challenge=${codeChallenge}&` +
-        `code_challenge_method=S256&` +
-        // Without this, Azure AD silently re-authenticates from its own session cookie -
-        // logging our own token out never touches that cookie - so a user who just logged
-        // out gets signed straight back in on the next click with no credential prompt.
-        `prompt=login`;
+    // Shared (legacy) B2C portal URLs, only when B2C is configured: no built-in tenant/client
+    // fallbacks, and a missing B2C configuration never breaks the CRM sign-in above.
+    if (!b2cConfiguredOrNull()) {
+      return res.json({
+        success: true,
+        codeVerifier,
+        codeChallenge,
+        codeChallengeMethod: "S256",
+        state: null,
+        b2cPolicies: null,
+        authorizationUrls: { azureAD: azureADAuthUrl },
+      });
     }
 
     let selectedPolicy;
@@ -240,15 +287,15 @@ module.exports.generatePKCE = async (req, res, next) => {
  */
 module.exports.getLogoutUrls = async (req, res, next) => {
   try {
-    const entra = entraConfigOrNull();
+    // Logout carries no organisation, so the legacy (home-directory) Entra configuration is used.
+    const entra = legacyEntraConfigOrNull();
     const azureADLogoutUrl = entra
-      ? `https://login.microsoftonline.com/${entra.tenantId}/oauth2/v2.0/logout?` +
+      ? `${entra.logoutEndpoint}?` +
         `post_logout_redirect_uri=${encodeURIComponent(entra.redirectUri)}`
       : null;
 
-    const b2cRedirectUri =
-      process.env.MS_REDIRECT_URI || "http://localhost:3000";
-    const b2cLogoutUrlValue = b2cLogoutUrl(getSignInPolicy(), b2cRedirectUri);
+    const b2c = b2cConfiguredOrNull();
+    const b2cLogoutUrlValue = b2c ? b2cLogoutUrl(getSignInPolicy(), b2c.redirectUri) : null;
 
     return res.json({
       success: true,

@@ -2,6 +2,7 @@
  * Azure AD B2C user flow (policy) resolution.
  * Authorize and token endpoints must use the same policy name for a given auth code.
  */
+const { resolveConnectionAuthConfig } = require("./connectionAuthConfig");
 
 function getDefaultPolicy() {
   return (
@@ -29,17 +30,6 @@ function getPasswordResetPolicy() {
  */
 function getGmailCombinedPolicy() {
   return process.env.MS_POLICY_GMAIL_COMBINED || getDefaultPolicy();
-}
-
-/**
- * Azure B2C always normalizes the `b2clogin.com` tenant subdomain to lowercase in the
- * `iss` claim it issues, regardless of how MS_TENANT_NAME is cased here - so every
- * hostname built from this must be lowercased too, or b2cExpectedIssuer()'s exact-string
- * comparison against jose's issuer check never matches (jwtVerify has no case-insensitive
- * mode for `issuer`), failing every login with ERR_JWT_CLAIM_VALIDATION_FAILED on `iss`.
- */
-function getTenantName() {
-  return (process.env.MS_TENANT_NAME || "projectshellAB2C").toLowerCase();
 }
 
 function getAllowedPolicies() {
@@ -113,9 +103,17 @@ function resolveB2CPolicy(input = {}) {
   return getDefaultPolicy();
 }
 
+// Endpoints, client id, redirect URI and issuer come from the resolved (legacy shared) B2C
+// configuration (helpers/connectionAuthConfig.js -> helpers/authAppRegistry.js). There are no
+// built-in tenant, client id or redirect fallbacks: missing configuration fails closed. The
+// b2clogin.com host is always lower case: B2C issues `iss` with the lower-case tenant host, and
+// jose's issuer check is an exact string comparison.
+function b2cConfig(policyName) {
+  return resolveConnectionAuthConfig(null, { connectionType: "Azure B2C", policy: policyName });
+}
+
 function b2cTokenEndpoint(policyName) {
-  const tenant = getTenantName();
-  return `https://${tenant}.b2clogin.com/${tenant}.onmicrosoft.com/${policyName}/oauth2/v2.0/token`;
+  return b2cConfig(policyName).tokenEndpoint;
 }
 
 /**
@@ -124,17 +122,12 @@ function b2cTokenEndpoint(policyName) {
  */
 function b2cAuthorizationUrl(policyName, opts) {
   const { state, codeChallenge, nonce } = opts;
-  const tenant = getTenantName();
-  const clientId =
-    process.env.MS_CLIENT_ID || "e3688a2f-3956-42f9-8c98-6fea7a60a5b4";
-  const redirectUri =
-    process.env.MS_REDIRECT_URI || "http://localhost:3000";
-  const base = `https://${tenant}.b2clogin.com/${tenant}.onmicrosoft.com/${policyName}/oauth2/v2.0/authorize`;
+  const config = b2cConfig(policyName);
   const q = new URLSearchParams({
-    client_id: clientId,
+    client_id: config.clientId,
     response_type: "code",
-    redirect_uri: redirectUri,
-    scope: "openid offline_access",
+    redirect_uri: config.redirectUri,
+    scope: config.scopes,
     state,
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
@@ -147,7 +140,7 @@ function b2cAuthorizationUrl(policyName, opts) {
   if (nonce) {
     q.set("nonce", nonce);
   }
-  return `${base}?${q.toString()}`;
+  return `${config.authorizeEndpoint}?${q.toString()}`;
 }
 
 /**
@@ -161,44 +154,30 @@ function b2cAuthorizationUrl(policyName, opts) {
  * @returns {string}
  */
 function b2cLogoutUrl(policyName, postLogoutRedirectUri) {
-  const tenant = getTenantName();
-  const base = `https://${tenant}.b2clogin.com/${tenant}.onmicrosoft.com/${policyName}/oauth2/v2.0/logout`;
   const q = new URLSearchParams({
     post_logout_redirect_uri: postLogoutRedirectUri,
   });
-  return `${base}?${q.toString()}`;
+  return `${b2cConfig(policyName).logoutEndpoint}?${q.toString()}`;
 }
 
 /**
- * JWKS discovery URL for a given B2C custom policy. Azure AD B2C publishes signing keys
- * per policy, so the JWKS used to verify a token must match the policy that issued it.
+ * JWKS discovery URL for a given B2C policy. Azure AD B2C publishes signing keys per policy,
+ * so the JWKS used to verify a token must match the policy that issued it.
  * @param {string} policyName
  * @returns {string}
  */
 function b2cJwksUrl(policyName) {
-  const tenant = getTenantName();
-  return `https://${tenant}.b2clogin.com/${tenant}.onmicrosoft.com/${policyName}/discovery/v2.0/keys`;
+  return b2cConfig(policyName).jwksUri;
 }
 
 /**
- * Expected `iss` claim for the current single-tenant B2C setup.
- *
- * Deliberately built from a fixed, admin-configured directory GUID (MS_B2C_DIRECTORY_ID),
- * never from a claim inside the token being verified: using an unverified token's own
- * claims to decide which issuer to trust would make signature verification circular.
- * Multi-tenant / per-customer B2C issuer resolution is out of scope for this remediation.
- *
+ * Expected `iss` claim for the shared B2C directory: built from the fixed, admin-configured
+ * directory GUID (MS_B2C_DIRECTORY_ID via the app registry), never from a claim inside the token
+ * being verified (that would make signature verification circular).
  * @returns {string}
  */
 function b2cExpectedIssuer() {
-  const tenant = getTenantName();
-  const directoryId = process.env.MS_B2C_DIRECTORY_ID;
-  if (!directoryId) {
-    throw new Error(
-      "MS_B2C_DIRECTORY_ID is not configured. Set it to the Azure AD B2C tenant's directory GUID so the live B2C login flow can validate the ID token issuer.",
-    );
-  }
-  return `https://${tenant}.b2clogin.com/${directoryId}/v2.0/`;
+  return b2cConfig().issuer;
 }
 
 module.exports = {

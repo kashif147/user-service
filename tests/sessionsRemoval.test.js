@@ -91,6 +91,8 @@ describe("working member-portal login is structurally unchanged", () => {
     const h = fs.readFileSync(path.join(ROOT, "handlers", "b2c.users.handler.js"), "utf8");
     expect(h).toMatch(/algorithms:\s*\["RS256"\]/);
     expect(h).toMatch(/payload\.nonce !== expectedNonce/);
-    expect(h).toMatch(/const extractedDirectoryId = process\.env\.MS_B2C_DIRECTORY_ID;/);
+    // The trusted directory is the resolved shared B2C configuration (MS_B2C_DIRECTORY_ID via
+    // helpers/authAppRegistry.js), never a claim from the token.
+    expect(h).toMatch(/const extractedDirectoryId = config\.directoryId;/);
   });
 });

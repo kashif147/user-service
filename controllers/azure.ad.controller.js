@@ -32,7 +32,10 @@ module.exports.handleAzureADRedirect = async (req, res, next) => {
 
 module.exports.handleAzureADCallback = async (req, res, next) => {
   try {
-    const { code, codeVerifier, redirectUri, state } = req.body;
+    // Only these are read from the body. A `redirectUri` (or the Origin/Referer header) is
+    // ignored: the redirect URI is the trusted one of the server-side app registration, the same
+    // one the authorize request used (helpers/authAppRegistry.js).
+    const { code, codeVerifier, state } = req.body;
 
     if (!code || !codeVerifier) {
       return next(
@@ -57,29 +60,10 @@ module.exports.handleAzureADCallback = async (req, res, next) => {
       );
     }
 
-    // Auto-detect redirect URI from request if not provided
-    let finalRedirectUri = redirectUri;
-    if (!finalRedirectUri) {
-      const origin = req.headers.origin || req.headers.referer;
-      if (origin) {
-        try {
-          const url = new URL(origin);
-          finalRedirectUri = `${url.origin}/auth/azure-crm`;
-          console.log(
-            `Auto-detected redirect_uri from request: ${finalRedirectUri}`
-          );
-        } catch (e) {
-          console.warn(`Failed to parse origin/referer: ${origin}`);
-        }
-      }
-    }
-
     console.log("Processing Azure AD authentication...");
-    console.log("Using redirect_uri:", finalRedirectUri || "default from env");
     const { user } = await AzureADHandler.handleAzureADAuth(
       code,
       codeVerifier,
-      finalRedirectUri,
       expectedNonce,
       transaction.loginContext
     );

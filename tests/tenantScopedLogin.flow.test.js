@@ -69,13 +69,13 @@ describe("login transaction carries the ProjectShell tenant through the Microsof
   test("L1 ?tenant=DEVTENANTB: the callback restores DEVTENANTB + its connection from the state", async () => {
     const s = await start({ tenant: "devtenantb" });
     await callback({ code: "c", codeVerifier: "v", state: s.state });
-    expect(AzureADHandler.handleAzureADAuth).toHaveBeenCalledWith("c", "v", undefined, s.nonce, { tenantId: TENANT_B, connectionId: "connB" });
+    expect(AzureADHandler.handleAzureADAuth).toHaveBeenCalledWith("c", "v", s.nonce, { tenantId: TENANT_B, connectionId: "connB" });
   });
 
   test("L2 ?tenant=<Tenant._id> works the same as the code", async () => {
     const s = await start({ tenant: TENANT_A });
     await callback({ code: "c", codeVerifier: "v", state: s.state });
-    expect(AzureADHandler.handleAzureADAuth.mock.calls[0][4]).toEqual({ tenantId: TENANT_A, connectionId: "connA" });
+    expect(AzureADHandler.handleAzureADAuth.mock.calls[0][3]).toEqual({ tenantId: TENANT_A, connectionId: "connA" });
   });
 
   test("L3 tenantId in the callback body / query / x-tenant-id cannot replace the stored tenant", async () => {
@@ -84,7 +84,7 @@ describe("login transaction carries the ProjectShell tenant through the Microsof
       { code: "c", codeVerifier: "v", state: s.state, tenantId: TENANT_A, tenant: "MULTIAUTH", connectionId: "connA" },
       { "x-tenant-id": TENANT_A }
     );
-    expect(AzureADHandler.handleAzureADAuth.mock.calls[0][4]).toEqual({ tenantId: TENANT_B, connectionId: "connB" });
+    expect(AzureADHandler.handleAzureADAuth.mock.calls[0][3]).toEqual({ tenantId: TENANT_B, connectionId: "connB" });
   });
 
   test("L4 the state is single-use: a replay is refused before any token exchange", async () => {
@@ -116,7 +116,7 @@ describe("login transaction carries the ProjectShell tenant through the Microsof
   test("L8 no ?tenant: legacy login, callback passes no context (directory-wide fallback)", async () => {
     const s = await start({});
     await callback({ code: "c", codeVerifier: "v", state: s.state, tenantId: TENANT_B });
-    expect(AzureADHandler.handleAzureADAuth.mock.calls[0][4]).toBeNull();
+    expect(AzureADHandler.handleAzureADAuth.mock.calls[0][3]).toBeNull();
   });
 });
 

@@ -20,7 +20,11 @@ const {
   publishCrmUserUpdated,
 } = require("../rabbitMQ/publishers/user.crm.publisher");
 
-const { getEntraConfig } = require("../helpers/entraConfig");
+const {
+  resolveConnectionAuthConfig,
+  isOrganisationConfigError,
+} = require("../helpers/connectionAuthConfig");
+const { loadLoginConnection, LoginTenantError, ENTRA } = require("../helpers/loginTenantContext");
 const { microsoftErrorFields, isMicrosoftTokenError } = require("../helpers/microsoftErrorLog");
 
 // Public message for a CRM user without any active role in the organisation.
@@ -41,26 +45,45 @@ async function assertCrmSignInAllowed(user, tenantId) {
 
 const GRAPH_ME_ENDPOINT = "https://graph.microsoft.com/v1.0/me";
 
-// Single-tenant, fixed JWKS for the configured directory (never derived from the token being
-// verified). Reused across requests: createRemoteJWKSet caches fetched keys and handles kid-based
-// key selection.
-let jwksSingleton = null;
-function getJwks(tenantId) {
-  if (!jwksSingleton) {
-    jwksSingleton = createRemoteJWKSet(
-      new URL(`https://login.microsoftonline.com/${tenantId}/discovery/v2.0/keys`),
-    );
+// Remote JWKS sets keyed by JWKS URI, i.e. by directory (never derived from the token being
+// verified: the URI comes from the selected connection's resolved configuration). Keys fetched
+// for one directory are never used to verify a token for another. Reused across requests:
+// createRemoteJWKSet caches fetched keys and handles kid-based key selection.
+const jwksByUri = new Map();
+function getJwks(jwksUri) {
+  if (!jwksByUri.has(jwksUri)) {
+    jwksByUri.set(jwksUri, createRemoteJWKSet(new URL(jwksUri)));
   }
-  return jwksSingleton;
+  return jwksByUri.get(jwksUri);
 }
-/** Exposed for tests only, so a forged-signature test can point verification at a
- * throwaway keypair's JWKS instead of the real Microsoft tenant. */
-function _resetJwksForTests(jwks) {
-  jwksSingleton = jwks || null;
+/** Exposed for tests only, so a forged-signature test can point verification at a throwaway
+ * keypair's JWKS instead of the real Microsoft tenant. `jwksUri` defaults to the CRM app's home
+ * directory; `jwks` null removes that entry (or every entry when no URI is given). */
+function _resetJwksForTests(jwks, jwksUri) {
+  if (!jwks && !jwksUri) {
+    jwksByUri.clear();
+    return;
+  }
+  const uri = jwksUri || resolveConnectionAuthConfig(null, { connectionType: ENTRA }).jwksUri;
+  if (jwks) jwksByUri.set(uri, jwks);
+  else jwksByUri.delete(uri);
 }
 
+// Every refusal of a CRM sign-in has the same public message; the reason is logged server-side.
+const CRM_SIGN_IN_DENIED = "CRM sign-in is not available for this account";
+
 class AzureADHandler {
-  static async exchangeCodeForTokens(code, codeVerifier, redirectUri = null) {
+  /**
+   * @param {string} code
+   * @param {string} codeVerifier
+   * @param {object} authConfig  resolved connection configuration (helpers/connectionAuthConfig.js):
+   *   token endpoint, client id, client secret and redirect URI all come from it - never from the
+   *   request or a separate environment read.
+   */
+  static async exchangeCodeForTokens(code, codeVerifier, authConfig) {
+    if (!authConfig || !authConfig.tokenEndpoint) {
+      throw new Error("Azure AD token exchange requires the resolved connection configuration");
+    }
     // Clean code if it contains URL fragments or query parameters
     const originalCodeLength = code.length;
     const cleanCode = code.replace(/[&#].*$/, "");
@@ -73,21 +96,18 @@ class AzureADHandler {
     console.log("Code length:", cleanCode.length);
     console.log("CodeVerifier length:", codeVerifier?.length || 0);
 
-    const config = getEntraConfig();
-    const tokenEndpoint = `https://login.microsoftonline.com/${config.tenantId}/oauth2/v2.0/token`;
-
-    // Use provided redirect_uri or fall back to the configured one
-    const finalRedirectUri = redirectUri || config.redirectUri;
-    console.log("Using redirect_uri:", finalRedirectUri);
+    const tokenEndpoint = authConfig.tokenEndpoint;
 
     const data = new URLSearchParams({
       grant_type: "authorization_code",
-      client_id: config.clientId,
-      client_secret: config.clientSecret,
-      redirect_uri: finalRedirectUri,
+      client_id: authConfig.clientId,
+      client_secret: authConfig.clientSecret,
+      // Always the trusted, registered redirect URI of the app registration (the one the authorize
+      // request used); a redirect URI from the request is never accepted.
+      redirect_uri: authConfig.redirectUri,
       code: cleanCode,
       code_verifier: codeVerifier,
-      scope: "openid profile email offline_access",
+      scope: authConfig.scopes,
     });
 
     console.log("== Azure AD Token Exchange Request ==");
@@ -150,32 +170,36 @@ class AzureADHandler {
    *   session, so a missing nonce fails the login rather than proceeding without it.
    */
   /**
-   * Verifies a Microsoft ID token for this app (signature via the pinned JWKS, issuer, audience,
-   * algorithm, exp/nbf, `tid`, `nonce`) and returns its claims (used by `decodeIdToken`). Does not
-   * look up any ProjectShell tenant or user.
+   * Verifies a Microsoft ID token against the SELECTED connection's resolved configuration
+   * (signature via that directory's JWKS, issuer derived from its directory, audience = the app
+   * registration's client id, algorithm, exp/nbf, `tid` = the connection's directory, `nonce`)
+   * and returns its claims (used by `decodeIdToken`). A token for another directory fails even if
+   * otherwise valid. Does not look up any ProjectShell tenant or user.
    */
-  static async verifyIdToken(idToken, expectedNonce) {
+  static async verifyIdToken(idToken, expectedNonce, authConfig) {
     if (!expectedNonce) {
       throw new Error("Azure AD login rejected: missing expected nonce");
     }
+    if (!authConfig || !authConfig.jwksUri || !authConfig.directoryId) {
+      throw new Error("Azure AD login rejected: no resolved connection configuration");
+    }
 
     // Signature/issuer/audience/algorithm/exp/nbf verification against Microsoft's real
-    // JWKS for the single configured tenant. jwtVerify throws before returning a payload
+    // JWKS for the connection's directory. jwtVerify throws before returning a payload
     // if any of these checks fail, so nothing below this line runs on an
     // unverified/forged/tampered/expired/wrong-issuer/wrong-audience token. Deliberately
     // does not log the token or its decoded payload: both carry PII/identity claims and a
     // captured log line would be as good as a captured token for anyone who can read logs.
-    const { tenantId, clientId } = getEntraConfig();
-    const { payload } = await jwtVerify(idToken, getJwks(tenantId), {
-      issuer: `https://login.microsoftonline.com/${tenantId}/v2.0`,
-      audience: clientId,
+    const { payload } = await jwtVerify(idToken, getJwks(authConfig.jwksUri), {
+      issuer: authConfig.issuer,
+      audience: authConfig.audience,
       algorithms: ["RS256"],
     });
 
     // Defense in depth: the issuer check above already pins the tenant, but require the
     // claim explicitly rather than relying solely on string-matching the issuer URL, and
     // reject outright if it's absent rather than silently falling back to the configured id.
-    if (payload.tid !== tenantId) {
+    if (payload.tid !== authConfig.directoryId) {
       throw new Error("Azure AD token tenant mismatch");
     }
 
@@ -186,8 +210,8 @@ class AzureADHandler {
     return payload;
   }
 
-  static async decodeIdToken(idToken, expectedNonce) {
-    const payload = await this.verifyIdToken(idToken, expectedNonce);
+  static async decodeIdToken(idToken, expectedNonce, authConfig) {
+    const payload = await this.verifyIdToken(idToken, expectedNonce, authConfig);
     // The verified directory only says WHO issued the token. It never selects a ProjectShell
     // tenant (several tenants may share one directory): findOrCreateUser resolves the tenant from
     // the login context or the user's own record (helpers/identityTenantResolution.js).
@@ -419,30 +443,52 @@ class AzureADHandler {
   }
 
   /**
+   * Resolved configuration for this sign-in, before any Microsoft call. Tenant-scoped: the
+   * connection named by the server-side state, reloaded and still an active Entra connection of
+   * that organisation, then resolved (its directory + the server-side app registration). Without a
+   * login context (legacy no-code login): the CRM app's home directory. A connection that is gone,
+   * inactive or not enabled refuses the sign-in (403); missing Entra configuration propagates
+   * (EntraConfigError -> 500 in the controller).
+   */
+  static async resolveAuthConfig(loginContext) {
+    if (!loginContext) {
+      return resolveConnectionAuthConfig(null, { connectionType: ENTRA });
+    }
+    try {
+      const connection = await loadLoginConnection(loginContext);
+      return resolveConnectionAuthConfig(connection);
+    } catch (err) {
+      if (err instanceof LoginTenantError || isOrganisationConfigError(err)) {
+        console.warn("Azure AD login denied:", { reason: err.code, tenantId: String(loginContext.tenantId) });
+        throw AppError.forbidden(CRM_SIGN_IN_DENIED);
+      }
+      throw err;
+    }
+  }
+
+  /**
    * @param {string} code
    * @param {string} codeVerifier
-   * @param {string|null} redirectUri
    * @param {string} expectedNonce - required; see decodeIdToken's jsdoc.
-   * @param {{tenantId: string, connectionId: string}|null} [loginContext] - from the OAuth state.
+   * @param {{tenantId: string, connectionId: string}|null} [loginContext] - from the OAuth state
+   *   only. The redirect URI, directory and client come from the resolved configuration, never
+   *   from the request.
    */
-  static async handleAzureADAuth(code, codeVerifier, redirectUri = null, expectedNonce, loginContext = null) {
+  static async handleAzureADAuth(code, codeVerifier, expectedNonce, loginContext = null) {
     try {
-      getEntraConfig(); // fail closed before any Microsoft call when Entra is not configured
       console.log("=== Azure AD Handler: Starting Authentication ===");
       console.log("Code present:", !!code);
       console.log("CodeVerifier present:", !!codeVerifier);
-      console.log("Redirect URI provided:", redirectUri || "using default");
+
+      // Fails closed before any Microsoft call when Entra or the connection is not usable.
+      const authConfig = await this.resolveAuthConfig(loginContext);
 
       console.log("Step 1: Exchanging code for tokens...");
-      const tokens = await this.exchangeCodeForTokens(
-        code,
-        codeVerifier,
-        redirectUri
-      );
+      const tokens = await this.exchangeCodeForTokens(code, codeVerifier, authConfig);
       console.log("Token exchange successful");
 
       console.log("Step 2: Verifying ID token...");
-      const baseProfile = await this.decodeIdToken(tokens.id_token, expectedNonce);
+      const baseProfile = await this.decodeIdToken(tokens.id_token, expectedNonce, authConfig);
       console.log("ID token verified");
 
       console.log("Step 3: Fetching user info from Graph API...");

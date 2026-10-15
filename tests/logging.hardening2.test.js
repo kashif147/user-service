@@ -21,6 +21,8 @@ const { root } = require("../controllers/root.controller");
 const { azureB2CBasicAuth } = require("../middlewares/basicAuth.middleware");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter");
 const AzureADHandler = require("../handlers/azure.ad.handler");
+const { resolveConnectionAuthConfig } = require("../helpers/connectionAuthConfig");
+const entraConfig = () => resolveConnectionAuthConfig(null, { connectionType: "Entra ID (Azure AD)" });
 
 const PII = {
   email: "secret.person@example.org",
@@ -214,7 +216,7 @@ describe("Microsoft (Entra) token-exchange errors", () => {
 
   test("exchangeCodeForTokens logs status, error code(s) and trace/correlation ids only", async () => {
     axios.post.mockRejectedValueOnce(msError());
-    await expect(AzureADHandler.exchangeCodeForTokens(CODE, "verifier")).rejects.toThrow(/invalid_grant|AADSTS/);
+    await expect(AzureADHandler.exchangeCodeForTokens(CODE, "verifier", entraConfig())).rejects.toThrow(/invalid_grant|AADSTS/);
     expectOnlySafeFields();
   });
 
@@ -222,7 +224,7 @@ describe("Microsoft (Entra) token-exchange errors", () => {
     axios.post.mockRejectedValueOnce(msError());
     let thrown;
     try {
-      await AzureADHandler.handleAzureADAuth(CODE, "verifier", null, "nonce");
+      await AzureADHandler.handleAzureADAuth(CODE, "verifier", "nonce");
     } catch (e) {
       thrown = e;
     }
