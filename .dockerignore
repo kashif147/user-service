@@ -1,3 +1,12 @@
 node_modules
 npm-debug.log
+
+# Environment files hold credentials and must never be copied into an image. Runtime configuration
+# comes from Compose (env_file / environment); app.js's dotenv call does not override it and simply
+# finds no file in the image. Excluded at any depth.
 .env
+.env.*
+**/.env
+**/.env.*
+*.env
+**/*.env
