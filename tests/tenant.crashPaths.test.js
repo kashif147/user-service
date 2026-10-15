@@ -196,7 +196,7 @@ describe("PUT /api/tenants/:id/status", () => {
 describe("authentication connections", () => {
   const P = (id, conn) => `/api/tenants/${id}/auth-connections${conn ? `/${conn}` : ""}`;
   test("add: success unchanged", async () => {
-    const r = await call("POST", P(A), { body: { connectionType: "AZURE_B2C", directoryId: "new-dir", issuerUrl: "https://x", audience: "aud" } });
+    const r = await call("POST", P(A), { body: { connectionType: "AZURE_B2C", directoryId: "new-dir", issuerUrl: "https://login.microsoftonline.com/new-dir/v2.0", audience: "aud" } });
     expect(r.status).toBe(200);
     expect(mockState.mutations).toEqual([`save:${A}`]);
   });

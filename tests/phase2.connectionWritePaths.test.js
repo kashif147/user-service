@@ -36,7 +36,9 @@ const mockRoles = [
   { _id: rid(6), tenantId: A, code: "GS", name: "General Secretary", category: "PORTAL", isActive: true, permissions: [] },
   { _id: rid(7), tenantId: A, code: "MEMBER", name: "Member", category: "PORTAL", isActive: true, permissions: [] },
 ];
-const mockConn = (id, o) => ({ _id: id, id, issuerUrl: "https://login.microsoftonline.com/d/v2.0", directoryId: `dir-${id}`, audience: "aud", isActive: true, ...o });
+// Entra directory ids are GUIDs (validated on new/changed connections since Phase 3B): one per connection id.
+const mockGuid = (seed) => `00000000-0000-4000-8000-${Buffer.from(String(seed)).toString("hex").slice(-12).padStart(12, "0")}`;
+const mockConn = (id, o) => ({ _id: id, id, issuerUrl: "https://login.microsoftonline.com/d/v2.0", directoryId: mockGuid(id), audience: "aud", isActive: true, ...o });
 const mockReset = () => {
   mockState.writes = [];
   mockState.created = [];
@@ -177,7 +179,7 @@ function call(method, path, { body, roles = ["SU"], tenant = A, headers = {} } =
 const errMsg = (r) => r.body && r.body.error && r.body.error.message;
 const P = (t, c) => `/api/tenants/${t}/auth-connections${c ? `/${c}` : ""}`;
 const conns = (t) => mockState.tenants[t].authenticationConnections;
-const newConn = (o) => ({ connectionType: ENTRA, issuerUrl: "https://login.microsoftonline.com/n/v2.0", directoryId: "dir-new", audience: "aud", ...o });
+const newConn = (o) => ({ connectionType: ENTRA, issuerUrl: "https://login.microsoftonline.com/n/v2.0", directoryId: mockGuid("new"), audience: "aud", ...o });
 
 describe("POST /tenants/:id/auth-connections", () => {
   test("automatic without a default role -> 400, nothing saved", async () => {

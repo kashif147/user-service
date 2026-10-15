@@ -7,7 +7,9 @@
  *
  * - The DIRECTORY comes from the connection (connection.directoryId). The APPLICATION (client id,
  *   redirect URI, scopes, client secret) comes from the server-side registry
- *   (helpers/authAppRegistry.js), never from the request and never from MongoDB.
+ *   (helpers/authAppRegistry.js), never from the request and never from MongoDB: the connection's
+ *   explicit `appRef` when it has one (it must be registered for the connection's provider), else
+ *   the provider's compatibility default (crm-entra / portal-b2c), whose use is logged (ids only).
  * - issuer, JWKS URI and endpoints are DERIVED from the directory. The stored `issuerUrl` and
  *   `audience` fields are not read: existing data holds placeholder values there.
  * - The client secret is non-enumerable on the result (it never serialises or logs).
@@ -37,6 +39,23 @@ const {
   getAuthApp,
 } = require("./authAppRegistry");
 
+/**
+ * The registered application of `connection` (explicit appRef, else the compatibility default for
+ * `connectionType`). A default is logged with ids only, so the remaining implicit connections can
+ * be found before appRef becomes required.
+ */
+function connectionApp(connection, connectionType) {
+  if (connection?.appRef) return getAuthApp(connection.appRef, connectionType);
+  const appRef = DEFAULT_APP_REF[connectionType];
+  if (connection) {
+    console.log("Authentication connection uses the compatibility application:", {
+      connectionId: connection._id ? String(connection._id) : null,
+      appRef,
+    });
+  }
+  return getAuthApp(appRef, connectionType);
+}
+
 const ENTRA_AUTHORITY_HOST = "login.microsoftonline.com";
 const DIRECTORY_GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const B2C_TENANT_NAME = /^[a-z0-9-]{1,64}$/;
@@ -48,7 +67,7 @@ function withSecret(values, secret) {
 }
 
 function resolveEntra(connection) {
-  const app = getAuthApp(DEFAULT_APP_REF[ENTRA], ENTRA);
+  const app = connectionApp(connection, ENTRA);
   let directoryId;
   let mode;
   if (connection) {
@@ -92,8 +111,8 @@ function resolveEntra(connection) {
   );
 }
 
-function resolveB2C(providerContext) {
-  const app = getAuthApp(DEFAULT_APP_REF[B2C], B2C);
+function resolveB2C(connection, providerContext) {
+  const app = connectionApp(connection, B2C);
   const { tenantName, directoryId } = app.sharedDirectory;
   if (!B2C_TENANT_NAME.test(tenantName)) {
     throw new AuthConfigError("INVALID_DIRECTORY", "Azure B2C tenant name is not valid");
@@ -142,7 +161,7 @@ function resolveB2C(providerContext) {
 function resolveConnectionAuthConfig(connection, providerContext = {}) {
   const connectionType = connection ? connection.connectionType : providerContext.connectionType;
   if (connectionType === ENTRA) return resolveEntra(connection || null);
-  if (connectionType === B2C) return resolveB2C(providerContext);
+  if (connectionType === B2C) return resolveB2C(connection || null, providerContext);
   throw new AuthConfigError("UNSUPPORTED_PROVIDER", "Unsupported authentication provider");
 }
 

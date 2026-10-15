@@ -8,6 +8,8 @@ const {
   pickRegionalSettingsPayload,
 } = require("../constants/tenantUpdateDefaults");
 const { ConnectionValidationError } = require("../helpers/connectionDefaultRole");
+// Every response carrying a tenant or its authentication connections goes through this allow-list.
+const { toTenantView, toConnectionView } = require("../helpers/authConnectionView");
 
 // Phase 1C-2B: non-SU lookups are confined to the caller's trusted tenant (req.ctx), never a
 // caller-supplied value. SU (from trusted roles) is unrestricted.
@@ -19,7 +21,7 @@ module.exports.createTenant = async (req, res, next) => {
   try {
     const createdBy = req.ctx?.userId || "system";
     const tenant = await TenantHandler.createTenant(req.body, createdBy);
-    res.status(201).json({ status: "success", data: tenant });
+    res.status(201).json({ status: "success", data: toTenantView(tenant) });
   } catch (error) {
     if (error instanceof ConnectionValidationError) return next(AppError.badRequest(error.message));
     return next(AppError.internalServerError("Failed to create tenant"));
@@ -42,7 +44,7 @@ module.exports.getAllTenants = async (req, res, next) => {
       filters.ownTenantId = String(req.ctx.tenantId);
     }
     const tenants = await TenantHandler.getAllTenants(filters);
-    res.status(200).json({ status: "success", data: tenants });
+    res.status(200).json({ status: "success", data: tenants.map(toTenantView) });
   } catch (error) {
     return next(AppError.internalServerError("Failed to retrieve tenants"));
   }
@@ -55,7 +57,7 @@ module.exports.getTenantById = async (req, res, next) => {
     if (!tenant) {
       return next(AppError.notFound("Tenant not found"));
     }
-    res.status(200).json({ status: "success", data: tenant });
+    res.status(200).json({ status: "success", data: toTenantView(tenant) });
   } catch (error) {
     return next(AppError.internalServerError("Failed to retrieve tenant"));
   }
@@ -68,7 +70,7 @@ module.exports.getTenantByCode = async (req, res, next) => {
     if (!tenant) {
       return next(AppError.notFound("Tenant not found"));
     }
-    res.status(200).json({ status: "success", data: tenant });
+    res.status(200).json({ status: "success", data: toTenantView(tenant) });
   } catch (error) {
     return next(AppError.internalServerError("Failed to retrieve tenant"));
   }
@@ -81,7 +83,7 @@ module.exports.getTenantByDomain = async (req, res, next) => {
     if (!tenant) {
       return next(AppError.notFound("Tenant not found"));
     }
-    res.status(200).json({ status: "success", data: tenant });
+    res.status(200).json({ status: "success", data: toTenantView(tenant) });
   } catch (error) {
     return next(AppError.internalServerError("Failed to retrieve tenant"));
   }
@@ -99,7 +101,7 @@ module.exports.updateTenant = async (req, res, next) => {
     if (!tenant) {
       return next(AppError.notFound("Tenant not found"));
     }
-    res.status(200).json({ status: "success", data: tenant });
+    res.status(200).json({ status: "success", data: toTenantView(tenant) });
   } catch (error) {
     if (error instanceof ConnectionValidationError) return next(AppError.badRequest(error.message));
     return next(AppError.internalServerError("Failed to update tenant"));
@@ -144,7 +146,7 @@ module.exports.updateTenantStatus = async (req, res) => {
       status,
       updatedBy
     );
-    res.success(tenant);
+    res.success(toTenantView(tenant));
   } catch (error) {
     if ((error.message || "").includes("Invalid status")) {
       return res.sendBadRequest("Invalid status");
@@ -168,7 +170,7 @@ module.exports.addAuthenticationConnection = async (req, res) => {
       req.body,
       updatedBy
     );
-    res.success(tenant);
+    res.success(toTenantView(tenant));
   } catch (error) {
     if (error instanceof ConnectionValidationError) return res.sendBadRequest(error.message);
     if ((error.message || "").includes("Tenant not found")) {
@@ -192,7 +194,7 @@ module.exports.updateAuthenticationConnection = async (req, res) => {
       req.body,
       updatedBy
     );
-    res.success(tenant);
+    res.success(toTenantView(tenant));
   } catch (error) {
     if (error instanceof ConnectionValidationError) return res.sendBadRequest(error.message);
     if ((error.message || "").includes("Tenant not found")) {
@@ -234,7 +236,7 @@ module.exports.removeAuthenticationConnection = async (req, res) => {
       req.params.connectionId,
       updatedBy
     );
-    res.success(tenant);
+    res.success(toTenantView(tenant));
   } catch (error) {
     if ((error.message || "").includes("Tenant not found")) {
       return res.sendNotFound("Tenant not found");
@@ -253,7 +255,7 @@ module.exports.getAuthenticationConnections = async (req, res) => {
     const connections = await TenantHandler.getAuthenticationConnections(
       req.params.id
     );
-    res.success(connections);
+    res.success(connections.map(toConnectionView));
   } catch (error) {
     if ((error.message || "").includes("Tenant not found")) {
       return res.sendNotFound("Tenant not found");
@@ -278,7 +280,7 @@ module.exports.updateOrganisationProfile = async (req, res, next) => {
       profileData,
       updatedBy
     );
-    res.status(200).json({ status: "success", data: tenant });
+    res.status(200).json({ status: "success", data: toTenantView(tenant) });
   } catch (error) {
     if (error.message === "Tenant not found") {
       return next(AppError.notFound("Tenant not found"));
@@ -295,7 +297,7 @@ module.exports.updateBranding = async (req, res, next) => {
       req.body,
       updatedBy
     );
-    res.status(200).json({ status: "success", data: tenant });
+    res.status(200).json({ status: "success", data: toTenantView(tenant) });
   } catch (error) {
     return next(AppError.internalServerError("Failed to update branding"));
   }
@@ -316,7 +318,7 @@ module.exports.updateRegionalSettings = async (req, res, next) => {
       regionalData,
       updatedBy
     );
-    res.status(200).json({ status: "success", data: tenant });
+    res.status(200).json({ status: "success", data: toTenantView(tenant) });
   } catch (error) {
     if (error.message === "Tenant not found") {
       return next(AppError.notFound("Tenant not found"));

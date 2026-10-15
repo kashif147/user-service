@@ -21,6 +21,7 @@ const mongoose = require("mongoose");
 const Role = require("../models/role.model");
 const Permission = require("../models/permission.model");
 const { isProtectedRole, isReservedPermission } = require("../handlers/role.handler");
+const { isRegisteredAppRef } = require("./authAppRegistry");
 
 const ENTRA = "Entra ID (Azure AD)";
 const B2C = "Azure B2C";
@@ -30,8 +31,13 @@ const PORTAL_DEFAULT_ROLE_CODE = "NON-MEMBER";
 const roleCode = (role) => String(role?.code == null ? "" : role.code).trim().toUpperCase();
 const OBJECT_ID_RE = /^[0-9a-fA-F]{24}$/;
 
-// Writable fields of a connection; anything else in a request body is ignored.
-const CONNECTION_FIELDS = [
+// Field ownership of an authentication connection.
+//  - ADMIN-WRITABLE: the only fields a request body may set; anything else in it is ignored.
+//    issuerUrl/audience are legacy (never read for sign-in) and stay writable while the CRM form
+//    still sends them.
+//  - SERVER-MANAGED: set only by server flows (connect / test); never taken from a request body and
+//    always carried over from the stored connection when the connection is saved.
+const ADMIN_WRITABLE_CONNECTION_FIELDS = [
   "connectionType",
   "issuerUrl",
   "directoryId",
@@ -39,7 +45,21 @@ const CONNECTION_FIELDS = [
   "isActive",
   "autoProvisionUsers",
   "defaultRoleId",
+  "appRef",
+  "directoryOwnership",
 ];
+const SERVER_MANAGED_CONNECTION_FIELDS = ["connectedAt", "connectedBy", "lastTestedAt", "lastTestResult"];
+const CONNECTION_FIELDS = ADMIN_WRITABLE_CONNECTION_FIELDS;
+
+const DIRECTORY_GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ISSUER_URL = /^https:\/\/login\.microsoftonline\.com\/[^\/]+\/v2\.0$/;
+// directoryOwnership values allowed per provider. Recorded only; cross-organisation directory
+// uniqueness (and its non-production exception) is not enforced yet.
+const DIRECTORY_OWNERSHIP = {
+  [ENTRA]: ["customer", "shared-nonprod"],
+  [B2C]: ["customer", "projectshell-shared"],
+};
+const isBlank = (v) => v === undefined || v === null || v === "";
 
 class ConnectionValidationError extends Error {
   constructor(message) {
@@ -143,7 +163,22 @@ const DEFAULT_ROLE_MESSAGES = {
  * Throws ConnectionValidationError (-> 400).
  */
 async function assertConnectionWritable(tenantId, connection) {
-  const { autoProvisionUsers, defaultRoleId } = connection;
+  const { autoProvisionUsers, defaultRoleId, connectionType } = connection;
+  if (connectionType === ENTRA && !DIRECTORY_GUID.test(String(connection.directoryId ?? "").trim())) {
+    throw new ConnectionValidationError("Directory ID must be the Microsoft Entra tenant ID (a GUID)");
+  }
+  if (!isBlank(connection.issuerUrl) && !ISSUER_URL.test(connection.issuerUrl)) {
+    throw new ConnectionValidationError("Issuer URL must be a valid Microsoft login URL");
+  }
+  if (!isBlank(connection.appRef) && !isRegisteredAppRef(connection.appRef, connectionType)) {
+    throw new ConnectionValidationError("Application (appRef) is not registered for this connection type");
+  }
+  if (
+    !isBlank(connection.directoryOwnership) &&
+    !(DIRECTORY_OWNERSHIP[connectionType] || []).includes(connection.directoryOwnership)
+  ) {
+    throw new ConnectionValidationError("Directory ownership is not valid for this connection type");
+  }
   if (autoProvisionUsers !== undefined && typeof autoProvisionUsers !== "boolean") {
     throw new ConnectionValidationError("autoProvisionUsers must be true or false");
   }
@@ -161,23 +196,40 @@ async function assertConnectionWritable(tenantId, connection) {
   }
 }
 
+/** The admin-writable fields present in `input` (a request body or a stored connection). */
 const pickConnectionFields = (input) => {
   const out = {};
-  for (const f of CONNECTION_FIELDS) {
+  for (const f of ADMIN_WRITABLE_CONNECTION_FIELDS) {
     if (input && Object.prototype.hasOwnProperty.call(input, f)) out[f] = input[f];
   }
-  if (out.defaultRoleId === "") out.defaultRoleId = null;
+  // An emptied selector clears the value.
+  for (const f of ["defaultRoleId", "appRef", "directoryOwnership"]) {
+    if (out[f] === "") out[f] = null;
+  }
   return out;
 };
 
 const plain = (v) => (v?.toObject ? v.toObject() : v);
+
+/** The server-managed fields of a STORED connection (never of a request body). */
+const serverManagedFields = (stored) => {
+  const out = {};
+  const s = plain(stored);
+  for (const f of SERVER_MANAGED_CONNECTION_FIELDS) {
+    if (s && s[f] !== undefined && s[f] !== null) out[f] = s[f];
+  }
+  return out;
+};
 const sameValue = (a, b) => String(a ?? "") === String(b ?? "");
 
 /**
  * Full authenticationConnections array from a tenant create/update body -> the array to store.
- * Only writable fields are kept; a connection is matched to a stored one by _id (anything else is
- * new). New or changed connections must pass assertConnectionWritable; unchanged stored ones are
- * kept as they are. Throws ConnectionValidationError.
+ * A connection is matched to a stored one by _id (anything else is new). From the body only
+ * admin-writable fields are taken; an admin-writable field the body does not send keeps its stored
+ * value (an older client that does not know appRef never erases it), and the server-managed fields
+ * are always carried over from the stored connection. New or changed connections must pass
+ * assertConnectionWritable; unchanged stored ones are kept as they are (grandfathered).
+ * Throws ConnectionValidationError.
  */
 async function prepareConnectionsForWrite(tenantId, incoming, stored = []) {
   if (!Array.isArray(incoming)) {
@@ -195,10 +247,11 @@ async function prepareConnectionsForWrite(tenantId, incoming, stored = []) {
       continue;
     }
     const merged = { ...pickConnectionFields(previous), ...fields };
-    const changed = CONNECTION_FIELDS.some((f) => !sameValue(merged[f], previous[f]));
+    const changed = ADMIN_WRITABLE_CONNECTION_FIELDS.some((f) => !sameValue(merged[f], previous[f]));
     if (changed) await assertConnectionWritable(tenantId, merged);
     result.push({
       ...merged,
+      ...serverManagedFields(previous),
       _id: previous._id,
       createdAt: previous.createdAt,
       updatedAt: changed ? now : previous.updatedAt,
@@ -242,6 +295,9 @@ module.exports = {
   ENTRA,
   B2C,
   CONNECTION_FIELDS,
+  ADMIN_WRITABLE_CONNECTION_FIELDS,
+  SERVER_MANAGED_CONNECTION_FIELDS,
+  serverManagedFields,
   ConnectionValidationError,
   DefaultRoleError,
   isAutomatic,

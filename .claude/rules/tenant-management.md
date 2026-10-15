@@ -1,8 +1,24 @@
 # Tenant management
 
 `models/tenant.model.js`'s `authenticationConnections[]` is how one tenant maps to one-or-more Azure
-AD/B2C directories (`{connectionType, issuerUrl, directoryId, audience}`) — a tenant is not
-necessarily backed by a single Azure directory.
+AD/B2C directories — a tenant is not necessarily backed by a single Azure directory.
+
+**Connection fields (Phase 3B).** Admin-writable (the only fields a request body may set, list
+`ADMIN_WRITABLE_CONNECTION_FIELDS` in `helpers/connectionDefaultRole.js`): `connectionType`,
+`directoryId`, `isActive`, `autoProvisionUsers`, `defaultRoleId`, `appRef` (a registered application
+of the connection's provider, `helpers/authAppRegistry.js`; unset = the compatibility default
+crm-entra / portal-b2c), `directoryOwnership` (Entra: `customer` | `shared-nonprod`; B2C: `customer` |
+`projectshell-shared` - recorded only, no uniqueness rule yet), and the legacy `issuerUrl` / `audience`
+(optional, never read for sign-in; `issuerUrl` validated when supplied). Server-managed (never from a
+request; carried over on every save): `connectedAt`, `connectedBy`, `lastTestedAt`, `lastTestResult
+{ok, code}`. Every write path (tenant create/update incl. the CRM form's full-array replace, add/update
+connection) keeps admin-writable fields a client did not send and all server-managed fields, drops
+unknown fields, and validates new or changed connections only (`assertConnectionWritable`: Entra
+`directoryId` must be a GUID, appRef/ownership/issuer rules, provisioning rules) - untouched stored
+connections are grandfathered. Responses: every tenant/connection response goes through
+`helpers/authConnectionView.js` (explicit field allow-list + `effectiveAppRef`); nothing from the app
+registry (client ids, redirect URIs, secret references) is ever returned. No secret is stored on a
+connection.
 
 `tenantLifecycle.controller.js` is a **read-only internal API with no JWT auth at all** — gated only
 by `x-internal-request: true`/`"1"` — composing `Tenant.settings.lifecycleBatches` + primary office +

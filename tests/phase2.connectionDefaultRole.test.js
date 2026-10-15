@@ -178,7 +178,8 @@ describe("B2C (portal) provider rule: only the organisation's own active NON-MEM
 });
 
 describe("saving a connection", () => {
-  const save = (c) => H.assertConnectionWritable(ORG_A, { connectionType: ENTRA, ...c });
+  // Entra directory ids must be GUIDs on new/changed connections (Phase 3B).
+  const save = (c) => H.assertConnectionWritable(ORG_A, { connectionType: ENTRA, directoryId: "11111111-1111-4111-8111-111111111111", ...c });
   test("automatic provisioning without a default role -> 400", async () => {
     await expect(save({ autoProvisionUsers: true })).rejects.toMatchObject({ status: 400, message: "Automatic user provisioning requires a default role" });
   });
@@ -205,8 +206,8 @@ describe("full authenticationConnections array (Tenant Management form / PUT /te
   const C1 = "c10000000000000000000001";
   const C2 = "c10000000000000000000002";
   const stored = () => [
-    { _id: C1, connectionType: ENTRA, directoryId: "d1", issuerUrl: "i", audience: "a", isActive: true, autoProvisionUsers: true, createdAt: "2026-01-01" },
-    { _id: C2, connectionType: B2C, directoryId: "d2", issuerUrl: "i", audience: "a", isActive: true, autoProvisionUsers: false, createdAt: "2026-01-02" },
+    { _id: C1, connectionType: ENTRA, directoryId: "11111111-1111-4111-8111-111111111111", issuerUrl: "https://login.microsoftonline.com/d1/v2.0", audience: "a", isActive: true, autoProvisionUsers: true, createdAt: "2026-01-01" },
+    { _id: C2, connectionType: B2C, directoryId: "d2", issuerUrl: "https://login.microsoftonline.com/d2/v2.0", audience: "a", isActive: true, autoProvisionUsers: false, createdAt: "2026-01-02" },
   ];
   test("unchanged connections pass as stored (a legacy automatic one without a role is grandfathered)", async () => {
     const out = await H.prepareConnectionsForWrite(ORG_A, stored(), stored());

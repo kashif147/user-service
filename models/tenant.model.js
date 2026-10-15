@@ -161,13 +161,16 @@ const TenantSchema = new mongoose.Schema({
         enum: ["Entra ID (Azure AD)", "Azure B2C"],
         required: true,
       },
+      // Legacy (deprecated): never read for sign-in - the issuer is derived from directoryId
+      // (helpers/connectionAuthConfig.js). Optional; validated only when a value is supplied.
       issuerUrl: {
         type: String,
-        required: true,
         validate: {
           validator: function (v) {
-            return /^https:\/\/login\.microsoftonline\.com\/[^\/]+\/v2\.0$/.test(
-              v
+            return (
+              v == null ||
+              v === "" ||
+              /^https:\/\/login\.microsoftonline\.com\/[^\/]+\/v2\.0$/.test(v)
             );
           },
           message: "Issuer URL must be a valid Microsoft login URL",
@@ -178,10 +181,33 @@ const TenantSchema = new mongoose.Schema({
         required: true,
         trim: true,
       },
+      // Legacy (deprecated for sign-in): the audience is the registered application's client id.
+      // Still matched by the Azure B2C sign-up connector (helpers/b2cConnectorTenant.js). Optional.
       audience: {
         type: String,
-        required: true,
         trim: true,
+      },
+      // Registered application (helpers/authAppRegistry.js) this connection signs in through.
+      // Optional: unset = the provider's compatibility default (crm-entra / portal-b2c).
+      appRef: {
+        type: String,
+        trim: true,
+        default: undefined,
+      },
+      // Who owns the directory. Entra: customer | shared-nonprod; Azure B2C: customer |
+      // projectshell-shared (validated per provider, helpers/connectionDefaultRole.js).
+      directoryOwnership: {
+        type: String,
+        enum: ["customer", "shared-nonprod", "projectshell-shared"],
+        default: undefined,
+      },
+      // Server-managed (never written from a request body): set by the future connect / test flows.
+      connectedAt: { type: Date, default: undefined },
+      connectedBy: { type: String, default: undefined },
+      lastTestedAt: { type: Date, default: undefined },
+      lastTestResult: {
+        type: new mongoose.Schema({ ok: Boolean, code: String }, { _id: false }),
+        default: undefined,
       },
       isActive: {
         type: Boolean,
