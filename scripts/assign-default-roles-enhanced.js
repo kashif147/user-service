@@ -16,8 +16,11 @@ async function assignDefaultRolesToExistingUsers(options = {}) {
   try {
     // Build connection string with environment variables
     const mongoUri =
-      process.env.MONGO_URI ||
-      `mongodb+srv://${process.env.MONGO_USER}:${process.env.MONGO_PASS}@clusterprojectshell.tptnh8w.mongodb.net/${process.env.MONGO_DB}/?retryWrites=true&w=majority&appName=ClusterProjectShell`;
+      process.env.MONGO_URI;
+    if (!mongoUri) {
+      console.error("MONGO_URI is not set (no built-in default)");
+      process.exit(1);
+    }
 
     // Connection options for better Atlas connectivity
     const connectionOptions = {
