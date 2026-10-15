@@ -1,11 +1,13 @@
 const mongoose = require("mongoose");
 
 exports.mongooseConnection = async () => {
+  // No built-in fallback: without MONGO_URI the service must not start, and it must never connect
+  // with a default credential.
+  const mongoUri = process.env.MONGO_URI;
+  if (!mongoUri) {
+    throw new Error("MONGO_URI is not set; refusing to start without database configuration");
+  }
   try {
-    // Build connection string with environment variables
-    const mongoUri =
-      process.env.MONGO_URI ||
-      `mongodb+srv://${process.env.MONGO_USER}:${process.env.MONGO_PASS}@clusterprojectshell.tptnh8w.mongodb.net/${process.env.MONGO_DB}/?retryWrites=true&w=majority&appName=ClusterProjectShell`;
 
     // Connection options for better Atlas connectivity
     // Reduced timeouts for faster failure detection (especially important for Azure B2C validation endpoint)
