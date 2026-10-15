@@ -252,6 +252,28 @@ describe("connection identity: provider + directory (case-insensitive)", () => {
     expect(r.status).toBe(400);
   });
 
+  test("reactivating an inactive duplicate (same provider + directory) is refused on update and full array", async () => {
+    // B2C, so only the provider + directory rule applies (the one-active-Entra rule cannot mask it).
+    const inactiveDup = () =>
+      mockReset([mockStoredEntra(), mockStoredB2C(), mockStoredB2C({ _id: B2C_2, id: B2C_2, directoryId: "B2C-DIR", isActive: false })]);
+    inactiveDup();
+    let r = await call("PUT", `/api/tenants/${A}`, { description: "unrelated" }); // the inactive duplicate is harmless
+    expect(r.status).toBe(200);
+    r = await update(B2C_2, { isActive: true });
+    expect(r.status).toBe(400);
+    expect(r.raw).toMatch(IDENTITY_DUP);
+    inactiveDup();
+    r = await fullSave(conns().map((c) => ({ ...oldFormConnection(c), ...(String(c._id) === B2C_2 ? { isActive: true } : {}) })));
+    expect(r.status).toBe(400);
+    expect(r.raw).toMatch(IDENTITY_DUP);
+    expect(mockState.writes).toEqual([]);
+    // Reactivating it after the other one is deactivated is fine.
+    inactiveDup();
+    conns().find((c) => String(c._id) === CONN_B).isActive = false;
+    r = await update(B2C_2, { isActive: true });
+    expect(r.status).toBe(200);
+  });
+
   test("update / full array: moving a connection onto another's directory is refused", async () => {
     mockReset([mockStoredEntra(), mockStoredB2C(), mockStoredB2C({ _id: B2C_2, id: B2C_2, directoryId: "b2c-other" })]);
     let r = await update(B2C_2, { directoryId: "B2C-DIR" });
