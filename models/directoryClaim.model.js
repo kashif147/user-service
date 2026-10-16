@@ -3,7 +3,8 @@
  * to, and whether that has been verified. This collection - not the inert legacy
  * connection.directoryOwnership - is authoritative for directory ownership.
  *
- *  - One claim per connection, and per (organisation, directory).
+ *  - One ACTIVE (pending or verified) claim per connection, and per (organisation, directory);
+ *    revoked claims are kept as audit history and any number may exist (Stage 5c-3).
  *  - One VERIFIED directory -> one organisation: a partial unique index on (connectionType,
  *    directoryId) over verified, non-exception claims, so concurrent writers cannot both win.
  *  - The DEV shared-directory exception (method "dev-exception") is outside that index and valid
@@ -13,8 +14,12 @@
  *  - Unknown fields are rejected (strict "throw"): no client ids, scopes, secrets, tokens, codes or
  *    appRef are ever stored here.
  *
+ *  - Status: pending -> verified -> revoked. Revoked (Disconnect, Stage 5c-3) is terminal: a
+ *    revoked claim is never changed again; a reconnect creates a NEW verified claim. Revoking
+ *    touches only status, revokedAt and revokedBy - everything else stays as history.
+ *
  * There is no tenant-admin API for claims: verified claims are created by the Microsoft admin
- * connection flow (Stage 5c) or a controlled platform/DEV operation.
+ * connection flow (Stage 5c) or a controlled platform/DEV operation, and revoked only by Disconnect.
  */
 const mongoose = require("mongoose");
 const {
@@ -25,7 +30,11 @@ const {
   devExceptionAllowed,
 } = require("../helpers/directoryClaimPolicy");
 
-const CLAIM_STATUSES = ["pending", "verified"];
+const CLAIM_STATUSES = ["pending", "verified", "revoked"];
+// Claims that still own their connection / (organisation, directory): the partial unique indexes
+// below cover only these, so revoked history never blocks a new claim.
+const ACTIVE_CLAIM_STATUSES = ["pending", "verified"];
+const REVOKE_PATHS = ["status", "revokedAt", "revokedBy", "updatedAt"];
 const CLAIM_METHODS = ["entra-admin-sign-in", "platform", "dev-exception"];
 const SHARED_EXCEPTION_METHOD = "dev-exception";
 const ADMIN_SIGN_IN_METHOD = "entra-admin-sign-in";
@@ -63,11 +72,35 @@ const directoryClaimSchema = new mongoose.Schema(
     verifiedAt: { type: Date, default: null },
     verifiedBy: { type: String, default: null, trim: true },
     verificationEvidence: { type: verificationEvidenceSchema, default: null },
+    // Disconnect (Stage 5c-3): server time and initiating ProjectShell user ("user:<id>").
+    revokedAt: { type: Date, default: null },
+    revokedBy: { type: String, default: null, trim: true },
   },
   { timestamps: true, strict: "throw", collection: "directoryclaims" }
 );
 
+// The status as loaded from the database (revoked is terminal; only verified may be revoked).
+directoryClaimSchema.post("init", function rememberLoadedStatus() {
+  this.$locals.loadedStatus = this.status;
+});
+
 directoryClaimSchema.pre("validate", function deriveAndCheck() {
+  const loaded = this.isNew ? null : this.$locals.loadedStatus;
+  if (loaded === "revoked" && this.isModified()) {
+    this.invalidate("status", "A revoked claim is audit history and cannot be changed");
+    return;
+  }
+  if (this.status === "revoked") {
+    if (!this.revokedAt || !this.revokedBy) this.invalidate("revokedAt", "A revoked claim needs revokedAt and revokedBy");
+    if (!this.isNew && loaded !== "revoked") {
+      if (loaded !== "verified") this.invalidate("status", "Only a verified claim can be revoked");
+      if (this.modifiedPaths().some((p) => !REVOKE_PATHS.includes(p))) {
+        this.invalidate("status", "Revoking a claim changes only status, revokedAt and revokedBy");
+      }
+    }
+  } else if (this.revokedAt || this.revokedBy) {
+    this.invalidate("revokedAt", "Only a revoked claim carries revokedAt / revokedBy");
+  }
   this.sharedDirectoryException = this.method === SHARED_EXCEPTION_METHOD;
   if (this.directoryId === CONSUMER_DIRECTORY_ID) {
     this.invalidate("directoryId", "The personal Microsoft account directory cannot be claimed");
@@ -115,14 +148,22 @@ directoryClaimSchema.index(
     partialFilterExpression: { status: "verified", sharedDirectoryException: false },
   }
 );
-directoryClaimSchema.index({ connectionType: 1, connectionId: 1 }, { name: "uniq_claim_per_connection", unique: true });
+// Stage 5c-3: one ACTIVE claim per connection and per (organisation, directory); revoked history is
+// outside both. New names: these replace uniq_claim_per_connection / uniq_claim_per_tenant_directory
+// (dropped by scripts/migrate-directoryclaim-partial-indexes.js once these exist).
+const ACTIVE_CLAIM_FILTER = { status: { $in: ACTIVE_CLAIM_STATUSES } };
+directoryClaimSchema.index(
+  { connectionType: 1, connectionId: 1 },
+  { name: "uniq_active_claim_per_connection", unique: true, partialFilterExpression: ACTIVE_CLAIM_FILTER }
+);
 directoryClaimSchema.index(
   { connectionType: 1, directoryId: 1, tenantId: 1 },
-  { name: "uniq_claim_per_tenant_directory", unique: true }
+  { name: "uniq_active_claim_per_tenant_directory", unique: true, partialFilterExpression: ACTIVE_CLAIM_FILTER }
 );
 
 const DirectoryClaim = mongoose.model("DirectoryClaim", directoryClaimSchema);
 DirectoryClaim.CLAIM_STATUSES = CLAIM_STATUSES;
+DirectoryClaim.ACTIVE_CLAIM_STATUSES = ACTIVE_CLAIM_STATUSES;
 DirectoryClaim.CLAIM_METHODS = CLAIM_METHODS;
 DirectoryClaim.ADMIN_ROLE_TEMPLATE_IDS = ADMIN_ROLE_TEMPLATE_IDS;
 module.exports = DirectoryClaim;

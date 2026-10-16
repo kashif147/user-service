@@ -81,7 +81,11 @@ const load = {
 
 // ---- in-memory DirectoryClaim store behind the real model's statics ----
 const claims = [];
-const matches = (c, q) => Object.entries(q).every(([k, v]) => String(c[k]) === String(v));
+// Equality per field, plus {$in: [...]} (Stage 5c-3: Connect looks up the ACTIVE claim only).
+const matches = (c, q) =>
+  Object.entries(q).every(([k, v]) =>
+    v && typeof v === "object" && Array.isArray(v.$in) ? v.$in.map(String).includes(String(c[k])) : String(c[k]) === String(v)
+  );
 function stubClaims() {
   const DirectoryClaim = load.model();
   jest.spyOn(DirectoryClaim, "init").mockResolvedValue(undefined);

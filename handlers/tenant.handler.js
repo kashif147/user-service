@@ -422,7 +422,7 @@ module.exports.updateAuthenticationConnection = async (
       storedList
     );
     const merged = { ...pickConnectionFields(stored), ...fields };
-    await assertConnectionWritable(String(tenant._id), merged, { connectionId: stored._id });
+    await assertConnectionWritable(String(tenant._id), merged, { connectionId: stored._id, stored });
     Object.assign(connection, fields);
     connection.updatedAt = new Date();
     tenant.updatedBy = updatedBy;

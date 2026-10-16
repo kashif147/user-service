@@ -84,8 +84,11 @@ the redirect URI is always the app registration's.
   Microsoft personal-account directory `9188040d-6c67-4c5b-b112-36a304b66dad` (`INVALID_DIRECTORY`).
 - **Directory claims (Stage 5b, `models/directoryClaim.model.js`):** authoritative for which
   organisation owns a directory (`connection.directoryOwnership` is inert legacy data). Partial
-  unique index: one VERIFIED (non-exception) directory -> one organisation; one claim per
-  connection and per (organisation, directory); ownership fields immutable; strict schema (no
+  unique index: one VERIFIED (non-exception) directory -> one organisation; one ACTIVE
+  (pending/verified) claim per connection and per (organisation, directory) - partial indexes
+  `uniq_active_claim_per_*` (Stage 5c-3; `scripts/migrate-directoryclaim-partial-indexes.js`
+  replaces the old always-on `uniq_claim_per_*`), so revoked claims stay as history; status
+  pending -> verified -> revoked (terminal, never reopened); ownership fields immutable; strict schema (no
   client ids, scopes, secrets, tokens or appRef). In multi-directory mode only,
   `helpers/directoryClaimGate.js` requires a verified claim matching directory + organisation +
   connection at login start, again at the callback, and when a connection write activates/changes
@@ -108,10 +111,24 @@ the redirect URI is always the app registration's.
   `verificationEvidence {directoryUserId, roleTemplateId}` (`helpers/directoryClaimService.js`;
   DEV exceptions -> `DIRECTORY_SHARED_EXCEPTION`, another org's -> `DIRECTORY_ALREADY_CLAIMED`) and
   sets only `connectedAt`/`connectedBy` (never `isActive`, the directory or test fields).
-  `GET .../status` is derived: `not_connected` / `connected` / `reconnect_required` / `test_failed`.
+  `GET .../status` is derived: `not_connected` / `connected` / `reconnect_required` / `test_failed` /
+  `disconnected` (no active claim + a revoked claim for the current directory; Stage 5c-3).
   Body/query identity fields are ignored; no token, code or verifier is stored or logged. `wids` is
   emitted only when the app registration's `groupMembershipClaims` includes directory roles. The
   redirect URI is the existing registered CRM one (compatibility until the central callback).
+- **Disconnect Microsoft Entra (Stage 5c-3):** `POST .../:connectionId/disconnect` (tenant admin,
+  own tenant; body/query ignored) requires the connection's verified `entra-admin-sign-in` claim
+  (`NOT_CONNECTED`, also for a second disconnect; `dev-exception` -> `DIRECTORY_SHARED_EXCEPTION`,
+  `platform` -> `CLAIM_METHOD_CONFLICT`, both untouched), then ONE MongoDB transaction: connection
+  `isActive=false` + `disconnectedAt/By`, claim `revoked` + `revokedAt/By` (same timestamp) - both
+  or neither (`CONNECTION_CHANGED` if the connection changed). Users, roles, the directory,
+  provisioning, connect and test metadata are untouched. Afterwards: sign-in fails closed (inactive
+  connection, all paths); Test Connection -> 409 `CONNECTION_DISCONNECTED` before any Microsoft call
+  or write; saving the connection active -> 409 `CONNECTION_DISCONNECTED` until reconnected
+  (`assertConnectionWritable`, regardless of the multi-directory switch; only checked for stored
+  connections with `disconnectedAt`). Reconnect = the normal Connect flow, creating a NEW verified
+  claim (`disconnectedAt/By` kept as history; `isActive` unchanged). A different directory = edit
+  `directoryId` on the inactive connection, then Connect.
 - **DEV shared-directory exception** (`helpers/directoryClaimPolicy.js`): method `dev-exception`,
   valid only while `DEPLOYMENT_ENV=dev`, `ENTRA_ALLOW_SHARED_DIRECTORY=true` and the directory is in
   `ENTRA_SHARED_DIRECTORY_ALLOWLIST` (NODE_ENV is never used). Either override variable set

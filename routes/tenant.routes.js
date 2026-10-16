@@ -185,6 +185,16 @@ router.post(
   TenantController.testEntraConnection
 );
 
+// Disconnect Microsoft Entra (Stage 5c-3): connection inactive + its verified claim revoked, in one
+// transaction. Users, roles and the directory are untouched; reconnect via /connect.
+router.post(
+  "/tenants/:id/auth-connections/:connectionId/disconnect",
+  requireTenant,
+  requireTenantPathAccess("id"),
+  defaultPolicyAdapter.middleware("tenant", "admin"),
+  TenantController.disconnectEntraConnection
+);
+
 router.get(
   "/tenants/:id/auth-connections/:connectionId/status",
   requireTenant,

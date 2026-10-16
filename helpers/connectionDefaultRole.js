@@ -49,7 +49,14 @@ const ADMIN_WRITABLE_CONNECTION_FIELDS = [
   "autoProvisionUsers",
   "defaultRoleId",
 ];
-const SERVER_MANAGED_CONNECTION_FIELDS = ["connectedAt", "connectedBy", "lastTestedAt", "lastTestResult"];
+const SERVER_MANAGED_CONNECTION_FIELDS = [
+  "connectedAt",
+  "connectedBy",
+  "lastTestedAt",
+  "lastTestResult",
+  "disconnectedAt",
+  "disconnectedBy",
+];
 const PRESERVED_LEGACY_CONNECTION_FIELDS = ["appRef", "directoryOwnership"];
 const STORED_ONLY_CONNECTION_FIELDS = [...SERVER_MANAGED_CONNECTION_FIELDS, ...PRESERVED_LEGACY_CONNECTION_FIELDS];
 const CONNECTION_FIELDS = ADMIN_WRITABLE_CONNECTION_FIELDS;
@@ -64,6 +71,19 @@ class ConnectionValidationError extends Error {
     this.name = "ConnectionValidationError";
     this.status = 400;
     this.code = "INVALID_AUTH_CONNECTION";
+  }
+}
+
+/**
+ * Activation of a disconnected Entra connection (Stage 5c-3): 409, not 400. A subclass so every
+ * existing ConnectionValidationError pass-through keeps carrying it to the controller.
+ */
+class ConnectionDisconnectedError extends ConnectionValidationError {
+  constructor() {
+    super("Reconnect Microsoft Entra before activating this connection.");
+    this.name = "ConnectionDisconnectedError";
+    this.status = 409;
+    this.code = "CONNECTION_DISCONNECTED";
   }
 }
 
@@ -157,18 +177,31 @@ const DEFAULT_ROLE_MESSAGES = {
 
 /**
  * Save-time rules for one connection (the merged, to-be-stored values) of organisation `tenantId`.
- * `connectionId` is the stored connection's id (absent for a new connection). Throws
+ * `connectionId` is the stored connection's id and `stored` the stored connection (both absent for
+ * a new connection). Throws
  * ConnectionValidationError (-> 400).
  *
  * Multi-directory mode (Stage 5b): an ACTIVE Entra connection needs a verified directory claim for
  * this organisation, directory and connection. A new connection therefore starts inactive and is
  * activated once its claim is verified; changing the directory of an active connection is refused
  * unless the new directory is claimed for it. Nothing here creates or verifies a claim.
+ *
+ * Disconnect (Stage 5c-3), independent of the multi-directory switch: an Entra connection that was
+ * disconnected (no active claim, a revoked claim for its directory) cannot be saved active until it
+ * is reconnected - ConnectionDisconnectedError (-> 409). Never-disconnected connections are unaffected.
  */
-async function assertConnectionWritable(tenantId, connection, { connectionId } = {}) {
+async function assertConnectionWritable(tenantId, connection, { connectionId, stored } = {}) {
   const { autoProvisionUsers, defaultRoleId, connectionType } = connection;
   if (connectionType === ENTRA && !DIRECTORY_GUID.test(String(connection.directoryId ?? "").trim())) {
     throw new ConnectionValidationError("Directory ID must be the Microsoft Entra tenant ID (a GUID)");
+  }
+  // Only a stored connection that was ever disconnected (disconnectedAt is set by Disconnect and kept)
+  // is checked, so other connections behave - and read - exactly as before.
+  if (connectionType === ENTRA && connection.isActive === true && tenantId && connectionId != null && stored?.disconnectedAt) {
+    const { isConnectionDisconnected } = require("./directoryClaimService");
+    if (await isConnectionDisconnected({ tenantId, connectionId, directoryId: connection.directoryId })) {
+      throw new ConnectionDisconnectedError();
+    }
   }
   if (connectionType === ENTRA && connection.isActive === true) {
     const { assertConnectionDirectoryClaim } = require("./directoryClaimGate");
@@ -312,7 +345,7 @@ async function prepareConnectionsForWrite(tenantId, incoming, stored = []) {
     }
     const merged = { ...pickConnectionFields(previous), ...fields };
     const changed = ADMIN_WRITABLE_CONNECTION_FIELDS.some((f) => !sameValue(merged[f], previous[f]));
-    if (changed) await assertConnectionWritable(tenantId, merged, { connectionId: previous._id });
+    if (changed) await assertConnectionWritable(tenantId, merged, { connectionId: previous._id, stored: previous });
     result.push({
       ...merged,
       ...storedOnlyFields(previous),
@@ -367,6 +400,7 @@ module.exports = {
   storedOnlyFields,
   assertConnectionIdentity,
   ConnectionValidationError,
+  ConnectionDisconnectedError,
   DefaultRoleError,
   isAutomatic,
   checkDefaultRole,

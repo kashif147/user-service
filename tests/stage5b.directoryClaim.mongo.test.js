@@ -54,8 +54,12 @@ run("DirectoryClaim against MongoDB", () => {
     const v = idx.find((i) => i.name === "uniq_verified_directory");
     expect(v).toMatchObject({ unique: true, key: { connectionType: 1, directoryId: 1 } });
     expect(v.partialFilterExpression).toEqual({ status: "verified", sharedDirectoryException: false });
-    expect(idx.find((i) => i.name === "uniq_claim_per_connection")).toMatchObject({ unique: true });
-    expect(idx.find((i) => i.name === "uniq_claim_per_tenant_directory")).toMatchObject({ unique: true });
+    // Stage 5c-3: active-claim partial indexes (revoked history is outside them).
+    const active = { status: { $in: ["pending", "verified"] } };
+    expect(idx.find((i) => i.name === "uniq_active_claim_per_connection")).toMatchObject({ unique: true, key: { connectionType: 1, connectionId: 1 }, partialFilterExpression: active });
+    expect(idx.find((i) => i.name === "uniq_active_claim_per_tenant_directory")).toMatchObject({ unique: true, key: { connectionType: 1, directoryId: 1, tenantId: 1 }, partialFilterExpression: active });
+    expect(idx.find((i) => i.name === "uniq_claim_per_connection")).toBeUndefined();
+    expect(idx.find((i) => i.name === "uniq_claim_per_tenant_directory")).toBeUndefined();
   });
 
   test("race: two organisations verifying the same directory concurrently -> exactly one wins", async () => {

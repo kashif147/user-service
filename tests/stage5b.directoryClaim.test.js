@@ -170,7 +170,8 @@ describe("A: DirectoryClaim model", () => {
 
   test("A2 statuses and methods are closed sets", () => {
     const DirectoryClaim = load.model();
-    expect(DirectoryClaim.CLAIM_STATUSES).toEqual(["pending", "verified"]);
+    // Stage 5c-3 adds the terminal "revoked" status (Disconnect).
+    expect(DirectoryClaim.CLAIM_STATUSES).toEqual(["pending", "verified", "revoked"]);
     expect(DirectoryClaim.CLAIM_METHODS).toEqual(["entra-admin-sign-in", "platform", "dev-exception"]);
   });
 
@@ -207,6 +208,8 @@ describe("A: DirectoryClaim model", () => {
         "createdAt",
         "directoryId",
         "method",
+        "revokedAt", // Stage 5c-3: Disconnect audit (server time)
+        "revokedBy", // Stage 5c-3: Disconnect audit ("user:<id>")
         "sharedDirectoryException",
         "status",
         "tenantId",
@@ -244,10 +247,15 @@ describe("B: uniqueness (index design; behaviour under concurrency in the mongo 
         partialFilterExpression: { status: "verified", sharedDirectoryException: false },
       }),
     });
-    expect(byName.uniq_claim_per_connection.opts.unique).toBe(true);
-    expect(byName.uniq_claim_per_connection.fields).toEqual({ connectionType: 1, connectionId: 1 });
-    expect(byName.uniq_claim_per_tenant_directory.opts.unique).toBe(true);
-    expect(byName.uniq_claim_per_tenant_directory.fields).toEqual({ connectionType: 1, directoryId: 1, tenantId: 1 });
+    // Stage 5c-3: one ACTIVE (pending/verified) claim per connection and per tenant+directory; the
+    // always-on uniq_claim_per_connection / uniq_claim_per_tenant_directory are replaced.
+    const active = { status: { $in: ["pending", "verified"] } };
+    expect(byName.uniq_active_claim_per_connection.opts).toEqual(expect.objectContaining({ unique: true, partialFilterExpression: active }));
+    expect(byName.uniq_active_claim_per_connection.fields).toEqual({ connectionType: 1, connectionId: 1 });
+    expect(byName.uniq_active_claim_per_tenant_directory.opts).toEqual(expect.objectContaining({ unique: true, partialFilterExpression: active }));
+    expect(byName.uniq_active_claim_per_tenant_directory.fields).toEqual({ connectionType: 1, directoryId: 1, tenantId: 1 });
+    expect(byName.uniq_claim_per_connection).toBeUndefined();
+    expect(byName.uniq_claim_per_tenant_directory).toBeUndefined();
   });
 });
 
@@ -578,7 +586,8 @@ describe("Connection writes in multi-directory mode (organisation-admin protecti
 
   test("W4 the per-connection update path passes the stored connection id", () => {
     const src = fs.readFileSync(path.join(__dirname, "..", "handlers", "tenant.handler.js"), "utf8");
-    expect(src).toMatch(/assertConnectionWritable\(String\(tenant\._id\), merged, \{ connectionId: stored\._id \}\)/);
+    // Stage 5c-3: the stored connection is passed too (reactivation guard for disconnected connections).
+    expect(src).toMatch(/assertConnectionWritable\(String\(tenant\._id\), merged, \{ connectionId: stored\._id, stored \}\)/);
   });
 
   test("W5 claim fields are not connection fields and there is no claim API", () => {

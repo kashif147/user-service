@@ -15,12 +15,19 @@
  *              (DIRECTORY_NOT_CLAIMED otherwise, without calling Microsoft); checks the directory
  *              and the shared application with Microsoft (helpers/entraConnectionTest.js); records
  *              lastTestedAt / lastTestResult {ok, code} only. Never changes the claim, the
- *              directory, isActive, provisioning, users or roles.
+ *              directory, isActive, provisioning, users or roles. A disconnected connection is
+ *              refused first (CONNECTION_DISCONNECTED): no Microsoft call, nothing written.
+ *  disconnect -> (Stage 5c-3) server loads the connection; requires its verified
+ *              entra-admin-sign-in claim (NOT_CONNECTED; platform-managed claims refused); then ONE
+ *              transaction: connection isActive=false + disconnectedAt/By, claim revoked +
+ *              revokedAt/By (same timestamp). Both or neither. Users, roles, the directory,
+ *              provisioning, connect and test metadata are untouched; a reconnect creates a new claim.
  *
  * Everything that identifies the organisation, connection, directory or administrator comes from
  * the server-side state and the verified token - never from the request body or query. Tokens,
  * the code and the verifier are never stored or logged.
  */
+const mongoose = require("mongoose");
 const Tenant = require("../models/tenant.model");
 const AzureADHandler = require("./azure.ad.handler");
 const { resolveEntraConnectConfig } = require("../helpers/connectionAuthConfig");
@@ -37,11 +44,33 @@ const {
   deriveConnectionStatus,
   findConnectionClaim,
   findValidConnectionClaim,
+  isConnectionDisconnected,
+  assertDisconnectable,
+  revokeConnectionClaim,
 } = require("../helpers/directoryClaimService");
 const { ENTRA, normalizeDirectoryId } = require("../helpers/directoryClaimPolicy");
 const { probeEntraDirectory, TEST_RESULT_CODES } = require("../helpers/entraConnectionTest");
 
 const plain = (v) => (v && typeof v.toObject === "function" ? v.toObject() : v);
+
+// Disconnect writes the connection and the claim in one MongoDB transaction (replica set).
+async function defaultTransactionRunner(work) {
+  const session = await mongoose.startSession();
+  try {
+    let out;
+    await session.withTransaction(async () => {
+      out = await work(session);
+    });
+    return out;
+  } finally {
+    await session.endSession();
+  }
+}
+let runInTransaction = defaultTransactionRunner;
+/** Test hook: replace the transaction runner (null restores the real one). */
+function _setTransactionRunnerForTests(runner) {
+  runInTransaction = runner || defaultTransactionRunner;
+}
 
 /** The organisation's Entra connection, loaded by the server. */
 async function loadEntraConnection(tenantId, connectionId) {
@@ -176,6 +205,9 @@ async function recordConnectionTestResult({ tenantId, connectionId, directoryId,
 async function testConnection({ tenantId, connectionId }) {
   const loaded = await loadEntraConnection(tenantId, connectionId);
   const claim = await findValidConnectionClaim({ tenantId: loaded.tenantId, connectionId, directoryId: loaded.directoryId });
+  if (!claim && (await isConnectionDisconnected({ tenantId: loaded.tenantId, connectionId, directoryId: loaded.directoryId }))) {
+    throw new EntraConnectError("CONNECTION_DISCONNECTED");
+  }
   const result = claim
     ? await probeEntraDirectory(loaded.directoryId)
     : { ok: false, code: "DIRECTORY_NOT_CLAIMED", step: "claim", httpStatus: null };
@@ -197,6 +229,40 @@ async function testConnection({ tenantId, connectionId }) {
   return { ok: result.ok, code: result.code, testedAt };
 }
 
+/**
+ * Disconnect Microsoft Entra (Stage 5c-3). Organisation, connection and directory come from the
+ * server-loaded connection; the actor is the authenticated ProjectShell user.
+ */
+async function disconnectConnection({ tenantId, connectionId, userId }) {
+  if (!userId) throw new EntraConnectError("ACTOR_REQUIRED");
+  const loaded = await loadEntraConnection(tenantId, connectionId);
+  await assertDisconnectable({ tenantId: loaded.tenantId, connectionId, directoryId: loaded.directoryId });
+  const at = new Date(); // one timestamp for the whole operation (disconnectedAt == revokedAt)
+  const actor = String(userId);
+  await runInTransaction(async (session) => {
+    const outcome = await Tenant.updateOne(
+      {
+        _id: loaded.tenantId,
+        authenticationConnections: {
+          $elemMatch: { _id: String(connectionId), connectionType: ENTRA, directoryId: loaded.connection.directoryId },
+        },
+      },
+      {
+        $set: {
+          "authenticationConnections.$.isActive": false,
+          "authenticationConnections.$.disconnectedAt": at,
+          "authenticationConnections.$.disconnectedBy": actor,
+        },
+      },
+      { session }
+    );
+    if (!outcome || outcome.matchedCount !== 1) throw new EntraConnectError("CONNECTION_CHANGED");
+    await revokeConnectionClaim({ session, tenantId: loaded.tenantId, connectionId, directoryId: loaded.directoryId, userId: actor, at });
+  });
+  console.info("Entra connection disconnected:", { tenantId: loaded.tenantId, connectionId: String(connectionId), directoryId: loaded.directoryId });
+  return { status: "disconnected", directoryId: loaded.directoryId, disconnectedAt: at, disconnectedBy: actor };
+}
+
 async function getConnectionStatus({ tenantId, connectionId }) {
   const loaded = await loadEntraConnection(tenantId, connectionId);
   const claim = await findConnectionClaim(connectionId);
@@ -212,6 +278,8 @@ async function getConnectionStatus({ tenantId, connectionId }) {
     sharedDirectoryException,
   };
   if (c.lastTestedAt) out.lastTestedAt = c.lastTestedAt;
+  if (c.disconnectedAt) out.disconnectedAt = c.disconnectedAt;
+  if (c.disconnectedBy) out.disconnectedBy = c.disconnectedBy;
   if (c.lastTestResult) out.lastTestResult = { ok: c.lastTestResult.ok === true, code: c.lastTestResult.code ?? null };
   return out;
 }
@@ -221,6 +289,8 @@ module.exports = {
   completeConnect,
   testConnection,
   recordConnectionTestResult,
+  disconnectConnection,
+  _setTransactionRunnerForTests,
   getConnectionStatus,
   markConnectionConnected,
   loadEntraConnection,

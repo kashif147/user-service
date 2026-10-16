@@ -3,14 +3,20 @@
  * status. Ownership is never transferred: the partial unique index on verified normal claims is
  * the final guard against two organisations verifying the same directory concurrently.
  *
- * Upsert rules (connectionType Entra, the state-bound organisation + connection, the verified tid):
- *  - no claim for the connection           -> create a verified entra-admin-sign-in claim
+ * Upsert rules (connectionType Entra, the state-bound organisation + connection, the verified tid).
+ * Only ACTIVE claims (pending / verified) count; revoked claims are audit history (Stage 5c-3):
+ *  - no active claim for the connection    -> create a NEW verified entra-admin-sign-in claim
+ *    (also after a Disconnect: the revoked claim is never reopened)
  *  - own pending entra-admin-sign-in claim -> upgrade to verified
  *  - own verified entra-admin-sign-in claim (same directory) -> refresh verifiedAt / verifiedBy /
  *    verificationEvidence (reconnect)
  *  - any DEV shared-directory exception for the directory -> DIRECTORY_SHARED_EXCEPTION, unchanged
  *  - a verified claim of another organisation/connection   -> DIRECTORY_ALREADY_CLAIMED
  *  - own claim for another directory, or another method    -> DIRECTORY_MISMATCH / CLAIM_METHOD_CONFLICT
+ *
+ * Disconnect (Stage 5c-3) revokes the connection's verified entra-admin-sign-in claim inside the
+ * caller's transaction (revokeConnectionClaim); platform-managed claims (dev-exception, platform)
+ * are never revoked by a tenant administrator.
  *
  * The model is required lazily so ordinary sign-in never loads it (Stage 5b property).
  */
@@ -19,13 +25,25 @@ const { claimStillValid } = require("./directoryClaimGate");
 const { EntraConnectError } = require("./entraConnect");
 
 const ADMIN_SIGN_IN = "entra-admin-sign-in";
+const ACTIVE = ["pending", "verified"];
 const model = () => require("../models/directoryClaim.model");
+const isActiveClaim = (c) => !!c && ACTIVE.includes(c.status);
+const time = (v) => (v ? new Date(v).getTime() : 0);
+/** Deterministic pick among a connection's claims: the active claim, else the latest revoked one. */
+function pickConnectionClaim(claims) {
+  const active = claims.filter(isActiveClaim).sort((a, b) => String(a._id).localeCompare(String(b._id)));
+  if (active.length) return active[0];
+  const revoked = claims
+    .filter((c) => c.status === "revoked")
+    .sort((a, b) => time(b.revokedAt) - time(a.revokedAt) || String(b._id).localeCompare(String(a._id)));
+  return revoked[0] || null;
+}
 
 /** Refuses a directory that is a DEV shared exception or verified for another connection. */
 async function assertDirectoryConnectable({ tenantId, connectionId, directoryId }) {
   const dir = normalizeDirectoryId(directoryId);
   if (!dir) throw new EntraConnectError("INVALID_DIRECTORY");
-  const claims = await model().find({ connectionType: ENTRA, directoryId: dir }).lean();
+  const claims = (await model().find({ connectionType: ENTRA, directoryId: dir }).lean()).filter(isActiveClaim);
   if (claims.some((c) => c.sharedDirectoryException === true || c.method === "dev-exception")) {
     throw new EntraConnectError("DIRECTORY_SHARED_EXCEPTION");
   }
@@ -51,7 +69,7 @@ async function recordVerifiedConnectClaim({ tenantId, connectionId, directoryId,
   const now = new Date();
   const verificationEvidence = { directoryUserId: evidence.directoryUserId, roleTemplateId: evidence.roleTemplateId };
 
-  const own = await DirectoryClaim.findOne({ connectionType: ENTRA, connectionId: String(connectionId) });
+  const own = await DirectoryClaim.findOne({ connectionType: ENTRA, connectionId: String(connectionId), status: { $in: ACTIVE } });
   try {
     if (!own) {
       const created = await DirectoryClaim.create({
@@ -87,13 +105,18 @@ async function recordVerifiedConnectClaim({ tenantId, connectionId, directoryId,
 }
 
 /**
- * Derived status of one connection (nothing stored). A valid verified claim is "connected";
- * a failed test result (Stage 5c-2) turns it into "test_failed".
+ * Derived status of one connection (nothing stored), from the claim picked by findConnectionClaim.
+ * A valid verified claim is "connected"; a failed test result (Stage 5c-2) turns it into
+ * "test_failed". Without an active claim, a revoked claim for the connection's CURRENT directory is
+ * "disconnected" (Stage 5c-3); a revoked claim for another directory is "not_connected".
  */
 function deriveConnectionStatus(connection, claim, tenantId) {
   const sharedDirectoryException = claim?.sharedDirectoryException === true;
-  if (!claim || claim.status !== "verified") return { status: "not_connected", sharedDirectoryException: false };
   const dir = normalizeDirectoryId(connection?.directoryId);
+  if (claim && claim.status === "revoked") {
+    return claim.directoryId === dir ? { status: "disconnected", sharedDirectoryException } : { status: "not_connected", sharedDirectoryException: false };
+  }
+  if (!claim || claim.status !== "verified") return { status: "not_connected", sharedDirectoryException: false };
   const matches =
     !!dir &&
     claim.directoryId === dir &&
@@ -107,9 +130,58 @@ function deriveConnectionStatus(connection, claim, tenantId) {
   return { status: "connected", sharedDirectoryException };
 }
 
-/** The claim of one connection (lean) or null. */
+/** The claim that describes one connection (lean) or null: its active claim, else its latest revoked claim. */
 async function findConnectionClaim(connectionId) {
-  return model().findOne({ connectionType: ENTRA, connectionId: String(connectionId) }).lean();
+  return pickConnectionClaim(await model().find({ connectionType: ENTRA, connectionId: String(connectionId) }).lean());
+}
+
+/**
+ * True when the connection was disconnected and not reconnected since: no active claim for it, and a
+ * revoked claim for its current directory. Read only.
+ */
+async function isConnectionDisconnected({ tenantId, connectionId, directoryId }) {
+  const dir = normalizeDirectoryId(directoryId);
+  if (!dir || !tenantId || connectionId === undefined || connectionId === null || connectionId === "") return false;
+  const claims = await model()
+    .find({ connectionType: ENTRA, tenantId: String(tenantId), connectionId: String(connectionId) })
+    .lean();
+  if (claims.some(isActiveClaim)) return false;
+  return claims.some((c) => c.status === "revoked" && c.directoryId === dir);
+}
+
+/**
+ * Disconnect precondition (read only): the connection's verified claim for its directory, which
+ * must be an entra-admin-sign-in claim. NOT_CONNECTED / DIRECTORY_SHARED_EXCEPTION /
+ * CLAIM_METHOD_CONFLICT otherwise.
+ */
+async function assertDisconnectable({ tenantId, connectionId, directoryId }) {
+  const claim = await model()
+    .findOne({ connectionType: ENTRA, tenantId: String(tenantId), connectionId: String(connectionId), directoryId, status: "verified" })
+    .lean();
+  if (!claim) throw new EntraConnectError("NOT_CONNECTED");
+  if (claim.method === "dev-exception" || claim.sharedDirectoryException === true) throw new EntraConnectError("DIRECTORY_SHARED_EXCEPTION");
+  if (claim.method !== ADMIN_SIGN_IN) throw new EntraConnectError("CLAIM_METHOD_CONFLICT");
+  return claim;
+}
+
+/**
+ * Revokes the connection's verified entra-admin-sign-in claim inside `session` (model validation
+ * runs). CONNECTION_CHANGED when that claim is no longer there; the method rules are re-checked.
+ */
+async function revokeConnectionClaim({ session, tenantId, connectionId, directoryId, userId, at }) {
+  const claim = await model().findOne(
+    { connectionType: ENTRA, tenantId: String(tenantId), connectionId: String(connectionId), directoryId, status: "verified" },
+    null,
+    { session }
+  );
+  if (!claim) throw new EntraConnectError("CONNECTION_CHANGED");
+  if (claim.method === "dev-exception" || claim.sharedDirectoryException === true) throw new EntraConnectError("DIRECTORY_SHARED_EXCEPTION");
+  if (claim.method !== ADMIN_SIGN_IN) throw new EntraConnectError("CLAIM_METHOD_CONFLICT");
+  claim.status = "revoked";
+  claim.revokedAt = at;
+  claim.revokedBy = `user:${userId}`;
+  await claim.save({ session });
+  return String(claim._id);
 }
 
 /**
@@ -132,4 +204,8 @@ module.exports = {
   deriveConnectionStatus,
   findConnectionClaim,
   findValidConnectionClaim,
+  isConnectionDisconnected,
+  assertDisconnectable,
+  revokeConnectionClaim,
+  pickConnectionClaim,
 };

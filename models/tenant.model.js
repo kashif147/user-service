@@ -209,6 +209,9 @@ const TenantSchema = new mongoose.Schema({
         type: new mongoose.Schema({ ok: Boolean, code: String }, { _id: false }),
         default: undefined,
       },
+      // Server-managed: set by Disconnect (Stage 5c-3), kept as history across a later reconnect.
+      disconnectedAt: { type: Date, default: undefined },
+      disconnectedBy: { type: String, default: undefined },
       isActive: {
         type: Boolean,
         default: true,

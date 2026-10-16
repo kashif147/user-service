@@ -7,7 +7,9 @@ const {
 const {
   pickRegionalSettingsPayload,
 } = require("../constants/tenantUpdateDefaults");
-const { ConnectionValidationError } = require("../helpers/connectionDefaultRole");
+const { ConnectionValidationError, ConnectionDisconnectedError } = require("../helpers/connectionDefaultRole");
+// Activation of a disconnected Entra connection (Stage 5c-3): 409 with its code, not a generic 400.
+const disconnectedError = (e) => new AppError(e.message, e.status, e.code);
 // Every response carrying a tenant or its authentication connections goes through this allow-list.
 const { toTenantView, toConnectionView } = require("../helpers/authConnectionView");
 
@@ -23,6 +25,7 @@ module.exports.createTenant = async (req, res, next) => {
     const tenant = await TenantHandler.createTenant(req.body, createdBy);
     res.status(201).json({ status: "success", data: toTenantView(tenant) });
   } catch (error) {
+    if (error instanceof ConnectionDisconnectedError) return next(disconnectedError(error));
     if (error instanceof ConnectionValidationError) return next(AppError.badRequest(error.message));
     return next(AppError.internalServerError("Failed to create tenant"));
   }
@@ -103,6 +106,7 @@ module.exports.updateTenant = async (req, res, next) => {
     }
     res.status(200).json({ status: "success", data: toTenantView(tenant) });
   } catch (error) {
+    if (error instanceof ConnectionDisconnectedError) return next(disconnectedError(error));
     if (error instanceof ConnectionValidationError) return next(AppError.badRequest(error.message));
     return next(AppError.internalServerError("Failed to update tenant"));
   }
@@ -172,6 +176,7 @@ module.exports.addAuthenticationConnection = async (req, res) => {
     );
     res.success(toTenantView(tenant));
   } catch (error) {
+    if (error instanceof ConnectionDisconnectedError) return res.sendAppError(disconnectedError(error));
     if (error instanceof ConnectionValidationError) return res.sendBadRequest(error.message);
     if ((error.message || "").includes("Tenant not found")) {
       return res.sendNotFound("Tenant not found");
@@ -196,6 +201,7 @@ module.exports.updateAuthenticationConnection = async (req, res) => {
     );
     res.success(toTenantView(tenant));
   } catch (error) {
+    if (error instanceof ConnectionDisconnectedError) return res.sendAppError(disconnectedError(error));
     if (error instanceof ConnectionValidationError) return res.sendBadRequest(error.message);
     if ((error.message || "").includes("Tenant not found")) {
       return res.sendNotFound("Tenant not found");
@@ -346,6 +352,10 @@ const CONNECT_ERRORS = {
   NOT_DIRECTORY_ADMIN: [403, "A Microsoft Entra administrator of this directory must connect it"],
   DIRECTORY_ALREADY_CLAIMED: [409, "This Microsoft directory is already connected to another organisation"],
   DIRECTORY_SHARED_EXCEPTION: [409, "This Microsoft directory is a shared development directory and cannot be connected"],
+  // Stage 5c-3 (Disconnect)
+  NOT_CONNECTED: [409, "This Microsoft Entra connection is not connected"],
+  CONNECTION_DISCONNECTED: [409, "Reconnect Microsoft Entra before using this connection"],
+  ACTOR_REQUIRED: [401, "Authentication required"],
 };
 
 function sendConnectError(res, error, action) {
@@ -409,6 +419,22 @@ module.exports.testEntraConnection = async (req, res) => {
     return res.status(TEST_RESULT_HTTP_STATUS[out.code] || 422).json({ status: "fail", data: out });
   } catch (error) {
     return sendConnectError(res, error, "test");
+  }
+};
+
+// "Disconnect Microsoft Entra" (Stage 5c-3): organisation, connection and directory come only from
+// the path-guarded route and the server-loaded connection; the actor is the authenticated user.
+// The request body and query are not used.
+module.exports.disconnectEntraConnection = async (req, res) => {
+  try {
+    const out = await EntraConnectHandler.disconnectConnection({
+      tenantId: req.params.id,
+      connectionId: req.params.connectionId,
+      userId: req.ctx?.userId,
+    });
+    res.success(out);
+  } catch (error) {
+    return sendConnectError(res, error, "disconnect");
   }
 };
 

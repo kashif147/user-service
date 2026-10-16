@@ -18,6 +18,8 @@ const CONNECTION_RESPONSE_FIELDS = [
   "connectedAt",
   "connectedBy",
   "lastTestedAt",
+  "disconnectedAt",
+  "disconnectedBy",
   "createdAt",
   "updatedAt",
 ];
