@@ -61,12 +61,13 @@ const ENTRA_CRM = {
   secretRef: { source: "env", name: "AZURE_AD_CLIENT_SECRET" },
 };
 
-// Stage 5a switch, per environment. Only the exact value "true" lets a selected organisation
-// connection name a directory other than the app's home directory; unset, "false" or anything
-// else keeps the single-directory compatibility assertion. The application itself never changes:
-// every organisation uses the same client id, credential, scopes and redirect URI.
-const MULTI_DIRECTORY_ENV = "ENTRA_CRM_MULTI_DIRECTORY";
-const entraCrmMultiDirectory = () => process.env[MULTI_DIRECTORY_ENV] === "true";
+// Stage 5a switch, per environment (helpers/directoryClaimPolicy.js). Only the exact value "true"
+// of ENTRA_CRM_MULTI_DIRECTORY lets a selected organisation connection name a directory other than
+// the app's home directory (and then only with a verified directory claim, Stage 5b); unset,
+// "false" or anything else keeps the single-directory compatibility assertion. The application
+// itself never changes: every organisation uses the same client id, credential, scopes and
+// redirect URI.
+const { isEntraMultiDirectoryEnabled: entraCrmMultiDirectory } = require("./directoryClaimPolicy");
 
 const LEGACY_SHARED_B2C = {
   label: "ProjectShell member portal (shared Azure B2C, legacy)",

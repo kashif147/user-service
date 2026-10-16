@@ -82,6 +82,20 @@ the redirect URI is always the app registration's.
   (Stage 5b: cross-organisation uniqueness, verified ownership) and a multi-tenant app registration.
 - **Always refused:** non-GUID directories (`common` / `organizations` / `consumers`) and the
   Microsoft personal-account directory `9188040d-6c67-4c5b-b112-36a304b66dad` (`INVALID_DIRECTORY`).
+- **Directory claims (Stage 5b, `models/directoryClaim.model.js`):** authoritative for which
+  organisation owns a directory (`connection.directoryOwnership` is inert legacy data). Partial
+  unique index: one VERIFIED (non-exception) directory -> one organisation; one claim per
+  connection and per (organisation, directory); ownership fields immutable; strict schema (no
+  client ids, scopes, secrets, tokens or appRef). In multi-directory mode only,
+  `helpers/directoryClaimGate.js` requires a verified claim matching directory + organisation +
+  connection at login start, again at the callback, and when a connection write activates/changes
+  an Entra connection (new connections must be saved inactive first) - else
+  `DIRECTORY_NOT_CLAIMED`. Switch off: no claim is read. No tenant-admin claim API exists; claims
+  come from the Stage 5c admin connection flow or a controlled platform/DEV operation.
+- **DEV shared-directory exception** (`helpers/directoryClaimPolicy.js`): method `dev-exception`,
+  valid only while `DEPLOYMENT_ENV=dev`, `ENTRA_ALLOW_SHARED_DIRECTORY=true` and the directory is in
+  `ENTRA_SHARED_DIRECTORY_ALLOWLIST` (NODE_ENV is never used). Either override variable set
+  outside `DEPLOYMENT_ENV=dev` (or a malformed allow-list) stops the service at startup.
 - **Without a connection** (CRM login without an organisation code, and logout) the home directory is
   used. That path is existing-users-only and cannot support several directories: it is to be retired
   or redesigned with multi-directory sign-in.

@@ -21,7 +21,9 @@
  *  - Multi-directory mode (Stage 5a, ENTRA_CRM_MULTI_DIRECTORY exactly "true"): only that
  *    assertion is lifted, and only for a SELECTED organisation connection - its directory becomes
  *    authoritative. Every other check stays, the token's tid must still equal it, and the
- *    application is still the one shared CRM app.
+ *    application is still the one shared CRM app. The connection must also hold a verified
+ *    directory claim (Stage 5b, helpers/directoryClaimGate.js: checked by the callers at login
+ *    start and again at the callback; DIRECTORY_NOT_CLAIMED otherwise).
  *  - Always refused: anything that is not a directory GUID (common / organizations / consumers)
  *    and the Microsoft personal-account (consumer) directory.
  *
@@ -167,6 +169,7 @@ const ORGANISATION_CONFIG_CODES = new Set([
   "CONNECTION_INACTIVE",
   "INVALID_DIRECTORY",
   "DIRECTORY_NOT_ENABLED",
+  "DIRECTORY_NOT_CLAIMED",
   "UNSUPPORTED_PROVIDER",
 ]);
 const isOrganisationConfigError = (e) => e instanceof AuthConfigError && ORGANISATION_CONFIG_CODES.has(e.code);

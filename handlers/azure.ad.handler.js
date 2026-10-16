@@ -25,6 +25,7 @@ const {
   isOrganisationConfigError,
 } = require("../helpers/connectionAuthConfig");
 const { loadLoginConnection, LoginTenantError, ENTRA } = require("../helpers/loginTenantContext");
+const { assertConnectionDirectoryClaim } = require("../helpers/directoryClaimGate");
 const { microsoftErrorFields, isMicrosoftTokenError } = require("../helpers/microsoftErrorLog");
 
 // Public message for a CRM user without any active role in the organisation.
@@ -447,7 +448,8 @@ class AzureADHandler {
    * connection named by the server-side state, reloaded and still an active Entra connection of
    * that organisation, then resolved (its directory + the server-side app registration). Without a
    * login context (legacy no-code login): the CRM app's home directory. A connection that is gone,
-   * inactive or not enabled refuses the sign-in (403); missing Entra configuration propagates
+   * inactive, not enabled or (multi-directory mode) without a verified directory claim refuses the
+   * sign-in (403); missing Entra configuration propagates
    * (EntraConfigError -> 500 in the controller).
    */
   static async resolveAuthConfig(loginContext) {
@@ -456,7 +458,11 @@ class AzureADHandler {
     }
     try {
       const connection = await loadLoginConnection(loginContext);
-      return resolveConnectionAuthConfig(connection);
+      const config = resolveConnectionAuthConfig(connection);
+      // Multi-directory mode: re-checked here, so a claim removed, revoked or no longer matching
+      // since the login started refuses the callback before any token request.
+      await assertConnectionDirectoryClaim({ tenantId: loginContext.tenantId, connection });
+      return config;
     } catch (err) {
       if (err instanceof LoginTenantError || isOrganisationConfigError(err)) {
         console.warn("Azure AD login denied:", { reason: err.code, tenantId: String(loginContext.tenantId) });

@@ -5,6 +5,7 @@ const {
   rememberNonceForState,
 } = require("../helpers/pkceStateStore");
 const { resolveLoginTenant, LoginTenantError } = require("../helpers/loginTenantContext");
+const { assertConnectionDirectoryClaim } = require("../helpers/directoryClaimGate");
 const { EntraConfigError } = require("../helpers/entraConfig");
 const {
   resolveConnectionAuthConfig,
@@ -137,6 +138,8 @@ module.exports.generatePKCE = async (req, res, next) => {
       try {
         const selected = await resolveLoginTenant(req.query.tenant);
         entra = resolveConnectionAuthConfig(selected.connection);
+        // Multi-directory mode: the directory must be verified for this organisation and connection.
+        await assertConnectionDirectoryClaim({ tenantId: selected.tenantId, connection: selected.connection });
         loginContext = { tenantId: selected.tenantId, connectionId: selected.connectionId };
       } catch (e) {
         if (e instanceof LoginTenantError || isOrganisationConfigError(e)) {

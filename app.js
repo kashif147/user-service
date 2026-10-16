@@ -6,6 +6,9 @@ require("dotenv").config({
 // Entra (CRM) sign-in has no built-in fallbacks: report missing configuration at startup (names
 // only). Sign-in requests then fail closed; the rest of the service keeps running.
 require("./helpers/entraConfig").logMissingEntraConfig();
+// The DEV shared-directory override (ENTRA_ALLOW_SHARED_DIRECTORY / ENTRA_SHARED_DIRECTORY_ALLOWLIST)
+// configured outside DEPLOYMENT_ENV=dev, or a malformed allow-list, stops the service from starting.
+require("./helpers/directoryClaimPolicy").assertDirectoryClaimConfig();
 
 // Suppress Application Insights warnings if not configured
 // Azure App Service auto-injects Application Insights, but warnings appear if key is missing

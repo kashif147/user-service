@@ -88,6 +88,27 @@ async function startLogin(query) {
   return { url, state: url.searchParams.get("state"), nonce: url.searchParams.get("nonce") };
 }
 
+// Stage 5b: with the switch on, login start and callback also require a VERIFIED directory claim.
+// The flows below that go through them get one for FOREIGNORG / connB (synthetic, in memory, same
+// stub as tests/stage5b.directoryClaim.test.js); claim-less refusal is covered by the 5b suite.
+function stubVerifiedForeignClaim() {
+  const claim = {
+    _id: "claimB",
+    connectionType: ENTRA,
+    directoryId: OTHER_DIR,
+    tenantId: TENANT_B,
+    connectionId: "connB",
+    status: "verified",
+    method: "entra-admin-sign-in",
+    sharedDirectoryException: false,
+    verifiedAt: new Date().toISOString(),
+    verifiedBy: "admin-oid-test",
+  };
+  return jest.spyOn(require("../models/directoryClaim.model"), "findOne").mockImplementation((q) => ({
+    lean: async () => (Object.entries(q).every(([k, v]) => String(claim[k]) === String(v)) ? { ...claim } : null),
+  }));
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
   delete process.env[SWITCH];
@@ -177,6 +198,7 @@ describe("C: switch exactly 'true' -> selected connection's directory is authori
   });
 
   test("C4 organisation-code login for the foreign directory: authorize URL for that directory with the shared app", async () => {
+    stubVerifiedForeignClaim();
     await on(async () => {
       const s = await startLogin({ tenant: "FOREIGNORG" });
       expect(s.url.pathname).toBe(`/${OTHER_DIR}/oauth2/v2.0/authorize`);
@@ -320,6 +342,7 @@ describe("G: tenant isolation unchanged with the switch on", () => {
   });
 
   test("G2 the callback uses the state-bound tenant + connection; body/query hints are not read", async () => {
+    stubVerifiedForeignClaim();
     await on(async () => {
       const exchange = jest.spyOn(AzureADHandler, "exchangeCodeForTokens").mockResolvedValue({ id_token: "i", access_token: "a" });
       jest.spyOn(AzureADHandler, "decodeIdToken").mockResolvedValue({ userEmail: "e" });

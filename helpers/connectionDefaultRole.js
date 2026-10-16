@@ -157,12 +157,31 @@ const DEFAULT_ROLE_MESSAGES = {
 
 /**
  * Save-time rules for one connection (the merged, to-be-stored values) of organisation `tenantId`.
- * Throws ConnectionValidationError (-> 400).
+ * `connectionId` is the stored connection's id (absent for a new connection). Throws
+ * ConnectionValidationError (-> 400).
+ *
+ * Multi-directory mode (Stage 5b): an ACTIVE Entra connection needs a verified directory claim for
+ * this organisation, directory and connection. A new connection therefore starts inactive and is
+ * activated once its claim is verified; changing the directory of an active connection is refused
+ * unless the new directory is claimed for it. Nothing here creates or verifies a claim.
  */
-async function assertConnectionWritable(tenantId, connection) {
+async function assertConnectionWritable(tenantId, connection, { connectionId } = {}) {
   const { autoProvisionUsers, defaultRoleId, connectionType } = connection;
   if (connectionType === ENTRA && !DIRECTORY_GUID.test(String(connection.directoryId ?? "").trim())) {
     throw new ConnectionValidationError("Directory ID must be the Microsoft Entra tenant ID (a GUID)");
+  }
+  if (connectionType === ENTRA && connection.isActive === true) {
+    const { assertConnectionDirectoryClaim } = require("./directoryClaimGate");
+    try {
+      await assertConnectionDirectoryClaim({ tenantId, connection, connectionId });
+    } catch (e) {
+      if (e && e.code === "DIRECTORY_NOT_CLAIMED") {
+        throw new ConnectionValidationError(
+          "This Microsoft Entra directory is not verified for this organisation; save the connection inactive until it is"
+        );
+      }
+      throw e;
+    }
   }
   if (!isBlank(connection.issuerUrl) && !ISSUER_URL.test(connection.issuerUrl)) {
     throw new ConnectionValidationError("Issuer URL must be a valid Microsoft login URL");
@@ -293,7 +312,7 @@ async function prepareConnectionsForWrite(tenantId, incoming, stored = []) {
     }
     const merged = { ...pickConnectionFields(previous), ...fields };
     const changed = ADMIN_WRITABLE_CONNECTION_FIELDS.some((f) => !sameValue(merged[f], previous[f]));
-    if (changed) await assertConnectionWritable(tenantId, merged);
+    if (changed) await assertConnectionWritable(tenantId, merged, { connectionId: previous._id });
     result.push({
       ...merged,
       ...storedOnlyFields(previous),
