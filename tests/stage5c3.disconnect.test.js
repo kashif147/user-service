@@ -487,14 +487,18 @@ describe("after disconnect: claim gate, Test Connection, activation, status", ()
     ).resolves.toBeUndefined();
   });
 
-  test("activation guard does not affect never-disconnected connections (no claim read)", async () => {
+  test("activation guard does not affect never-disconnected connections", async () => {
+    // The guard reads this organisation's claim history for the directory (it must, because a
+    // disconnected connection may have been deleted and replaced); without revoked history the
+    // outcome is unchanged.
     const rules = load.rules();
-    const DirectoryClaim = load.model();
-    DirectoryClaim.find.mockClear();
     await expect(
       rules.assertConnectionWritable(TENANT_A, { ...rules.pickConnectionFields(connA()), autoProvisionUsers: false, defaultRoleId: undefined, isActive: true }, { connectionId: "connA", stored: connA() })
     ).resolves.toBeUndefined();
-    expect(DirectoryClaim.find).not.toHaveBeenCalled();
+    claims.length = 0;
+    await expect(
+      rules.assertConnectionWritable(TENANT_A, { connectionType: ENTRA, directoryId: DIR_A, isActive: true, autoProvisionUsers: false })
+    ).resolves.toBeUndefined();
   });
 
   test("disconnectedAt / disconnectedBy are server-managed: never taken from a request, kept on edits", async () => {
@@ -531,6 +535,79 @@ describe("after disconnect: claim gate, Test Connection, activation, status", ()
     expect(pick([r("a", "2026-10-16T13:00:00Z"), r("b", "2026-10-16T13:00:00Z")])._id).toBe("b");
     expect(pick([r("b", "2026-10-16T13:00:00Z"), r("a", "2026-10-16T13:00:00Z")])._id).toBe("b");
     expect(pick([])).toBeNull();
+  });
+});
+
+describe("activation guard: tenant + directory revoked history (delete / recreate bypass)", () => {
+  // A connection that is NOT the disconnected one: a new or replacement connection (no stored record).
+  const newActive = (dir, extra = {}) => ({ connectionType: ENTRA, directoryId: dir, isActive: true, autoProvisionUsers: false, ...extra });
+  const write = (tenantId, conn, opts) => load.rules().assertConnectionWritable(tenantId, conn, opts);
+
+  test("1 disconnect, then a NEW active connection for the same tenant + directory -> 409 CONNECTION_DISCONNECTED", async () => {
+    await disconnect();
+    const err = await rejectsCode(write(TENANT_A, newActive(DIR_A)), "CONNECTION_DISCONNECTED");
+    expect(err.status).toBe(409);
+    expect(err.message).toBe("Reconnect Microsoft Entra before activating this connection.");
+  });
+
+  test("2 the replacement may be created INACTIVE", async () => {
+    await disconnect();
+    await expect(write(TENANT_A, newActive(DIR_A, { isActive: false }))).resolves.toBeUndefined();
+  });
+
+  test("3 activating a replacement (stored, never disconnected itself) before Connect -> 409", async () => {
+    await disconnect();
+    const replacement = { _id: "connR", ...newActive(DIR_A, { isActive: false }) };
+    await rejectsCode(write(TENANT_A, { ...replacement, isActive: true }, { connectionId: "connR", stored: replacement }), "CONNECTION_DISCONNECTED");
+  });
+
+  test("5 after Connect the replacement has its own verified claim -> activation allowed", async () => {
+    await disconnect();
+    claims.push(adminClaim(TENANT_A, "connR", DIR_A));
+    const replacement = { _id: "connR", ...newActive(DIR_A, { isActive: false }) };
+    await expect(write(TENANT_A, { ...replacement, isActive: true }, { connectionId: "connR", stored: replacement })).resolves.toBeUndefined();
+  });
+
+  test("8 revoked history for directory A does not block directory B (switch-OFF semantics unchanged)", async () => {
+    await disconnect();
+    const DIR_C = "33333333-4444-5555-6666-777777777777";
+    await expect(write(TENANT_A, newActive(DIR_C))).resolves.toBeUndefined();
+  });
+
+  test("9 another organisation's revoked claim does not trigger this organisation's guard", async () => {
+    await load.handler().disconnectConnection({ tenantId: TENANT_B, connectionId: "connB", userId: "psUserB1" });
+    await expect(write(TENANT_A, newActive(DIR_B))).resolves.toBeUndefined();
+    await rejectsCode(write(TENANT_B, newActive(DIR_B)), "CONNECTION_DISCONNECTED");
+  });
+
+  test("10 spoofing does not bypass it: directory case / whitespace variants and extra body fields", async () => {
+    await disconnect();
+    await rejectsCode(write(TENANT_A, newActive(DIR_A.toUpperCase())), "CONNECTION_DISCONNECTED");
+    await rejectsCode(write(TENANT_A, newActive(` ${DIR_A} `)), "CONNECTION_DISCONNECTED");
+    const picked = load.rules().pickConnectionFields({ ...newActive(DIR_A), tenantId: TENANT_B, connectionId: "connB", disconnectedAt: null, verified: true });
+    await rejectsCode(write(TENANT_A, picked), "CONNECTION_DISCONNECTED");
+  });
+
+  test("11/12 the guard applies with ENTRA_CRM_MULTI_DIRECTORY OFF and ON", async () => {
+    await disconnect();
+    for (const multi of [undefined, "true"]) {
+      if (multi) process.env.ENTRA_CRM_MULTI_DIRECTORY = multi;
+      else delete process.env.ENTRA_CRM_MULTI_DIRECTORY;
+      await rejectsCode(write(TENANT_A, newActive(DIR_A)), "CONNECTION_DISCONNECTED");
+    }
+    delete process.env.ENTRA_CRM_MULTI_DIRECTORY;
+  });
+
+  test("no revoked history: creating an active connection keeps the existing switch-OFF behaviour", async () => {
+    await expect(write(TENANT_A, newActive("44444444-5555-6666-7777-888888888888"))).resolves.toBeUndefined();
+  });
+
+  test("6 the revoked claim is never modified by the guard", async () => {
+    await disconnect();
+    const revoked = clone(claims.find((c) => c.status === "revoked"));
+    await write(TENANT_A, newActive(DIR_A)).catch(() => {});
+    await write(TENANT_A, newActive(DIR_A, { isActive: false }));
+    expect(claims.find((c) => c.status === "revoked")).toEqual(revoked);
   });
 });
 

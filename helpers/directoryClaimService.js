@@ -150,6 +150,21 @@ async function isConnectionDisconnected({ tenantId, connectionId, directoryId })
 }
 
 /**
+ * Activation guard (Stage 5c-3), keyed on the DURABLE claim history - not on the connection record,
+ * which may have been deleted and replaced: true when this organisation has a revoked claim for this
+ * directory and the connection being activated has no verified claim of its own for it. Another
+ * organisation's history never counts. Read only.
+ */
+async function isActivationBlockedByDisconnect({ tenantId, connectionId, directoryId }) {
+  const dir = normalizeDirectoryId(directoryId);
+  if (!dir || !tenantId) return false;
+  const claims = await model().find({ connectionType: ENTRA, tenantId: String(tenantId), directoryId: dir }).lean();
+  if (!claims.some((c) => c.status === "revoked")) return false;
+  const hasConnection = connectionId !== undefined && connectionId !== null && connectionId !== "";
+  return !(hasConnection && claims.some((c) => c.status === "verified" && String(c.connectionId) === String(connectionId)));
+}
+
+/**
  * Disconnect precondition (read only): the connection's verified claim for its directory, which
  * must be an entra-admin-sign-in claim. NOT_CONNECTED / DIRECTORY_SHARED_EXCEPTION /
  * CLAIM_METHOD_CONFLICT otherwise.
@@ -205,6 +220,7 @@ module.exports = {
   findConnectionClaim,
   findValidConnectionClaim,
   isConnectionDisconnected,
+  isActivationBlockedByDisconnect,
   assertDisconnectable,
   revokeConnectionClaim,
   pickConnectionClaim,

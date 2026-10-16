@@ -58,8 +58,8 @@ run("Stage 5c-3 Disconnect against a MongoDB replica set", () => {
       ...extra,
     });
     await Tenant.collection.insertMany([
-      { _id: tA, name: "Org A", code: "ORGA", domain: "orga.example", isActive: true, authenticationConnections: [conn(cA, DIR), { _id: b2c, connectionType: "Azure B2C", directoryId: "x", isActive: true }] },
-      { _id: tB, name: "Org B", code: "ORGB", domain: "orgb.example", isActive: true, authenticationConnections: [conn(cB, DIR2)] },
+      { _id: tA, name: "Org A", code: "ORGA", description: "Org A", domain: "orga.example", isActive: true, authenticationConnections: [conn(cA, DIR), { _id: b2c, connectionType: "Azure B2C", directoryId: "x", isActive: true }] },
+      { _id: tB, name: "Org B", code: "ORGB", description: "Org B", domain: "orgb.example", isActive: true, authenticationConnections: [conn(cB, DIR2)] },
     ]);
     await service.recordVerifiedConnectClaim({ tenantId: String(tA), connectionId: String(cA), directoryId: DIR, userId: "u0", evidence: { directoryUserId: OID, roleTemplateId: GLOBAL_ADMIN } });
     await service.recordVerifiedConnectClaim({ tenantId: String(tB), connectionId: String(cB), directoryId: DIR2, userId: "u0", evidence: { directoryUserId: OID, roleTemplateId: GLOBAL_ADMIN } });
@@ -209,6 +209,101 @@ run("Stage 5c-3 Disconnect against a MongoDB replica set", () => {
       await code(resolveTenantScopedUser({ tenantId: String(tA), connectionId: String(cA), connectionType: ENTRA, directoryId: DIR, email: "a@example.org", microsoftId: OID, UserModel }))
     ).toBe("CONNECTION_INVALID");
     expect(await code(resolveApplicationTenant({ connectionType: ENTRA, directoryId: DIR, email: "a@example.org", microsoftId: OID, UserModel, allowProvisioning: false }))).not.toBe("OK");
+  });
+
+  describe("delete / recreate bypass is closed (real connection write paths)", () => {
+    const TH = () => require("../handlers/tenant.handler");
+    const entra = (extra = {}) => ({ connectionType: ENTRA, directoryId: DIR, isActive: true, autoProvisionUsers: false, ...extra });
+    const revokedClaim = () => DirectoryClaim.collection.findOne({ connectionId: String(cA), status: "revoked" });
+
+    test("1 disconnect -> POST a new ACTIVE connection for the same directory -> 409 CONNECTION_DISCONNECTED (nothing written)", async () => {
+      await disconnect();
+      const before = await raw();
+      expect(await code(TH().addAuthenticationConnection(String(tA), entra(), "admin1"))).toBe("CONNECTION_DISCONNECTED");
+      expect(await raw()).toEqual(before);
+    });
+
+    test("1b disconnect -> soft DELETE -> POST new ACTIVE same directory -> 409; the revoked claim survives the delete", async () => {
+      await disconnect();
+      const revoked = await revokedClaim();
+      await TH().removeAuthenticationConnection(String(tA), String(cA), "admin1");
+      expect(await revokedClaim()).toEqual(revoked);
+      expect(await code(TH().addAuthenticationConnection(String(tA), entra(), "admin1"))).toBe("CONNECTION_DISCONNECTED");
+    });
+
+    test("1c disconnect -> full-array PUT that drops the old connection and adds a new ACTIVE one -> 409, tenant unchanged", async () => {
+      await disconnect();
+      const before = await raw();
+      const b2cConn = before.tenants[0].authenticationConnections[1];
+      expect(await code(TH().updateTenant(String(tA), { authenticationConnections: [{ ...b2cConn, _id: String(b2cConn._id) }, entra()] }, "admin1"))).toBe("CONNECTION_DISCONNECTED");
+      expect(await raw()).toEqual(before);
+    });
+
+    test("2-11 full replacement lifecycle: delete + inactive replacement -> 409 on activation -> Connect -> new claim -> activation allowed", async () => {
+      const { makeTestKeypairAndJwks, signTestJwt } = require("./helpers/testJwt");
+      const { _setJwksForTests } = require("../helpers/entraConnect");
+      const { resolveEntraConnectConfig } = require("../helpers/connectionAuthConfig");
+      const AzureADHandler = require("../handlers/azure.ad.handler");
+      const kp = await makeTestKeypairAndJwks();
+      _setJwksForTests(kp.jwks, resolveEntraConnectConfig().jwksUri);
+      try {
+        // 1-3 original verified, disconnect, claim revoked
+        await disconnect();
+        const revoked = await revokedClaim();
+        expect(revoked).toBeTruthy();
+        // 4-5 physically remove the old connection and add an INACTIVE replacement (full-array PUT)
+        const t0 = await Tenant.collection.findOne({ _id: tA });
+        const b2cConn = t0.authenticationConnections[1];
+        await TH().updateTenant(String(tA), { authenticationConnections: [{ ...b2cConn, _id: String(b2cConn._id) }, entra({ isActive: false })] }, "admin1");
+        const t1 = await Tenant.collection.findOne({ _id: tA });
+        expect(t1.authenticationConnections.some((c) => String(c._id) === String(cA))).toBe(false); // old connection gone
+        const replacement = t1.authenticationConnections.find((c) => c.connectionType === ENTRA);
+        expect(replacement).toMatchObject({ directoryId: DIR, isActive: false });
+        const rId = String(replacement._id);
+        expect(await revokedClaim()).toEqual(revoked); // 7 deletion preserves the revoked history
+        // 6 activation before Connect -> 409
+        expect(await code(TH().updateAuthenticationConnection(String(tA), rId, { isActive: true }, "admin1"))).toBe("CONNECTION_DISCONNECTED");
+        // 7-8 normal Connect on the replacement (Microsoft verification simulated with a signed ID token)
+        const { authorizationUrl } = await H.startConnect({ tenantId: String(tA), connectionId: rId, userId: "admin1" });
+        const u = new URL(authorizationUrl);
+        jest.spyOn(AzureADHandler, "exchangeCodeForTokens").mockImplementation(async () => ({
+          id_token: await signTestJwt(kp.privateKey, {
+            iss: `https://login.microsoftonline.com/${DIR}/v2.0`,
+            aud: process.env.AZURE_AD_CLIENT_ID,
+            tid: DIR,
+            oid: OID,
+            nonce: u.searchParams.get("nonce"),
+            wids: [GLOBAL_ADMIN],
+          }),
+        }));
+        await H.completeConnect({ tenantId: String(tA), connectionId: rId, userId: "admin1", code: "c", state: u.searchParams.get("state") });
+        // 9 a NEW verified claim for the replacement connection; 10 the old revoked claim is byte-identical
+        const fresh = await DirectoryClaim.collection.findOne({ connectionId: rId, status: "verified" });
+        expect(fresh).toBeTruthy();
+        expect(String(fresh._id)).not.toBe(String(revoked._id));
+        expect(fresh).toMatchObject({ tenantId: String(tA), directoryId: DIR, method: "entra-admin-sign-in" });
+        expect(await revokedClaim()).toEqual(revoked);
+        // 11 activation now succeeds
+        await TH().updateAuthenticationConnection(String(tA), rId, { isActive: true }, "admin1");
+        const t2 = await Tenant.collection.findOne({ _id: tA });
+        expect(t2.authenticationConnections.find((c) => String(c._id) === rId)).toMatchObject({ isActive: true });
+        expect(await revokedClaim()).toEqual(revoked);
+      } finally {
+        _setJwksForTests(null);
+      }
+    });
+
+    test("8/9 other directory / other organisation's history do not trigger the guard (real data)", async () => {
+      await disconnect(); // tenant A, DIR revoked
+      await H.disconnectConnection({ tenantId: String(tB), connectionId: String(cB), userId: "b1" }); // tenant B, DIR2 revoked
+      const DIR3 = "33333333-4444-5555-6666-777777777777";
+      // tenant A: a different directory is unaffected
+      await TH().addAuthenticationConnection(String(tA), entra({ directoryId: DIR3 }), "admin1");
+      // tenant A: tenant B's revoked DIR2 history is not tenant A's (active Entra slot now taken, so add inactive and check the guard directly)
+      const rules = require("../helpers/connectionDefaultRole");
+      await expect(rules.assertConnectionWritable(String(tA), entra({ directoryId: DIR2 }))).resolves.toBeUndefined();
+      expect(await code(rules.assertConnectionWritable(String(tB), entra({ directoryId: DIR2 })))).toBe("CONNECTION_DISCONNECTED");
+    });
   });
 
   test("dev-exception and platform claims are refused and untouched", async () => {

@@ -64,6 +64,9 @@ const H = require("../helpers/connectionDefaultRole");
 
 let warns;
 beforeEach(() => {
+  // Stage 5c-3: the activation guard reads this organisation's revoked DirectoryClaim history for
+  // the directory (isActivationBlockedByDisconnect); none exists in this suite.
+  jest.spyOn(require("../models/directoryClaim.model"), "find").mockImplementation(() => ({ lean: async () => [] }));
   mockRoles.length = 0;
   mockRoles.push(
     mockRole(1, { code: "REO", name: "Read Only" }), // eligible CRM

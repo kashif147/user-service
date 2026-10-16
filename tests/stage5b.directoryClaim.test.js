@@ -70,6 +70,10 @@ const verified = (extra = {}) => ({
   ...extra,
 });
 function stubClaimStore() {
+  // Stage 5c-3: the activation guard's revoked-history lookup (find by organisation + directory).
+  jest.spyOn(load.model(), "find").mockImplementation((q) => ({
+    lean: async () => JSON.parse(JSON.stringify(claims.filter((c) => Object.entries(q).every(([k, v]) => String(c[k]) === String(v))))),
+  }));
   return jest.spyOn(load.model(), "findOne").mockImplementation((q) => ({
     lean: async () => {
       const hit = claims.find((c) => Object.entries(q).every(([k, v]) => String(c[k]) === String(v)));
@@ -539,7 +543,14 @@ describe("K: switch off - Stage 5a behaviour, claims never required or read", ()
     const find = stubClaimStore();
     const { assertConnectionWritable } = require("../helpers/connectionDefaultRole");
     await expect(assertConnectionWritable(TENANT_A, entraConn("connA"), { connectionId: "connA" })).resolves.toBeUndefined();
+    // No DirectoryClaim is required and the claim gate's findOne is not invoked with the switch off.
     expect(find).not.toHaveBeenCalled();
+    // Stage 5c-3: the only permitted claim read is the organisation + directory revoked-history
+    // lookup used to enforce a prior Disconnect (without revoked history the outcome is unchanged).
+    // Switch-off sign-in still reads no DirectoryClaim at all - covered by K1.
+    const history = load.model().find;
+    expect(history).toHaveBeenCalledTimes(1);
+    expect(history.mock.calls[0][0]).toEqual({ connectionType: ENTRA, tenantId: TENANT_A, directoryId: HOME_DIR });
   });
 });
 

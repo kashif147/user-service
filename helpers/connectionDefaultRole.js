@@ -186,20 +186,21 @@ const DEFAULT_ROLE_MESSAGES = {
  * activated once its claim is verified; changing the directory of an active connection is refused
  * unless the new directory is claimed for it. Nothing here creates or verifies a claim.
  *
- * Disconnect (Stage 5c-3), independent of the multi-directory switch: an Entra connection that was
- * disconnected (no active claim, a revoked claim for its directory) cannot be saved active until it
- * is reconnected - ConnectionDisconnectedError (-> 409). Never-disconnected connections are unaffected.
+ * Disconnect (Stage 5c-3), independent of the multi-directory switch: once an organisation has
+ * disconnected a directory (a revoked claim for that organisation + directory - durable even when the
+ * connection record is deleted), no Entra connection of that organisation - the original, an edited
+ * one or a new / replacement one - can be saved active for that directory until it has its own
+ * verified claim (Connect) - ConnectionDisconnectedError (-> 409). Organisations / directories
+ * without revoked history keep the existing behaviour.
  */
 async function assertConnectionWritable(tenantId, connection, { connectionId, stored } = {}) {
   const { autoProvisionUsers, defaultRoleId, connectionType } = connection;
   if (connectionType === ENTRA && !DIRECTORY_GUID.test(String(connection.directoryId ?? "").trim())) {
     throw new ConnectionValidationError("Directory ID must be the Microsoft Entra tenant ID (a GUID)");
   }
-  // Only a stored connection that was ever disconnected (disconnectedAt is set by Disconnect and kept)
-  // is checked, so other connections behave - and read - exactly as before.
-  if (connectionType === ENTRA && connection.isActive === true && tenantId && connectionId != null && stored?.disconnectedAt) {
-    const { isConnectionDisconnected } = require("./directoryClaimService");
-    if (await isConnectionDisconnected({ tenantId, connectionId, directoryId: connection.directoryId })) {
+  if (connectionType === ENTRA && connection.isActive === true && tenantId) {
+    const { isActivationBlockedByDisconnect } = require("./directoryClaimService");
+    if (await isActivationBlockedByDisconnect({ tenantId, connectionId: connectionId ?? stored?._id, directoryId: connection.directoryId })) {
       throw new ConnectionDisconnectedError();
     }
   }
