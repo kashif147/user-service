@@ -72,10 +72,16 @@ config)`) and ID token verification (`verifyIdToken(token, nonce, config)`: issu
 (directory). The CRM callback ignores any `redirectUri` in the body and the Origin/Referer header -
 the redirect URI is always the app registration's.
 
-- **Compatibility mode:** an Entra connection is usable only when its `directoryId` equals the CRM
-  app's home directory (`AZURE_AD_TENANT_ID`); otherwise `DIRECTORY_NOT_ENABLED` - generic 400 at
-  `/pkce/generate`, 403 at the callback, before any token request. Multi-directory sign-in removes
-  this assertion (plus a multi-tenant app registration, cross-organisation directory uniqueness).
+- **Compatibility mode (default):** an Entra connection is usable only when its `directoryId` equals
+  the CRM app's home directory (`AZURE_AD_TENANT_ID`); otherwise `DIRECTORY_NOT_ENABLED` - generic 400
+  at `/pkce/generate`, 403 at the callback, before any token request.
+- **Multi-directory switch (Stage 5a):** `ENTRA_CRM_MULTI_DIRECTORY` exactly `true` lifts only that
+  assertion, only for a selected organisation connection (the no-code path stays home-directory).
+  Same shared app (client id, credential, scopes, redirect URI); the connection's directory is
+  authoritative and `tid` must equal it. Not to be enabled anywhere before directory claims
+  (Stage 5b: cross-organisation uniqueness, verified ownership) and a multi-tenant app registration.
+- **Always refused:** non-GUID directories (`common` / `organizations` / `consumers`) and the
+  Microsoft personal-account directory `9188040d-6c67-4c5b-b112-36a304b66dad` (`INVALID_DIRECTORY`).
 - **Without a connection** (CRM login without an organisation code, and logout) the home directory is
   used. That path is existing-users-only and cannot support several directories: it is to be retired
   or redesigned with multi-directory sign-in.

@@ -13,7 +13,8 @@
  * A connection's stored `appRef` (Phase 3B) is inert legacy data and is never read here.
  *
  * Loaded application: { application, provider, label, clientId, redirectUris: {default},
- * redirectUri (= redirectUris.default), scopes, multiDirectory, ...provider settings } plus a
+ * redirectUri (= redirectUris.default), scopes, multiDirectory (entraCrm: the
+ * ENTRA_CRM_MULTI_DIRECTORY switch), ...provider settings } plus a
  * non-enumerable clientSecret. `secretRef` (WHERE the secret comes from) stays in this module.
  * Environment variables back the values today; certificate credentials from Key Vault are the
  * production target.
@@ -57,10 +58,15 @@ const B2C_ENV = {
 
 const ENTRA_CRM = {
   label: "ProjectShell CRM (Microsoft Entra ID)",
-  // false: the registration signs in to its home directory only (Phase 3A compatibility assertion).
-  multiDirectory: false,
   secretRef: { source: "env", name: "AZURE_AD_CLIENT_SECRET" },
 };
+
+// Stage 5a switch, per environment. Only the exact value "true" lets a selected organisation
+// connection name a directory other than the app's home directory; unset, "false" or anything
+// else keeps the single-directory compatibility assertion. The application itself never changes:
+// every organisation uses the same client id, credential, scopes and redirect URI.
+const MULTI_DIRECTORY_ENV = "ENTRA_CRM_MULTI_DIRECTORY";
+const entraCrmMultiDirectory = () => process.env[MULTI_DIRECTORY_ENV] === "true";
 
 const LEGACY_SHARED_B2C = {
   label: "ProjectShell member portal (shared Azure B2C, legacy)",
@@ -83,7 +89,7 @@ function getEntraCrmApp() {
       redirectUris: Object.freeze({ default: c.redirectUri }),
       redirectUri: c.redirectUri,
       scopes: "openid profile email offline_access",
-      multiDirectory: ENTRA_CRM.multiDirectory,
+      multiDirectory: entraCrmMultiDirectory(),
       compatibilityDirectoryId: c.tenantId,
     },
     c.clientSecret

@@ -14,17 +14,22 @@
  * - issuer, JWKS URI and endpoints are DERIVED from the directory.
  * - The client secret is non-enumerable on the result (it never serialises or logs).
  *
- * Entra (CRM), Phase 3A compatibility mode (kept): the CRM app registration is single-directory, so a
- * connection is usable only when its directoryId equals that app's home directory
- * (AZURE_AD_TENANT_ID). Any other directory fails closed (DIRECTORY_NOT_ENABLED) before an
- * authorize URL, token request or user lookup. Multi-directory sign-in lifts this assertion; the
- * flows already take the directory from the connection.
+ * Entra (CRM) directories:
+ *  - Single-directory compatibility mode (default): a connection is usable only when its
+ *    directoryId equals the CRM app's home directory (AZURE_AD_TENANT_ID). Any other directory
+ *    fails closed (DIRECTORY_NOT_ENABLED) before an authorize URL, token request or user lookup.
+ *  - Multi-directory mode (Stage 5a, ENTRA_CRM_MULTI_DIRECTORY exactly "true"): only that
+ *    assertion is lifted, and only for a SELECTED organisation connection - its directory becomes
+ *    authoritative. Every other check stays, the token's tid must still equal it, and the
+ *    application is still the one shared CRM app.
+ *  - Always refused: anything that is not a directory GUID (common / organizations / consumers)
+ *    and the Microsoft personal-account (consumer) directory.
  *
  * Without a connection (`connection` null) only the legacy entry points remain:
  *  - Entra: the CRM sign-in without an organisation code (and logout). The server cannot know which
- *    customer directory to use, so it uses the app's home directory; that path is existing-users
- *    only and cannot support several directories - it is to be retired or redesigned with
- *    multi-directory sign-in.
+ *    customer directory to use, so it uses the app's home directory - also in multi-directory
+ *    mode, where it never becomes a generic entry point; that path is existing-users only and is
+ *    to be retired or redesigned.
  *  - Azure B2C: the shared ProjectShell B2C directory and app (legacy compatibility, not the target).
  *    The portal does not select an organisation before sign-in, so no connection is involved;
  *    `providerContext.policy` picks the user flow. Per-organisation member identity (B2C or
@@ -41,6 +46,9 @@ const {
 
 const ENTRA_AUTHORITY_HOST = "login.microsoftonline.com";
 const DIRECTORY_GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// Microsoft personal accounts (MSA) sign in through this fixed directory; it is never an
+// organisation's directory.
+const CONSUMER_DIRECTORY_ID = "9188040d-6c67-4c5b-b112-36a304b66dad";
 const B2C_TENANT_NAME = /^[a-z0-9-]{1,64}$/;
 const B2C_POLICY = /^[a-zA-Z0-9._-]{1,128}$/;
 
@@ -66,8 +74,13 @@ function resolveEntra(connection) {
   if (typeof directoryId !== "string" || !DIRECTORY_GUID.test(directoryId)) {
     throw new AuthConfigError("INVALID_DIRECTORY", "Authentication connection has no valid directory");
   }
-  // Phase 3A compatibility assertion (see header).
-  if (directoryId !== app.compatibilityDirectoryId) {
+  if (directoryId.toLowerCase() === CONSUMER_DIRECTORY_ID) {
+    throw new AuthConfigError("INVALID_DIRECTORY", "Personal Microsoft account directory is not supported");
+  }
+  // Home-directory compatibility assertion (see header): lifted only for a selected organisation
+  // connection in multi-directory mode, never for the no-code path.
+  const directoryAuthoritative = mode === "connection" && app.multiDirectory === true;
+  if (!directoryAuthoritative && directoryId !== app.compatibilityDirectoryId) {
     throw new AuthConfigError("DIRECTORY_NOT_ENABLED", "Authentication connection directory is not enabled");
   }
   const base = `https://${ENTRA_AUTHORITY_HOST}/${directoryId}`;
