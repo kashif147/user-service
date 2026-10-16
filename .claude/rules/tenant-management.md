@@ -99,7 +99,9 @@ the redirect URI is always the app registration's.
   single-use server-side `entra-connect` state (`helpers/pkceStateStore.js`: separate from sign-in
   states; bound to tenant, connection, directory snapshot, initiating user, nonce, verifier),
   verifies the ID token (`helpers/entraConnect.js`: signature, audience, issuer of the token's own
-  tid, nonce, exp/nbf, iat <= 10 min, tid not the consumer directory, oid GUID), requires
+  tid, nonce, exp/nbf, iat within Microsoft back-dating of up to 10 min before state creation and
+  <= now + 5 min - the flow binding is the state-specific nonce + single-use state, and the skew
+  never extends the state's 10-minute lifetime, tid not the consumer directory, oid GUID), requires
   `tid == connection.directoryId` (`DIRECTORY_MISMATCH`, never overwritten) and a signed `wids`
   administrator role (Global / Privileged Role / Cloud Application / Application Administrator,
   else `NOT_DIRECTORY_ADMIN`), records a verified `entra-admin-sign-in` claim with

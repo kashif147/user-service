@@ -116,7 +116,7 @@ async function completeConnect({ tenantId, connectionId, userId, code, state }) 
   } catch {
     throw new EntraConnectError("TOKEN_EXCHANGE_FAILED");
   }
-  const verified = await verifyConnectIdToken(idToken, tx.nonce, config);
+  const verified = await verifyConnectIdToken(idToken, tx.nonce, config, { stateCreatedAt: tx.createdAt });
   idToken = null;
   if (verified.directoryId !== loaded.directoryId) throw new EntraConnectError("DIRECTORY_MISMATCH");
 

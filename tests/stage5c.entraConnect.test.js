@@ -160,6 +160,15 @@ async function staleIdToken(dir, nonce, ageSeconds) {
     .setExpirationTime(iat + 3600)
     .sign(kp.privateKey);
 }
+// ID token with an absolute iat (seconds since epoch) and exp = iat + 1h.
+async function idTokenAt(dir, nonce, iatSeconds) {
+  const { SignJWT } = require("jose");
+  return new SignJWT({ iss: `https://login.microsoftonline.com/${dir}/v2.0`, aud: CLIENT_ID, tid: dir, oid: ADMIN_OID, nonce, wids: [GLOBAL_ADMIN] })
+    .setProtectedHeader({ alg: "RS256", kid: "test-key-1" })
+    .setIssuedAt(iatSeconds)
+    .setExpirationTime(iatSeconds + 3600)
+    .sign(kp.privateKey);
+}
 const nonceOf = (authorizationUrl) => new URL(authorizationUrl).searchParams.get("nonce");
 const stateOf = (authorizationUrl) => new URL(authorizationUrl).searchParams.get("state");
 const start = (over = {}) => load.handler().startConnect({ tenantId: TENANT_A, connectionId: "connA", userId: ADMIN_USER, ...over });
@@ -409,6 +418,93 @@ describe("complete: state, token and administrator", () => {
     jest.spyOn(AzureADHandler, "exchangeCodeForTokens").mockRejectedValue(Object.assign(new Error("AADSTS70008: secret details"), { azureError: { error: "invalid_grant" } }));
     const err = await rejectsCode(complete({ state: stateOf(authorizationUrl) }), "TOKEN_EXCHANGE_FAILED");
     expect(err.message).not.toMatch(/AADSTS|secret/);
+  });
+});
+
+describe("token issue time is bound to the Connect state (clock-skew allowance, not session time)", () => {
+  const nowS = () => Math.floor(Date.now() / 1000);
+  const SKEW = () => require("../helpers/entraConnect").CONNECT_TOKEN_CLOCK_SKEW_SECONDS;
+  const FUTURE = () => require("../helpers/entraConnect").CONNECT_TOKEN_FUTURE_SKEW_SECONDS;
+  async function flowWithIat(iatFor, { advanceMs = 0 } = {}) {
+    const startedAt = Date.now();
+    const { authorizationUrl } = await start();
+    const nonce = nonceOf(authorizationUrl);
+    const createdS = Math.floor(startedAt / 1000);
+    msReturns(() => idTokenAt(DIR_A, nonce, iatFor(createdS)));
+    if (advanceMs) {
+      jest.useFakeTimers({ doNotFake: ["setInterval", "setTimeout", "setImmediate", "nextTick", "queueMicrotask", "clearInterval", "clearTimeout"] });
+      jest.setSystemTime(startedAt + advanceMs);
+    }
+    try {
+      return await complete({ state: stateOf(authorizationUrl) }).then((v) => ({ ok: v }), (e) => ({ err: e }));
+    } finally {
+      jest.useRealTimers();
+    }
+  }
+
+  test("named constants: 10-minute clock-skew allowance, 5-minute future skew", () => {
+    expect(SKEW()).toBe(600);
+    expect(FUTURE()).toBe(300);
+  });
+
+  test("A iat ~5 minutes before state creation (Microsoft back-dating) -> accepted", async () => {
+    const r = await flowWithIat((c) => c - 300);
+    expect(r.ok).toMatchObject({ status: "connected" });
+  });
+
+  test("B iat just inside the allowed skew before state creation -> accepted", async () => {
+    const r = await flowWithIat((c) => c - SKEW() + 5);
+    expect(r.ok).toMatchObject({ status: "connected" });
+  });
+
+  test("B2 9 minutes into the flow with a back-dated token -> accepted (the old now - iat <= 10 min rule would refuse)", async () => {
+    const r = await flowWithIat((c) => c - 300, { advanceMs: 9 * 60 * 1000 });
+    expect(r.ok).toMatchObject({ status: "connected" });
+  });
+
+  test("C iat older than state.createdAt minus the allowed skew -> TOKEN_INVALID, nothing written", async () => {
+    const r = await flowWithIat((c) => c - SKEW() - 60);
+    expect(r.err).toMatchObject({ code: "TOKEN_INVALID" });
+    expect(claims).toHaveLength(0);
+    expect(Tenant.updateOne).not.toHaveBeenCalled();
+  });
+
+  test("D the state's 10-minute expiry still ends the flow, whatever the token time", async () => {
+    const r = await flowWithIat((c) => c, { advanceMs: 10 * 60 * 1000 + 1000 });
+    expect(r.err).toMatchObject({ code: "CONNECT_STATE_INVALID" });
+    expect(AzureADHandler.exchangeCodeForTokens).not.toHaveBeenCalled();
+  });
+
+  test("E a replayed state is refused even with a fresh token", async () => {
+    const { authorizationUrl } = await start();
+    const state = stateOf(authorizationUrl);
+    msReturns(() => idTokenAt(DIR_A, nonceOf(authorizationUrl), nowS()));
+    await complete({ state });
+    await rejectsCode(complete({ state }), "CONNECT_STATE_INVALID");
+  });
+
+  test("F iat in the future beyond the allowed skew -> TOKEN_INVALID; within it -> accepted", async () => {
+    expect((await flowWithIat(() => nowS() + FUTURE() + 120)).err).toMatchObject({ code: "TOKEN_INVALID" });
+    expect((await flowWithIat(() => nowS() + 60)).ok).toMatchObject({ status: "connected" });
+  });
+
+  test("G nonce mismatch is still refused with a well-timed token", async () => {
+    const { authorizationUrl } = await start();
+    msReturns(() => idTokenAt(DIR_A, "another-nonce", nowS()));
+    await rejectsCode(complete({ state: stateOf(authorizationUrl) }), "TOKEN_INVALID");
+  });
+
+  test("H a normal current token -> accepted", async () => {
+    const r = await flowWithIat(() => nowS());
+    expect(r.ok).toMatchObject({ status: "connected" });
+  });
+
+  test("verification without the state's createdAt fails closed", async () => {
+    const { verifyConnectIdToken } = require("../helpers/entraConnect");
+    const config = load.resolver().resolveEntraConnectConfig();
+    const token = await idTokenAt(DIR_A, "n", nowS());
+    await expect(verifyConnectIdToken(token, "n", config)).rejects.toMatchObject({ code: "TOKEN_INVALID" });
+    await expect(verifyConnectIdToken(token, "n", config, { stateCreatedAt: Date.now() })).resolves.toMatchObject({ directoryId: DIR_A });
   });
 });
 

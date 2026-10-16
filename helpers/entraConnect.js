@@ -6,7 +6,7 @@
  *  - Authorization code + PKCE (S256); scopes openid profile email (no refresh token).
  *  - Verified: RS256 signature against the `organizations` keys, audience = the shared CRM client
  *    id, issuer = https://login.microsoftonline.com/{tid}/v2.0 for the token's own tid, nonce,
- *    exp / nbf, iat no older than 10 minutes, tid a directory GUID (never the personal-account
+ *    exp / nbf, iat within the back-dating allowance below, tid a directory GUID (never the personal-account
  *    directory), oid a GUID.
  *  - Administrator: only the signed `wids` claim counts (active directory-role assignments; a
  *    PIM-eligible role that is not activated is not in it). A successful sign-in or consent alone
@@ -18,7 +18,15 @@ const { jwtVerify, createRemoteJWKSet } = require("jose");
 // Priority order (helpers/directoryClaimPolicy.js): the first match is recorded as the evidence role.
 const { normalizeDirectoryId, DIRECTORY_GUID, ADMIN_ROLE_TEMPLATE_IDS } = require("./directoryClaimPolicy");
 
-const MAX_TOKEN_AGE_SECONDS = 10 * 60;
+// Token issue time (iat): allow Microsoft token issue-time backdating of up to 10 minutes relative to
+// Connect state creation. The token remains bound to this Connect flow through the state-specific
+// nonce (verified in the signed ID token) and the server-side, single-use state; this skew
+// allowance does not extend the Connect state's lifetime, which stays the state's 10-minute expiry
+// (helpers/pkceStateStore.js, checked before the code exchange).
+//   iat >= state.createdAt - CONNECT_TOKEN_CLOCK_SKEW_SECONDS   (Microsoft back-dating allowance)
+//   iat <= now + CONNECT_TOKEN_FUTURE_SKEW_SECONDS              (future clock-skew allowance)
+const CONNECT_TOKEN_CLOCK_SKEW_SECONDS = 10 * 60;
+const CONNECT_TOKEN_FUTURE_SKEW_SECONDS = 5 * 60;
 
 class EntraConnectError extends Error {
   constructor(code, message) {
@@ -81,10 +89,11 @@ function matchAdminRole(wids) {
 /**
  * Verifies a Connect ID token and returns only what Connect needs.
  * @returns {Promise<{directoryId: string, directoryUserId: string, roleTemplateId: string}>}
+ * @param {{stateCreatedAt: number}} flow  the Connect state's createdAt (ms epoch); required
  * @throws {EntraConnectError} TOKEN_INVALID | INVALID_DIRECTORY | NOT_DIRECTORY_ADMIN
  */
-async function verifyConnectIdToken(idToken, expectedNonce, config) {
-  if (typeof idToken !== "string" || !expectedNonce || !config?.jwksUri) {
+async function verifyConnectIdToken(idToken, expectedNonce, config, { stateCreatedAt } = {}) {
+  if (typeof idToken !== "string" || !expectedNonce || !config?.jwksUri || !Number.isFinite(stateCreatedAt)) {
     throw new EntraConnectError("TOKEN_INVALID", "Microsoft sign-in could not be verified");
   }
   let payload;
@@ -105,7 +114,9 @@ async function verifyConnectIdToken(idToken, expectedNonce, config) {
     payload.iss === config.issuerTemplate.replace("{tid}", directoryId),
     payload.nonce === expectedNonce,
     typeof payload.oid === "string" && DIRECTORY_GUID.test(payload.oid),
-    Math.floor(Date.now() / 1000) - Number(payload.iat) <= MAX_TOKEN_AGE_SECONDS,
+    Number.isFinite(Number(payload.iat)),
+    Number(payload.iat) >= Math.floor(stateCreatedAt / 1000) - CONNECT_TOKEN_CLOCK_SKEW_SECONDS,
+    Number(payload.iat) <= Math.floor(Date.now() / 1000) + CONNECT_TOKEN_FUTURE_SKEW_SECONDS,
   ];
   if (checks.includes(false)) {
     throw new EntraConnectError("TOKEN_INVALID", "Microsoft sign-in could not be verified");
@@ -119,6 +130,8 @@ async function verifyConnectIdToken(idToken, expectedNonce, config) {
 
 module.exports = {
   ADMIN_ROLE_TEMPLATE_IDS,
+  CONNECT_TOKEN_CLOCK_SKEW_SECONDS,
+  CONNECT_TOKEN_FUTURE_SKEW_SECONDS,
   EntraConnectError,
   newConnectSecrets,
   buildConnectAuthorizeUrl,
