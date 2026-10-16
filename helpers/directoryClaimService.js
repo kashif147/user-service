@@ -112,4 +112,24 @@ async function findConnectionClaim(connectionId) {
   return model().findOne({ connectionType: ENTRA, connectionId: String(connectionId) }).lean();
 }
 
-module.exports = { assertDirectoryConnectable, recordVerifiedConnectClaim, deriveConnectionStatus, findConnectionClaim };
+/**
+ * The connection's verified claim when it matches the organisation, the connection and the
+ * directory and is still valid under the current policy (a DEV exception only while every DEV
+ * condition holds); otherwise null. Read only.
+ */
+async function findValidConnectionClaim({ tenantId, connectionId, directoryId }) {
+  const dir = normalizeDirectoryId(directoryId);
+  if (!dir || !tenantId || !connectionId) return null;
+  const claim = await model()
+    .findOne({ connectionType: ENTRA, directoryId: dir, tenantId: String(tenantId), connectionId: String(connectionId), status: "verified" })
+    .lean();
+  return claimStillValid(claim, dir) ? claim : null;
+}
+
+module.exports = {
+  assertDirectoryConnectable,
+  recordVerifiedConnectClaim,
+  deriveConnectionStatus,
+  findConnectionClaim,
+  findValidConnectionClaim,
+};

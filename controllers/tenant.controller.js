@@ -386,6 +386,32 @@ module.exports.completeEntraConnect = async (req, res) => {
   }
 };
 
+// "Test Connection" (Stage 5c-2): the organisation, connection and directory come only from the
+// path-guarded route and the server-loaded connection; the request body and query are not used.
+// A completed test answers { ok, code, testedAt } with a safe code; never Microsoft details.
+const TEST_RESULT_HTTP_STATUS = {
+  CONNECTED: 200,
+  DIRECTORY_NOT_CLAIMED: 409,
+  DIRECTORY_NOT_FOUND: 422,
+  APP_NOT_CONSENTED: 422,
+  CONFIGURATION_INVALID: 422,
+  CREDENTIAL_INVALID: 502,
+  MICROSOFT_UNAVAILABLE: 503,
+};
+
+module.exports.testEntraConnection = async (req, res) => {
+  try {
+    const out = await EntraConnectHandler.testConnection({
+      tenantId: req.params.id,
+      connectionId: req.params.connectionId,
+    });
+    if (out.ok) return res.success(out);
+    return res.status(TEST_RESULT_HTTP_STATUS[out.code] || 422).json({ status: "fail", data: out });
+  } catch (error) {
+    return sendConnectError(res, error, "test");
+  }
+};
+
 module.exports.getEntraConnectionStatus = async (req, res) => {
   try {
     const out = await EntraConnectHandler.getConnectionStatus({

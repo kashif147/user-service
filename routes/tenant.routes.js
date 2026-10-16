@@ -175,6 +175,16 @@ router.post(
   TenantController.completeEntraConnect
 );
 
+// Test Connection (Stage 5c-2): configuration / connectivity health check of a connected Entra
+// directory and the shared CRM application. Records lastTestedAt / lastTestResult only.
+router.post(
+  "/tenants/:id/auth-connections/:connectionId/test",
+  requireTenant,
+  requireTenantPathAccess("id"),
+  defaultPolicyAdapter.middleware("tenant", "admin"),
+  TenantController.testEntraConnection
+);
+
 router.get(
   "/tenants/:id/auth-connections/:connectionId/status",
   requireTenant,

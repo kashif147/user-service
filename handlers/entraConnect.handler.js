@@ -11,6 +11,11 @@
  *              connection (unchanged directory), exchanges the code, verifies the ID token
  *              (helpers/entraConnect.js), requires tid == connection directory and a signed
  *              administrator role, records the claim, then sets connectedAt / connectedBy only.
+ *  test     -> (Stage 5c-2) server loads the connection; requires its valid verified claim
+ *              (DIRECTORY_NOT_CLAIMED otherwise, without calling Microsoft); checks the directory
+ *              and the shared application with Microsoft (helpers/entraConnectionTest.js); records
+ *              lastTestedAt / lastTestResult {ok, code} only. Never changes the claim, the
+ *              directory, isActive, provisioning, users or roles.
  *
  * Everything that identifies the organisation, connection, directory or administrator comes from
  * the server-side state and the verified token - never from the request body or query. Tokens,
@@ -31,8 +36,10 @@ const {
   recordVerifiedConnectClaim,
   deriveConnectionStatus,
   findConnectionClaim,
+  findValidConnectionClaim,
 } = require("../helpers/directoryClaimService");
 const { ENTRA, normalizeDirectoryId } = require("../helpers/directoryClaimPolicy");
+const { probeEntraDirectory, TEST_RESULT_CODES } = require("../helpers/entraConnectionTest");
 
 const plain = (v) => (v && typeof v.toObject === "function" ? v.toObject() : v);
 
@@ -143,6 +150,53 @@ async function completeConnect({ tenantId, connectionId, userId, code, state }) 
   return { status: "connected", directoryId: verified.directoryId, connectedAt, connectedBy: tx.initiatingUserId };
 }
 
+/**
+ * Sets lastTestedAt / lastTestResult {ok, code} only, and only while the connection still has
+ * that directory (CONNECTION_CHANGED otherwise: a result is never written to a changed connection).
+ */
+async function recordConnectionTestResult({ tenantId, connectionId, directoryId, result }) {
+  if (!result || !TEST_RESULT_CODES.includes(result.code)) throw new EntraConnectError("TEST_RESULT_INVALID");
+  const at = new Date();
+  const outcome = await Tenant.updateOne(
+    {
+      _id: String(tenantId),
+      authenticationConnections: { $elemMatch: { _id: String(connectionId), connectionType: ENTRA, directoryId } },
+    },
+    {
+      $set: {
+        "authenticationConnections.$.lastTestedAt": at,
+        "authenticationConnections.$.lastTestResult": { ok: result.ok === true, code: result.code },
+      },
+    }
+  );
+  if (!outcome || outcome.matchedCount !== 1) throw new EntraConnectError("CONNECTION_CHANGED");
+  return at;
+}
+
+async function testConnection({ tenantId, connectionId }) {
+  const loaded = await loadEntraConnection(tenantId, connectionId);
+  const claim = await findValidConnectionClaim({ tenantId: loaded.tenantId, connectionId, directoryId: loaded.directoryId });
+  const result = claim
+    ? await probeEntraDirectory(loaded.directoryId)
+    : { ok: false, code: "DIRECTORY_NOT_CLAIMED", step: "claim", httpStatus: null };
+  const testedAt = await recordConnectionTestResult({
+    tenantId: loaded.tenantId,
+    connectionId,
+    directoryId: loaded.connection.directoryId, // as stored
+    result,
+  });
+  // Safe fields only: never a token, credential or anything Microsoft returned beyond its HTTP status.
+  console.info("Entra connection tested:", {
+    tenantId: loaded.tenantId,
+    connectionId: String(connectionId),
+    ok: result.ok,
+    code: result.code,
+    step: result.step,
+    httpStatus: result.httpStatus,
+  });
+  return { ok: result.ok, code: result.code, testedAt };
+}
+
 async function getConnectionStatus({ tenantId, connectionId }) {
   const loaded = await loadEntraConnection(tenantId, connectionId);
   const claim = await findConnectionClaim(connectionId);
@@ -157,8 +211,17 @@ async function getConnectionStatus({ tenantId, connectionId }) {
     isActive: c.isActive === true,
     sharedDirectoryException,
   };
+  if (c.lastTestedAt) out.lastTestedAt = c.lastTestedAt;
   if (c.lastTestResult) out.lastTestResult = { ok: c.lastTestResult.ok === true, code: c.lastTestResult.code ?? null };
   return out;
 }
 
-module.exports = { startConnect, completeConnect, getConnectionStatus, markConnectionConnected, loadEntraConnection };
+module.exports = {
+  startConnect,
+  completeConnect,
+  testConnection,
+  recordConnectionTestResult,
+  getConnectionStatus,
+  markConnectionConnected,
+  loadEntraConnection,
+};
