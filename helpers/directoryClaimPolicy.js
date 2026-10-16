@@ -18,6 +18,15 @@ const DIRECTORY_GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
 // Microsoft personal accounts (MSA) sign in through this fixed directory; never claimable.
 const CONSUMER_DIRECTORY_ID = "9188040d-6c67-4c5b-b112-36a304b66dad";
 
+// Microsoft Entra role templates allowed to connect a directory (Stage 5c; tenant-wide consent
+// capable), in priority order: the signed `wids` claim is matched against it.
+const ADMIN_ROLE_TEMPLATE_IDS = Object.freeze([
+  "62e90394-69f5-4237-9190-012177145e10", // Global Administrator
+  "e8611ab8-c189-46e8-94e1-60213ab1f814", // Privileged Role Administrator
+  "158c047a-c907-4556-b7ef-446551a6b5f7", // Cloud Application Administrator
+  "9b895d92-2cd3-44c7-9d02-a6ac2d5ea5c3", // Application Administrator
+]);
+
 const MULTI_DIRECTORY_ENV = "ENTRA_CRM_MULTI_DIRECTORY";
 const DEPLOYMENT_ENV = "DEPLOYMENT_ENV";
 const ALLOW_SHARED_ENV = "ENTRA_ALLOW_SHARED_DIRECTORY";
@@ -84,6 +93,7 @@ module.exports = {
   ENTRA,
   DIRECTORY_GUID,
   CONSUMER_DIRECTORY_ID,
+  ADMIN_ROLE_TEMPLATE_IDS,
   DirectoryClaimConfigError,
   isEntraMultiDirectoryEnabled,
   normalizeDirectoryId,

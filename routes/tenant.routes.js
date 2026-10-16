@@ -157,6 +157,32 @@ router.put(
   TenantController.updateAuthenticationConnection
 );
 
+// Connect Microsoft Entra (Stage 5c-1): prove the connection's directory with a Microsoft
+// administrator sign-in and record a verified directory claim. Does not activate the connection.
+router.post(
+  "/tenants/:id/auth-connections/:connectionId/connect",
+  requireTenant,
+  requireTenantPathAccess("id"),
+  defaultPolicyAdapter.middleware("tenant", "admin"),
+  TenantController.startEntraConnect
+);
+
+router.post(
+  "/tenants/:id/auth-connections/:connectionId/connect/complete",
+  requireTenant,
+  requireTenantPathAccess("id"),
+  defaultPolicyAdapter.middleware("tenant", "admin"),
+  TenantController.completeEntraConnect
+);
+
+router.get(
+  "/tenants/:id/auth-connections/:connectionId/status",
+  requireTenant,
+  requireTenantPathAccess("id"),
+  defaultPolicyAdapter.middleware("tenant", "read"),
+  TenantController.getEntraConnectionStatus
+);
+
 router.delete(
   "/tenants/:id/auth-connections/:connectionId",
   requireTenant,

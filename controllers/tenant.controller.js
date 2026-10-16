@@ -326,3 +326,74 @@ module.exports.updateRegionalSettings = async (req, res, next) => {
     return next(AppError.internalServerError("Failed to update regional settings"));
   }
 };
+
+// "Connect Microsoft Entra" (Stage 5c-1). Identity, directory and administrator evidence come only
+// from server-side state and the verified Microsoft token (handlers/entraConnect.handler.js); the
+// request body may carry { code, state } and nothing else is used. Errors return a safe code only.
+const EntraConnectHandler = require("../handlers/entraConnect.handler");
+const { EntraConnectError } = require("../helpers/entraConnect");
+
+const CONNECT_ERRORS = {
+  CONNECTION_NOT_FOUND: [404, "Authentication connection not found"],
+  NOT_ENTRA_CONNECTION: [400, "Only Microsoft Entra connections can be connected"],
+  INVALID_DIRECTORY: [400, "This Microsoft directory cannot be connected"],
+  CONNECT_STATE_INVALID: [400, "The Microsoft connection request is invalid or has expired; start again"],
+  CONNECTION_CHANGED: [400, "The authentication connection changed; start again"],
+  TOKEN_EXCHANGE_FAILED: [400, "Microsoft sign-in did not complete; start again"],
+  TOKEN_INVALID: [400, "Microsoft sign-in could not be verified; start again"],
+  DIRECTORY_MISMATCH: [400, "You signed in to a different Microsoft directory than the one configured"],
+  CLAIM_METHOD_CONFLICT: [409, "This directory's verification is managed by the platform"],
+  NOT_DIRECTORY_ADMIN: [403, "A Microsoft Entra administrator of this directory must connect it"],
+  DIRECTORY_ALREADY_CLAIMED: [409, "This Microsoft directory is already connected to another organisation"],
+  DIRECTORY_SHARED_EXCEPTION: [409, "This Microsoft directory is a shared development directory and cannot be connected"],
+};
+
+function sendConnectError(res, error, action) {
+  if (error instanceof EntraConnectError && CONNECT_ERRORS[error.code]) {
+    const [status, message] = CONNECT_ERRORS[error.code];
+    console.warn("Entra connect refused:", { action, code: error.code });
+    return res.sendAppError(new AppError(message, status, error.code));
+  }
+  console.error("[tenant] Entra connect failed:", { action, error: error?.name || "Error" });
+  return res.sendInternalError("Microsoft connection is not available");
+}
+
+module.exports.startEntraConnect = async (req, res) => {
+  try {
+    const out = await EntraConnectHandler.startConnect({
+      tenantId: req.params.id,
+      connectionId: req.params.connectionId,
+      userId: req.ctx?.userId,
+    });
+    res.success(out);
+  } catch (error) {
+    return sendConnectError(res, error, "start");
+  }
+};
+
+module.exports.completeEntraConnect = async (req, res) => {
+  try {
+    const out = await EntraConnectHandler.completeConnect({
+      tenantId: req.params.id,
+      connectionId: req.params.connectionId,
+      userId: req.ctx?.userId,
+      code: req.body?.code,
+      state: req.body?.state,
+    });
+    res.success(out);
+  } catch (error) {
+    return sendConnectError(res, error, "complete");
+  }
+};
+
+module.exports.getEntraConnectionStatus = async (req, res) => {
+  try {
+    const out = await EntraConnectHandler.getConnectionStatus({
+      tenantId: req.params.id,
+      connectionId: req.params.connectionId,
+    });
+    res.success(out);
+  } catch (error) {
+    return sendConnectError(res, error, "status");
+  }
+};

@@ -119,10 +119,68 @@ function takePolicyForState(state) {
   return row.policy;
 }
 
+/**
+ * Stage 5c "Connect Microsoft Entra" transactions: a third, separate map, so a connect state can
+ * never be consumed by a sign-in callback (takeLoginTransaction / takeNonceForState) and a sign-in
+ * state never by a connect completion. Server-side only; single use; same 10-minute expiry.
+ * Holds the PKCE verifier (never sent to the browser) and no tokens.
+ */
+const CONNECT_FLOW = "entra-connect";
+const connectStore = new Map();
+
+function pruneConnect() {
+  const t = now();
+  for (const [k, v] of connectStore) {
+    if (v.expiresAt <= t) connectStore.delete(k);
+  }
+}
+
+setInterval(pruneConnect, 60 * 1000).unref();
+
+/**
+ * @param {string} state  random, unguessable authorize state
+ * @param {{tenantId: string, connectionId: string, directoryId: string, initiatingUserId: string,
+ *   nonce: string, codeVerifier: string}} tx
+ */
+function rememberConnectTransaction(state, tx) {
+  if (!state || !tx) return;
+  connectStore.set(String(state), {
+    flow: CONNECT_FLOW,
+    tenantId: String(tx.tenantId),
+    connectionId: String(tx.connectionId),
+    directoryId: String(tx.directoryId),
+    initiatingUserId: String(tx.initiatingUserId),
+    nonce: String(tx.nonce),
+    codeVerifier: String(tx.codeVerifier),
+    createdAt: now(),
+    expiresAt: now() + TTL_MS,
+  });
+}
+
+/**
+ * Single-use read of a connect transaction (deleted on read, also when expired).
+ * @returns {null|{flow: string, tenantId: string, connectionId: string, directoryId: string,
+ *   initiatingUserId: string, nonce: string, codeVerifier: string, createdAt: number}}
+ */
+function takeConnectTransaction(state) {
+  if (state == null || String(state).trim() === "") return null;
+  pruneConnect();
+  const key = String(state);
+  const row = connectStore.get(key);
+  if (!row) return null;
+  connectStore.delete(key);
+  if (row.expiresAt <= now()) return null;
+  const { expiresAt, ...tx } = row;
+  return tx;
+}
+
 module.exports = {
   rememberStatePolicy,
   takePolicyForState,
   rememberNonceForState,
   takeNonceForState,
   takeLoginTransaction,
+  CONNECT_FLOW,
+  rememberConnectTransaction,
+  takeConnectTransaction,
 };

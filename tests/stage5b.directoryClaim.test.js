@@ -213,6 +213,7 @@ describe("A: DirectoryClaim model", () => {
         "updatedAt",
         "verifiedAt",
         "verifiedBy",
+        "verificationEvidence", // Stage 5c-1: audit evidence {directoryUserId, roleTemplateId}
       ].sort()
     );
   });

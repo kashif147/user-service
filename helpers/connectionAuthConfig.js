@@ -174,8 +174,50 @@ const ORGANISATION_CONFIG_CODES = new Set([
 ]);
 const isOrganisationConfigError = (e) => e instanceof AuthConfigError && ORGANISATION_CONFIG_CODES.has(e.code);
 
+// Stage 5c "Connect Microsoft Entra": the directory being connected is not trusted yet, so the
+// sign-in uses the `organizations` authority (work/school accounts only; `common` would also admit
+// personal accounts). The verified token's tid then names the directory (helpers/entraConnect.js).
+const CONNECT_AUTHORITY = "organizations";
+// openid profile email only: no offline_access, so Connect never receives a refresh token.
+const CONNECT_SCOPES = "openid profile email";
+
+/**
+ * Protocol configuration of a Connect sign-in: the one shared CRM application (same client id,
+ * credential and registered redirect URI as sign-in), `organizations` endpoints and keys. The
+ * redirect URI is the existing registered CRM redirect URI - temporary compatibility until the
+ * central ProjectShell callback; no customer-specific redirect URI exists and none comes from the
+ * browser.
+ * @returns {Readonly<object>}  `clientSecret` is non-enumerable
+ * @throws {import("./entraConfig").EntraConfigError}
+ */
+function resolveEntraConnectConfig() {
+  const app = getEntraCrmApp();
+  const base = `https://${ENTRA_AUTHORITY_HOST}/${CONNECT_AUTHORITY}`;
+  return withSecret(
+    {
+      provider: "entra",
+      connectionType: ENTRA,
+      mode: "entra-connect",
+      application: app.application,
+      clientId: app.clientId,
+      audience: app.clientId,
+      redirectUri: app.redirectUri,
+      scopes: CONNECT_SCOPES,
+      authorityHost: ENTRA_AUTHORITY_HOST,
+      // The issuer is per directory: https://login.microsoftonline.com/{tid}/v2.0, checked
+      // against the verified token's own tid.
+      issuerTemplate: `https://${ENTRA_AUTHORITY_HOST}/{tid}/v2.0`,
+      jwksUri: `${base}/discovery/v2.0/keys`,
+      authorizeEndpoint: `${base}/oauth2/v2.0/authorize`,
+      tokenEndpoint: `${base}/oauth2/v2.0/token`,
+    },
+    app.clientSecret
+  );
+}
+
 module.exports = {
   resolveConnectionAuthConfig,
+  resolveEntraConnectConfig,
   isOrganisationConfigError,
   AuthConfigError,
   ENTRA_AUTHORITY_HOST,

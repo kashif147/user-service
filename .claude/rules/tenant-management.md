@@ -92,6 +92,24 @@ the redirect URI is always the app registration's.
   an Entra connection (new connections must be saved inactive first) - else
   `DIRECTORY_NOT_CLAIMED`. Switch off: no claim is read. No tenant-admin claim API exists; claims
   come from the Stage 5c admin connection flow or a controlled platform/DEV operation.
+- **Connect Microsoft Entra (Stage 5c-1, `handlers/entraConnect.handler.js`):**
+  `POST /tenants/:id/auth-connections/:connectionId/connect` (tenant admin, own tenant) returns an
+  authorize URL for the shared CRM app on the `organizations` authority (code + PKCE S256, scopes
+  `openid profile email`, no refresh token); `.../connect/complete` `{code, state}` takes the
+  single-use server-side `entra-connect` state (`helpers/pkceStateStore.js`: separate from sign-in
+  states; bound to tenant, connection, directory snapshot, initiating user, nonce, verifier),
+  verifies the ID token (`helpers/entraConnect.js`: signature, audience, issuer of the token's own
+  tid, nonce, exp/nbf, iat <= 10 min, tid not the consumer directory, oid GUID), requires
+  `tid == connection.directoryId` (`DIRECTORY_MISMATCH`, never overwritten) and a signed `wids`
+  administrator role (Global / Privileged Role / Cloud Application / Application Administrator,
+  else `NOT_DIRECTORY_ADMIN`), records a verified `entra-admin-sign-in` claim with
+  `verificationEvidence {directoryUserId, roleTemplateId}` (`helpers/directoryClaimService.js`;
+  DEV exceptions -> `DIRECTORY_SHARED_EXCEPTION`, another org's -> `DIRECTORY_ALREADY_CLAIMED`) and
+  sets only `connectedAt`/`connectedBy` (never `isActive`, the directory or test fields).
+  `GET .../status` is derived: `not_connected` / `connected` / `reconnect_required` / `test_failed`.
+  Body/query identity fields are ignored; no token, code or verifier is stored or logged. `wids` is
+  emitted only when the app registration's `groupMembershipClaims` includes directory roles. The
+  redirect URI is the existing registered CRM one (compatibility until the central callback).
 - **DEV shared-directory exception** (`helpers/directoryClaimPolicy.js`): method `dev-exception`,
   valid only while `DEPLOYMENT_ENV=dev`, `ENTRA_ALLOW_SHARED_DIRECTORY=true` and the directory is in
   `ENTRA_SHARED_DIRECTORY_ALLOWLIST` (NODE_ENV is never used). Either override variable set

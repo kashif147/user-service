@@ -17,11 +17,29 @@
  * connection flow (Stage 5c) or a controlled platform/DEV operation.
  */
 const mongoose = require("mongoose");
-const { ENTRA, DIRECTORY_GUID, CONSUMER_DIRECTORY_ID, devExceptionAllowed } = require("../helpers/directoryClaimPolicy");
+const {
+  ENTRA,
+  DIRECTORY_GUID,
+  CONSUMER_DIRECTORY_ID,
+  ADMIN_ROLE_TEMPLATE_IDS,
+  devExceptionAllowed,
+} = require("../helpers/directoryClaimPolicy");
 
 const CLAIM_STATUSES = ["pending", "verified"];
 const CLAIM_METHODS = ["entra-admin-sign-in", "platform", "dev-exception"];
 const SHARED_EXCEPTION_METHOD = "dev-exception";
+const ADMIN_SIGN_IN_METHOD = "entra-admin-sign-in";
+
+
+// Audit evidence of an entra-admin-sign-in verification, taken only from the verified Microsoft
+// token. Never used for lookups, indexes or the claim gate - not a tenant-isolation identifier.
+const verificationEvidenceSchema = new mongoose.Schema(
+  {
+    directoryUserId: { type: String, required: true, trim: true, lowercase: true, match: DIRECTORY_GUID },
+    roleTemplateId: { type: String, required: true, trim: true, lowercase: true, enum: ADMIN_ROLE_TEMPLATE_IDS },
+  },
+  { _id: false, strict: "throw" }
+);
 
 const directoryClaimSchema = new mongoose.Schema(
   {
@@ -44,6 +62,7 @@ const directoryClaimSchema = new mongoose.Schema(
     claimedBy: { type: String, required: true, trim: true },
     verifiedAt: { type: Date, default: null },
     verifiedBy: { type: String, default: null, trim: true },
+    verificationEvidence: { type: verificationEvidenceSchema, default: null },
   },
   { timestamps: true, strict: "throw", collection: "directoryclaims" }
 );
@@ -61,6 +80,12 @@ directoryClaimSchema.pre("validate", function deriveAndCheck() {
   }
   if (this.sharedDirectoryException && !devExceptionAllowed(this.directoryId)) {
     this.invalidate("method", "The shared-directory exception is not allowed for this directory or environment");
+  }
+  // Evidence is written by the Connect flow (helpers/directoryClaimService.js) and belongs to admin
+  // sign-in claims only; it is audit data, not a validity condition of the claim.
+  const hasEvidence = this.verificationEvidence != null;
+  if (this.method !== ADMIN_SIGN_IN_METHOD && hasEvidence) {
+    this.invalidate("verificationEvidence", "Verification evidence belongs to admin sign-in claims only");
   }
 });
 
@@ -99,4 +124,5 @@ directoryClaimSchema.index(
 const DirectoryClaim = mongoose.model("DirectoryClaim", directoryClaimSchema);
 DirectoryClaim.CLAIM_STATUSES = CLAIM_STATUSES;
 DirectoryClaim.CLAIM_METHODS = CLAIM_METHODS;
+DirectoryClaim.ADMIN_ROLE_TEMPLATE_IDS = ADMIN_ROLE_TEMPLATE_IDS;
 module.exports = DirectoryClaim;
