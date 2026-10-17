@@ -6,6 +6,15 @@ const { loginOrganisationDisplay } = require("../helpers/loginOrganisationDispla
 const { EntraConfigError } = require("../helpers/entraConfig");
 const { microsoftErrorFields, isMicrosoftTokenError } = require("../helpers/microsoftErrorLog");
 
+/** The only user fields the CRM sign-in callback returns (see handleAzureADCallback). */
+const CRM_CALLBACK_USER_FIELDS = ["userEmail", "userFirstName", "userLastName", "userFullName", "userType"];
+function crmCallbackUser(user) {
+  return {
+    id: user._id,
+    ...Object.fromEntries(CRM_CALLBACK_USER_FIELDS.map((k) => [k, user[k] ?? null])),
+  };
+}
+
 // Handle GET request from Azure redirect
 module.exports.handleAzureADRedirect = async (req, res, next) => {
   try {
@@ -30,6 +39,8 @@ module.exports.handleAzureADRedirect = async (req, res, next) => {
     return next(AppError.internalServerError("Azure AD redirect failed"));
   }
 };
+
+module.exports.CRM_CALLBACK_USER_FIELDS = CRM_CALLBACK_USER_FIELDS;
 
 module.exports.handleAzureADCallback = async (req, res, next) => {
   try {
@@ -69,43 +80,13 @@ module.exports.handleAzureADCallback = async (req, res, next) => {
       transaction.loginContext
     );
 
-    const issuedAtReadable = user.userIssuedAt
-      ? new Date(user.userIssuedAt * 1000).toISOString()
-      : null;
-    const authTimeReadable = user.userAuthTime
-      ? new Date(user.userAuthTime * 1000).toISOString()
-      : null;
-    const tokenVersionReadable = user.userTokenVersion || "Azure AD v2";
-
     // Use the new JWT helper that includes roles and permissions
     const tokenData = await jwtHelper.generateToken(user);
 
-    const userResponse = {
-      id: user._id,
-      userEmail: user.userEmail,
-      userFirstName: user.userFirstName,
-      userLastName: user.userLastName,
-      userFullName: user.userFullName,
-      userMobilePhone: user.userMobilePhone,
-      userMemberNumber: user.userMemberNumber,
-      userMicrosoftId: user.userMicrosoftId,
-      userAuthProvider: user.userAuthProvider,
-      userSubject: user.userSubject,
-      userAudience: user.userAudience,
-      userIssuer: user.userIssuer,
-      userIssuedAt: issuedAtReadable,
-      userAuthTime: authTimeReadable,
-      userTokenVersion: tokenVersionReadable,
-      userPolicy: user.userPolicy,
-      userLastLogin: user.userLastLogin,
-      userType: user.userType,
-      tokens: {
-        id_token: user.tokens.id_token,
-        refresh_token: user.tokens.refresh_token,
-        id_token_expires_in: user.tokens.id_token_expires_in,
-        refresh_token_expires_in: user.tokens.refresh_token_expires_in,
-      },
-    };
+    // Minimal, display-only user data. The CRM operates on the ProjectShell JWT alone: no Microsoft
+    // token (ID / access / refresh) and no Microsoft identity metadata (oid, sub, audience, issuer,
+    // token times / version, policy) is returned to the browser.
+    const userResponse = crmCallbackUser(user);
 
     console.log(`Azure AD authentication successful: user ${user._id}, tenant ${user.tenantId}`);
 

@@ -20,7 +20,7 @@ const OTHER_DIR = "11111111-2222-3333-4444-555555555555";
 const CONSUMER_DIR = "9188040d-6c67-4c5b-b112-36a304b66dad";
 const CLIENT_ID = process.env.AZURE_AD_CLIENT_ID;
 const TRUSTED_REDIRECT = process.env.AZURE_AD_REDIRECT_URI;
-const SCOPES = "openid profile email offline_access";
+const SCOPES = "openid profile email";
 const ENTRA = "Entra ID (Azure AD)";
 const SWITCH = "ENTRA_CRM_MULTI_DIRECTORY";
 

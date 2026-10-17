@@ -2,6 +2,9 @@ const jwt = require("jsonwebtoken");
 const User = require("../models/user.model");
 const { generateToken } = require("./jwt");
 
+/** The only user type whose stored Microsoft refresh token may be exchanged at /auth/refresh. */
+const REFRESHABLE_USER_TYPE = "PORTAL";
+
 /**
  * Refresh Token Helper
  * Handles refresh token validation and access token renewal
@@ -19,6 +22,11 @@ class RefreshTokenHelper {
       if (!refreshToken) {
         throw new Error("Refresh token is required");
       }
+      // Only a plain string is ever a refresh token: an object (e.g. {"$ne": null}) would be a
+      // MongoDB query operator matching some other user's token.
+      if (typeof refreshToken !== "string") {
+        throw new Error("Invalid refresh token");
+      }
 
       // Find user by refresh token
       const user = await User.findOne({
@@ -28,6 +36,15 @@ class RefreshTokenHelper {
 
       if (!user) {
         console.log("❌ User not found with provided refresh token");
+        throw new Error("Invalid refresh token");
+      }
+
+      // Only member-portal (B2C) sessions are refreshed here. A CRM user's Microsoft refresh token
+      // (stored by logins before CRM token containment, or replayed) must never mint a ProjectShell
+      // JWT: CRM signs in again through Microsoft. Same generic failure as an unknown token, before
+      // any JWT is issued.
+      if (user.userType !== REFRESHABLE_USER_TYPE) {
+        console.log("❌ Refresh refused for this account type");
         throw new Error("Invalid refresh token");
       }
 
@@ -97,6 +114,7 @@ class RefreshTokenHelper {
     try {
       console.log("=== Revoking Refresh Token ===");
 
+      if (typeof refreshToken !== "string") return false; // never a query operator (see above)
       const query = { "tokens.refresh_token": refreshToken };
       if (userId) {
         query._id = userId;

@@ -89,7 +89,9 @@ function getEntraCrmApp() {
       clientId: c.clientId,
       redirectUris: Object.freeze({ default: c.redirectUri }),
       redirectUri: c.redirectUri,
-      scopes: "openid profile email offline_access",
+      // No offline_access: CRM sign-in needs no Microsoft refresh token (the browser and the
+      // server keep only the ProjectShell JWT). The B2C portal keeps its own scopes below.
+      scopes: "openid profile email",
       multiDirectory: entraCrmMultiDirectory(),
       compatibilityDirectoryId: c.tenantId,
     },

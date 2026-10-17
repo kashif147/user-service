@@ -467,7 +467,9 @@ module.exports.testDefaultRoleAssignment = async (req, res, next) => {
     const userWithRoles = await User.findOne({
       _id: testUser._id,
       tenantId,
-    }).populate("roles");
+    })
+      .populate("roles")
+      .select("-password -tokens"); // never return stored OAuth tokens
 
     res.status(201).json({
       status: "success",

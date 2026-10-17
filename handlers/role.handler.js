@@ -469,6 +469,19 @@ module.exports.updateRolePermissions = async (
   }
 };
 
+/**
+ * The user documents returned by the role mutations below end up in API responses (an
+ * administrator's browser): a plain copy without the user's stored OAuth tokens or password.
+ */
+function safeUserResponse(user) {
+  if (!user) return user;
+  const out = typeof user.toObject === "function" ? user.toObject() : { ...user };
+  delete out.tokens;
+  delete out.password;
+  return out;
+}
+module.exports.safeUserResponse = safeUserResponse;
+
 module.exports.assignRolesToUser = async (userId, roleIds, tenantId, actor) => {
   try {
     assertRoleAssignmentAllowed(actor, []); // actor context required (fail closed)
@@ -543,7 +556,7 @@ module.exports.assignRolesToUser = async (userId, roleIds, tenantId, actor) => {
     );
 
     return {
-      user: updatedUser,
+      user: safeUserResponse(updatedUser),
       assignedRoles: newRoleIds.length,
       alreadyAssignedRoles: alreadyAssignedRoleIds.length,
       assignedRoleIds: newRoleIds,
@@ -596,7 +609,7 @@ module.exports.syncRolesForUser = async (userId, roleIds, tenantId, actor) => {
       const updatedUser = await User.findOne({ _id: userId, tenantId }).populate(
         "roles"
       );
-      return { user: updatedUser };
+      return { user: safeUserResponse(updatedUser) };
     }
 
     const roles = await Role.find({
@@ -622,7 +635,7 @@ module.exports.syncRolesForUser = async (userId, roleIds, tenantId, actor) => {
     const updatedUser = await User.findOne({ _id: userId, tenantId }).populate(
       "roles"
     );
-    return { user: updatedUser };
+    return { user: safeUserResponse(updatedUser) };
   } catch (error) {
     if (error instanceof RolePrivilegeError) throw error;
     throw new Error(`Error syncing roles for user: ${error.message}`);
@@ -667,7 +680,7 @@ module.exports.removeRolesFromUser = async (userId, roleIds, tenantId, actor) =>
     );
 
     return {
-      user: updatedUser,
+      user: safeUserResponse(updatedUser),
       removedRoles: rolesToRemove.length,
       notAssignedRoles: notAssignedRoleIds.length,
       removedRoleIds: rolesToRemove,
@@ -691,7 +704,7 @@ module.exports.removeRoleFromUser = async (userId, roleId, tenantId, actor) => {
     user.roles = user.roles.filter((role) => role.toString() !== roleId);
     await user.save();
 
-    return await User.findOne({ _id: userId, tenantId }).populate("roles");
+    return safeUserResponse(await User.findOne({ _id: userId, tenantId }).populate("roles"));
   } catch (error) {
     if (error instanceof RolePrivilegeError) throw error;
     throw new Error(`Error removing role from user: ${error.message}`);

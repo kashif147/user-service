@@ -267,7 +267,7 @@ class AzureADHandler {
 
   /**
    * @param {object} profile  verified token claims (+ Graph profile)
-   * @param {object} tokens
+   * @param {object} tokens  Microsoft token response - NOT persisted for CRM users (nulls are stored)
    * @param {{tenantId: string, connectionId: string}|null} [loginContext]  the tenant the sign-in
    *   was started for, restored server-side from the OAuth state. When present the user is found or
    *   created ONLY in that tenant; when absent the directory-wide fallback applies.
@@ -299,7 +299,10 @@ class AzureADHandler {
         userAuthProvider: "azure-ad",
         userType: "CRM",
         userLastLogin: new Date(),
-        tokens: buildUserTokensSubdocument(tokens),
+        // CRM users keep NO Microsoft OAuth credentials: the ID / access tokens are used only within
+        // this request, and any token material stored by an earlier login is cleared (nulls). The
+        // Entra identity linkage (userMicrosoftId, issuer) is kept.
+        tokens: buildUserTokensSubdocument(null),
         updatedAt: new Date(),
       };
 
@@ -433,7 +436,7 @@ class AzureADHandler {
             userType: "CRM",
             userLastLogin: new Date(),
             tenantId: tenantId,
-            tokens: buildUserTokensSubdocument(tokens),
+            tokens: buildUserTokensSubdocument(null), // no Microsoft OAuth credentials (see above)
           });
           await user.save();
           return user;

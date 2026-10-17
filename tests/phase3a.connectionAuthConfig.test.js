@@ -165,7 +165,7 @@ describe("resolveConnectionAuthConfig - Entra", () => {
       clientId: CLIENT_ID,
       audience: CLIENT_ID,
       redirectUri: TRUSTED_REDIRECT,
-      scopes: "openid profile email offline_access",
+      scopes: "openid profile email",
       authorityHost: "login.microsoftonline.com",
       issuer: `${base}/v2.0`,
       jwksUri: `${base}/discovery/v2.0/keys`,
@@ -319,7 +319,7 @@ describe("CRM authorize URL (GET /pkce/generate)", () => {
     expect(s.url.pathname).toBe(`/${HOME_DIR}/oauth2/v2.0/authorize`);
     expect(s.url.searchParams.get("client_id")).toBe(CLIENT_ID);
     expect(s.url.searchParams.get("redirect_uri")).toBe(TRUSTED_REDIRECT);
-    expect(s.url.searchParams.get("scope")).toBe("openid profile email offline_access");
+    expect(s.url.searchParams.get("scope")).toBe("openid profile email");
     const tx = require("../helpers/pkceStateStore").takeLoginTransaction(s.state);
     expect(tx).toEqual({ nonce: s.nonce, loginContext: { tenantId: TENANT_B, connectionId: "connB" } });
   });
