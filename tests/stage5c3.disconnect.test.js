@@ -488,9 +488,9 @@ describe("after disconnect: claim gate, Test Connection, activation, status", ()
   });
 
   test("activation guard does not affect never-disconnected connections", async () => {
-    // The guard reads this organisation's claim history for the directory (it must, because a
-    // disconnected connection may have been deleted and replaced); without revoked history the
-    // outcome is unchanged.
+    // The guard does a directory-wide revoked-history lookup (it must, because a disconnected
+    // connection may have been deleted and replaced, and a released directory may move to another
+    // organisation); without revoked history the outcome is unchanged.
     const rules = load.rules();
     await expect(
       rules.assertConnectionWritable(TENANT_A, { ...rules.pickConnectionFields(connA()), autoProvisionUsers: false, defaultRoleId: undefined, isActive: true }, { connectionId: "connA", stored: connA() })
@@ -574,9 +574,9 @@ describe("activation guard: tenant + directory revoked history (delete / recreat
     await expect(write(TENANT_A, newActive(DIR_C))).resolves.toBeUndefined();
   });
 
-  test("9 another organisation's revoked claim does not trigger this organisation's guard", async () => {
+  test("9 another organisation's released directory: activating it without an own verified claim -> 409 CONNECTION_DISCONNECTED", async () => {
     await load.handler().disconnectConnection({ tenantId: TENANT_B, connectionId: "connB", userId: "psUserB1" });
-    await expect(write(TENANT_A, newActive(DIR_B))).resolves.toBeUndefined();
+    await rejectsCode(write(TENANT_A, newActive(DIR_B)), "CONNECTION_DISCONNECTED");
     await rejectsCode(write(TENANT_B, newActive(DIR_B)), "CONNECTION_DISCONNECTED");
   });
 
@@ -608,6 +608,112 @@ describe("activation guard: tenant + directory revoked history (delete / recreat
     await write(TENANT_A, newActive(DIR_A)).catch(() => {});
     await write(TENANT_A, newActive(DIR_A, { isActive: false }));
     expect(claims.find((c) => c.status === "revoked")).toEqual(revoked);
+  });
+});
+
+describe("activation guard: directory-wide revoked history (cross-organisation release)", () => {
+  // TENANT_C is a brand-new organisation with no claim history of its own.
+  const TENANT_C = "dddddddddddddddddddddddd";
+  const DIR_Y = "44444444-5555-6666-7777-888888888888";
+  const newActive = (dir, extra = {}) => ({ connectionType: ENTRA, directoryId: dir, isActive: true, autoProvisionUsers: false, ...extra });
+  const write = (tenantId, conn, opts) => load.rules().assertConnectionWritable(tenantId, conn, opts);
+  const connC = { _id: "connC", ...newActive(DIR_A, { isActive: false }) };
+  const activateC = () => write(TENANT_C, { ...connC, isActive: true }, { connectionId: "connC", stored: connC });
+  const revokedA = () => clone(claims.find((c) => c.tenantId === TENANT_A && c.status === "revoked"));
+  const connectC = () =>
+    load.service().recordVerifiedConnectClaim({ tenantId: TENANT_C, connectionId: "connC", directoryId: DIR_A, userId: "psUserC1", evidence: { directoryUserId: ADMIN_OID, roleTemplateId: GLOBAL_ADMIN } });
+
+  test("X1 organisation A disconnects directory X; a brand-new organisation's ACTIVE connection to X -> 409 CONNECTION_DISCONNECTED", async () => {
+    await disconnect();
+    const err = await rejectsCode(write(TENANT_C, newActive(DIR_A)), "CONNECTION_DISCONNECTED");
+    expect(err.status).toBe(409);
+    expect(err.message).toBe("Reconnect Microsoft Entra before activating this connection.");
+  });
+
+  test("X2 the new organisation may add an INACTIVE connection to X", async () => {
+    await disconnect();
+    await expect(write(TENANT_C, newActive(DIR_A, { isActive: false }))).resolves.toBeUndefined();
+  });
+
+  test("X3-X6 activation before Connect -> 409; Connect -> a NEW verified claim for C; activation allowed; A's revoked claim byte-identical", async () => {
+    await disconnect();
+    const before = revokedA();
+    await rejectsCode(activateC(), "CONNECTION_DISCONNECTED");
+    const { claimId, created } = await connectC();
+    expect(created).toBe(true);
+    expect(claimId).not.toBe(before._id);
+    expect(claims.find((c) => c._id === claimId)).toMatchObject({ tenantId: TENANT_C, connectionId: "connC", directoryId: DIR_A, status: "verified", method: "entra-admin-sign-in" });
+    await expect(activateC()).resolves.toBeUndefined();
+    expect(revokedA()).toEqual(before);
+  });
+
+  test("X7 a directory with no revoked history keeps the existing switch-OFF behaviour (no claim needed)", async () => {
+    await disconnect();
+    await expect(write(TENANT_C, newActive(DIR_Y))).resolves.toBeUndefined();
+    await expect(write(TENANT_C, { ...connC, directoryId: DIR_Y, isActive: true }, { connectionId: "connC", stored: connC })).resolves.toBeUndefined();
+  });
+
+  test("X8 the directory-wide lookup is case- and whitespace-normalised", async () => {
+    await disconnect();
+    await rejectsCode(write(TENANT_C, newActive(DIR_A.toUpperCase())), "CONNECTION_DISCONNECTED");
+    await rejectsCode(write(TENANT_C, newActive(`  ${DIR_A}\t`)), "CONNECTION_DISCONNECTED");
+    await rejectsCode(write(TENANT_C, newActive(` ${DIR_A.toUpperCase()} `)), "CONNECTION_DISCONNECTED");
+  });
+
+  test("X9 the connection's OWN verified claim wins over older revoked history (several revoked claims, several organisations)", async () => {
+    await disconnect();
+    claims.push(adminClaim(TENANT_B, "connOld", DIR_A, { status: "revoked", revokedAt: "2026-10-16T12:00:00.000Z", revokedBy: "user:x" }));
+    claims.push(adminClaim(TENANT_C, "connC", DIR_A));
+    await expect(activateC()).resolves.toBeUndefined();
+    // only the connection's own claim counts: another organisation's verified claim with the same connection id does not
+    claims.splice(claims.findIndex((c) => c.tenantId === TENANT_C), 1);
+    claims.push(adminClaim(TENANT_B, "connC", DIR_A));
+    await rejectsCode(activateC(), "CONNECTION_DISCONNECTED");
+  });
+
+  test("X11 another directory's revoked history does not block this directory", async () => {
+    await disconnect(); // DIR_A revoked
+    await expect(write(TENANT_C, newActive(DIR_B))).resolves.toBeUndefined();
+    await expect(write(TENANT_C, newActive(DIR_Y))).resolves.toBeUndefined();
+  });
+
+  test("X12 switch ON: still 409 before Connect; after Connect the multi-directory claim gate is satisfied", async () => {
+    await disconnect();
+    process.env.ENTRA_CRM_MULTI_DIRECTORY = "true";
+    try {
+      await rejectsCode(activateC(), "CONNECTION_DISCONNECTED");
+      await connectC();
+      await expect(activateC()).resolves.toBeUndefined();
+      // no revoked history and no claim: the switch-ON gate keeps refusing as before (not CONNECTION_DISCONNECTED)
+      const err = await write(TENANT_C, newActive(DIR_Y)).then(() => null, (e) => e);
+      expect(err).toBeInstanceOf(load.rules().ConnectionValidationError);
+      expect(err.code).not.toBe("CONNECTION_DISCONNECTED");
+    } finally {
+      delete process.env.ENTRA_CRM_MULTI_DIRECTORY;
+    }
+  });
+
+  test("X13 dev-exception / platform claims never trigger the guard, revoked or not", async () => {
+    // Revoked platform-managed claims cannot be produced by the tenant endpoint; written to the store
+    // directly to prove they are not treated as a normal release.
+    claims.length = 0;
+    claims.push(devClaim(TENANT_A, "connA"), devClaim(TENANT_B, "connB"));
+    await expect(write(TENANT_C, newActive(HOME_DIR))).resolves.toBeUndefined();
+    claims.push(adminClaim(TENANT_A, "connDev", DIR_Y, { method: "dev-exception", sharedDirectoryException: true, verificationEvidence: null, status: "revoked", revokedAt: "2026-10-16T12:00:00.000Z", revokedBy: "user:x" }));
+    claims.push(adminClaim(TENANT_A, "connPlat", DIR_B, { method: "platform", verificationEvidence: null, status: "revoked", revokedAt: "2026-10-16T12:00:00.000Z", revokedBy: "user:x" }));
+    claims.push(adminClaim(TENANT_A, "connShared", DIR_A, { sharedDirectoryException: true, status: "revoked", revokedAt: "2026-10-16T12:00:00.000Z", revokedBy: "user:x" }));
+    await expect(write(TENANT_C, newActive(DIR_Y))).resolves.toBeUndefined();
+    await expect(write(TENANT_C, newActive(DIR_B))).resolves.toBeUndefined();
+    await expect(write(TENANT_C, newActive(DIR_A))).resolves.toBeUndefined();
+    // and the platform claims' own disconnect semantics are unchanged
+    claims.length = 0;
+    claims.push(devClaim(TENANT_A, "connA"));
+    connA().directoryId = HOME_DIR;
+    await rejectsCode(disconnect(), "DIRECTORY_SHARED_EXCEPTION");
+    claims.length = 0;
+    claims.push(platformClaim(TENANT_A, "connA", DIR_A));
+    connA().directoryId = DIR_A;
+    await rejectsCode(disconnect(), "CLAIM_METHOD_CONFLICT");
   });
 });
 

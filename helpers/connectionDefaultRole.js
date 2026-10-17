@@ -186,11 +186,11 @@ const DEFAULT_ROLE_MESSAGES = {
  * activated once its claim is verified; changing the directory of an active connection is refused
  * unless the new directory is claimed for it. Nothing here creates or verifies a claim.
  *
- * Disconnect (Stage 5c-3), independent of the multi-directory switch: once an organisation has
- * disconnected a directory (a revoked claim for that organisation + directory - durable even when the
- * connection record is deleted), no Entra connection of that organisation - the original, an edited
- * one or a new / replacement one - can be saved active for that directory until it has its own
- * verified claim (Connect) - ConnectionDisconnectedError (-> 409). Organisations / directories
+ * Disconnect (Stage 5c-3), independent of the multi-directory switch: once a directory has been
+ * disconnected by any organisation (a revoked normal claim for that directory - durable even when the
+ * connection record is deleted), no Entra connection of any organisation - the original, an edited
+ * one, a new / replacement one, or another organisation's - can be saved active for that directory
+ * until it has its own verified claim (Connect) - ConnectionDisconnectedError (-> 409). Directories
  * without revoked history keep the existing behaviour.
  */
 async function assertConnectionWritable(tenantId, connection, { connectionId, stored } = {}) {

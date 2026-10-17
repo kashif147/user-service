@@ -125,12 +125,16 @@ the redirect URI is always the app registration's.
   provisioning, connect and test metadata are untouched. Afterwards: sign-in fails closed (inactive
   connection, all paths); Test Connection -> 409 `CONNECTION_DISCONNECTED` before any Microsoft call
   or write. Activation guard (`assertConnectionWritable` -> `isActivationBlockedByDisconnect`,
-  regardless of the multi-directory switch, on create / add / edit / full-array replacement): once
-  an organisation has a revoked claim for a directory, no Entra connection of that organisation -
-  the original, an edit, or a new / replacement one after the old was deleted - can be saved active
-  for that directory until it has its own verified claim (409 `CONNECTION_DISCONNECTED`). Keyed on
+  regardless of the multi-directory switch, on create / add / edit / full-array replacement): once a
+  directory has a revoked NORMAL claim (`entra-admin-sign-in`, not a shared-directory exception) of
+  ANY organisation, no Entra connection - the original, an edit, a new / replacement one after the old
+  was deleted, or another organisation's - can be saved active for that directory until that
+  connection has its own verified claim (409 `CONNECTION_DISCONNECTED`); the own verified claim is
+  checked first and always wins. So a released directory can move to another organisation, but never
+  without Connect; `uniq_verified_directory` stays the race-safe final ownership control. Keyed on
   DirectoryClaim history (durable; connection deletion never deletes claims), not on
-  `disconnectedAt`; another organisation's history or another directory never counts. Reconnect = the normal Connect flow, creating a NEW verified
+  `disconnectedAt`; no marker is stored. Directories without revoked history keep the existing
+  behaviour; another directory's history never counts; dev-exception / platform claims never trigger it. Reconnect = the normal Connect flow, creating a NEW verified
   claim (`disconnectedAt/By` kept as history; `isActive` unchanged). A different directory = edit
   `directoryId` on the inactive connection, then Connect.
 - **DEV shared-directory exception** (`helpers/directoryClaimPolicy.js`): method `dev-exception`,

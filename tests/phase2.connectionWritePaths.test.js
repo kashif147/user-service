@@ -149,8 +149,8 @@ afterAll(() => {
 });
 
 beforeEach(() => {
-  // Stage 5c-3: the activation guard reads this organisation's revoked DirectoryClaim history for
-  // the directory (isActivationBlockedByDisconnect); none exists in this suite.
+  // Stage 5c-3: the activation guard does a directory-wide revoked-history lookup on DirectoryClaim
+  // (isActivationBlockedByDisconnect); no history exists in this suite.
   jest.spyOn(require("../models/directoryClaim.model"), "find").mockImplementation(() => ({ lean: async () => [] }));
   mockReset();
   jest.spyOn(console, "error").mockImplementation(() => {});

@@ -293,16 +293,128 @@ run("Stage 5c-3 Disconnect against a MongoDB replica set", () => {
       }
     });
 
-    test("8/9 other directory / other organisation's history do not trigger the guard (real data)", async () => {
+    test("8/9 another directory's history does not trigger the guard; another organisation's released directory does (real data)", async () => {
       await disconnect(); // tenant A, DIR revoked
       await H.disconnectConnection({ tenantId: String(tB), connectionId: String(cB), userId: "b1" }); // tenant B, DIR2 revoked
       const DIR3 = "33333333-4444-5555-6666-777777777777";
       // tenant A: a different directory is unaffected
       await TH().addAuthenticationConnection(String(tA), entra({ directoryId: DIR3 }), "admin1");
-      // tenant A: tenant B's revoked DIR2 history is not tenant A's (active Entra slot now taken, so add inactive and check the guard directly)
+      // tenant A: tenant B released DIR2, so tenant A cannot activate it without its own verified claim
+      // (active Entra slot now taken, so check the guard directly)
       const rules = require("../helpers/connectionDefaultRole");
-      await expect(rules.assertConnectionWritable(String(tA), entra({ directoryId: DIR2 }))).resolves.toBeUndefined();
+      expect(await code(rules.assertConnectionWritable(String(tA), entra({ directoryId: DIR2 })))).toBe("CONNECTION_DISCONNECTED");
       expect(await code(rules.assertConnectionWritable(String(tB), entra({ directoryId: DIR2 })))).toBe("CONNECTION_DISCONNECTED");
+    });
+  });
+
+  describe("cross-organisation release: the next owner must Connect (real connection write paths)", () => {
+    const TH = () => require("../handlers/tenant.handler");
+    const entra = (extra = {}) => ({ connectionType: ENTRA, directoryId: DIR, isActive: true, autoProvisionUsers: false, ...extra });
+    const revokedClaim = () => DirectoryClaim.collection.findOne({ connectionId: String(cA), status: "revoked" });
+    const tC = new mongoose.Types.ObjectId();
+    const tD = new mongoose.Types.ObjectId();
+    // brand-new organisations: no Entra connection and no claim history
+    const addFreshOrgs = () =>
+      Tenant.collection.insertMany([
+        { _id: tC, name: "Org C", code: "ORGC", description: "Org C", domain: "orgc.example", isActive: true, authenticationConnections: [] },
+        { _id: tD, name: "Org D", code: "ORGD", description: "Org D", domain: "orgd.example", isActive: true, authenticationConnections: [] },
+      ]);
+    const entraOf = async (t) => (await Tenant.collection.findOne({ _id: t })).authenticationConnections.find((c) => c.connectionType === ENTRA);
+
+    test("X1-X8 org A releases DIR; brand-new org C: active -> 409, inactive OK, activate -> 409, real Connect -> new claim, activate OK; A's claim byte-identical", async () => {
+      const { makeTestKeypairAndJwks, signTestJwt } = require("./helpers/testJwt");
+      const { _setJwksForTests } = require("../helpers/entraConnect");
+      const { resolveEntraConnectConfig } = require("../helpers/connectionAuthConfig");
+      const AzureADHandler = require("../handlers/azure.ad.handler");
+      const kp = await makeTestKeypairAndJwks();
+      _setJwksForTests(kp.jwks, resolveEntraConnectConfig().jwksUri);
+      try {
+        await addFreshOrgs();
+        await disconnect(); // 1-3 org A's verified claim for DIR becomes revoked
+        const revoked = await revokedClaim();
+        expect(revoked).toMatchObject({ tenantId: String(tA), status: "revoked" });
+        // 4 an ACTIVE connection for the released directory -> 409, nothing written
+        const before = await raw();
+        expect(await code(TH().addAuthenticationConnection(String(tC), entra(), "c1"))).toBe("CONNECTION_DISCONNECTED");
+        expect(await raw()).toEqual(before);
+        // 4 inactive -> allowed
+        await TH().addAuthenticationConnection(String(tC), entra({ isActive: false }), "c1");
+        const conn = await entraOf(tC);
+        expect(conn).toMatchObject({ directoryId: DIR, isActive: false });
+        const cC = String(conn._id);
+        // 5 activation before Connect -> 409 (single-connection PUT and full-array PUT)
+        expect(await code(TH().updateAuthenticationConnection(String(tC), cC, { isActive: true }, "c1"))).toBe("CONNECTION_DISCONNECTED");
+        expect(await code(TH().updateTenant(String(tC), { authenticationConnections: [{ ...conn, _id: cC, isActive: true }] }, "c1"))).toBe("CONNECTION_DISCONNECTED");
+        expect((await entraOf(tC)).isActive).toBe(false);
+        // 6 the normal Connect flow as org C (Microsoft verification simulated with a signed ID token)
+        const { authorizationUrl } = await H.startConnect({ tenantId: String(tC), connectionId: cC, userId: "c1" });
+        const u = new URL(authorizationUrl);
+        jest.spyOn(AzureADHandler, "exchangeCodeForTokens").mockImplementation(async () => ({
+          id_token: await signTestJwt(kp.privateKey, {
+            iss: `https://login.microsoftonline.com/${DIR}/v2.0`,
+            aud: process.env.AZURE_AD_CLIENT_ID,
+            tid: DIR,
+            oid: OID,
+            nonce: u.searchParams.get("nonce"),
+            wids: [GLOBAL_ADMIN],
+          }),
+        }));
+        await H.completeConnect({ tenantId: String(tC), connectionId: cC, userId: "c1", code: "c", state: u.searchParams.get("state") });
+        const fresh = await DirectoryClaim.collection.findOne({ directoryId: DIR, status: "verified" });
+        expect(fresh).toMatchObject({ tenantId: String(tC), connectionId: cC, method: "entra-admin-sign-in" });
+        expect(String(fresh._id)).not.toBe(String(revoked._id));
+        expect(await revokedClaim()).toEqual(revoked);
+        // 7 activation succeeds (own verified claim wins over the older revoked history)
+        await TH().updateAuthenticationConnection(String(tC), cC, { isActive: true }, "c1");
+        expect((await entraOf(tC)).isActive).toBe(true);
+        // 8 org A's revoked claim is byte-identical; org A cannot reconnect while C owns DIR
+        expect(await revokedClaim()).toEqual(revoked);
+        expect(await code(service.recordVerifiedConnectClaim({ tenantId: String(tA), connectionId: String(cA), directoryId: DIR, userId: "a1", evidence: { directoryUserId: OID, roleTemplateId: GLOBAL_ADMIN } }))).toBe("DIRECTORY_ALREADY_CLAIMED");
+        // and the same-tenant rule still holds for org A
+        expect(await code(H.getConnectionStatus({ tenantId: String(tA), connectionId: String(cA) }))).toBe("OK");
+      } finally {
+        _setJwksForTests(null);
+      }
+    });
+
+    test("X10 race after release: two brand-new organisations Connect concurrently -> exactly one verified owner; only the winner can activate", async () => {
+      await addFreshOrgs();
+      await disconnect();
+      for (const t of [tC, tD]) await TH().addAuthenticationConnection(String(t), entra({ isActive: false }), "x1");
+      const ids = { [String(tC)]: String((await entraOf(tC))._id), [String(tD)]: String((await entraOf(tD))._id) };
+      const results = await Promise.allSettled(
+        Object.entries(ids).map(([tenantId, connectionId]) =>
+          service.recordVerifiedConnectClaim({ tenantId, connectionId, directoryId: DIR, userId: "x1", evidence: { directoryUserId: OID, roleTemplateId: GLOBAL_ADMIN } })
+        )
+      );
+      expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+      expect(results.find((r) => r.status === "rejected").reason).toMatchObject({ code: "DIRECTORY_ALREADY_CLAIMED" });
+      const owners = await DirectoryClaim.collection.find({ directoryId: DIR, status: "verified" }).toArray();
+      expect(owners).toHaveLength(1);
+      const winner = owners[0].tenantId;
+      const loser = Object.keys(ids).find((t) => t !== winner);
+      await TH().updateAuthenticationConnection(winner, ids[winner], { isActive: true }, "x1");
+      expect(await code(TH().updateAuthenticationConnection(loser, ids[loser], { isActive: true }, "x1"))).toBe("CONNECTION_DISCONNECTED");
+    });
+
+    test("X7/X11/X13 no revoked history, another directory's history, revoked platform-managed claims: existing behaviour", async () => {
+      await addFreshOrgs();
+      await disconnect(); // DIR released
+      const DIR3 = "33333333-4444-5555-6666-777777777777";
+      const DIR4 = "44444444-5555-6666-7777-888888888888";
+      const DIR5 = "55555555-6666-7777-8888-999999999999";
+      // revoked dev-exception / platform claims (not producible by the tenant endpoint; inserted raw)
+      const base = { connectionType: ENTRA, tenantId: "tOps", claimedAt: new Date(), claimedBy: "platform:x", verifiedAt: new Date(), verifiedBy: "platform:x", status: "revoked", revokedAt: new Date(), revokedBy: "platform:x" };
+      await DirectoryClaim.collection.insertMany([
+        { ...base, directoryId: DIR4, connectionId: "cDev", method: "dev-exception", sharedDirectoryException: true },
+        { ...base, directoryId: DIR5, connectionId: "cPlat", method: "platform", sharedDirectoryException: false },
+      ]);
+      await TH().addAuthenticationConnection(String(tC), entra({ directoryId: DIR3 }), "c1"); // never released: switch-OFF rules
+      const rules = require("../helpers/connectionDefaultRole");
+      await expect(rules.assertConnectionWritable(String(tD), entra({ directoryId: DIR2 }))).resolves.toBeUndefined(); // DIR2 still verified by B, never released
+      await expect(rules.assertConnectionWritable(String(tD), entra({ directoryId: DIR4 }))).resolves.toBeUndefined();
+      await expect(rules.assertConnectionWritable(String(tD), entra({ directoryId: DIR5 }))).resolves.toBeUndefined();
+      expect(await code(rules.assertConnectionWritable(String(tD), entra({ directoryId: ` ${DIR.toUpperCase()} ` })))).toBe("CONNECTION_DISCONNECTED");
     });
   });
 

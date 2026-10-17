@@ -150,18 +150,26 @@ async function isConnectionDisconnected({ tenantId, connectionId, directoryId })
 }
 
 /**
- * Activation guard (Stage 5c-3), keyed on the DURABLE claim history - not on the connection record,
- * which may have been deleted and replaced: true when this organisation has a revoked claim for this
- * directory and the connection being activated has no verified claim of its own for it. Another
- * organisation's history never counts. Read only.
+ * Activation guard (Stage 5c-3), keyed on the DURABLE claim history of the DIRECTORY - not on the
+ * connection record (which may have been deleted and replaced) and not on the organisation (a released
+ * directory's next owner may be another organisation). In order:
+ *  1. the connection being activated has its own verified claim (this organisation + connection +
+ *     directory) -> not blocked;
+ *  2. otherwise any organisation's revoked NORMAL claim (entra-admin-sign-in, not a shared-directory
+ *     exception) for the directory -> blocked until Connect;
+ *  3. otherwise not blocked (existing behaviour).
+ * One read of the directory's claims; only booleans leave this function. Read only.
  */
 async function isActivationBlockedByDisconnect({ tenantId, connectionId, directoryId }) {
   const dir = normalizeDirectoryId(directoryId);
   if (!dir || !tenantId) return false;
-  const claims = await model().find({ connectionType: ENTRA, tenantId: String(tenantId), directoryId: dir }).lean();
-  if (!claims.some((c) => c.status === "revoked")) return false;
+  const claims = await model().find({ connectionType: ENTRA, directoryId: dir }).lean();
   const hasConnection = connectionId !== undefined && connectionId !== null && connectionId !== "";
-  return !(hasConnection && claims.some((c) => c.status === "verified" && String(c.connectionId) === String(connectionId)));
+  const ownVerified = claims.some(
+    (c) => c.status === "verified" && String(c.tenantId) === String(tenantId) && hasConnection && String(c.connectionId) === String(connectionId)
+  );
+  if (ownVerified) return false;
+  return claims.some((c) => c.status === "revoked" && c.method === ADMIN_SIGN_IN && c.sharedDirectoryException !== true);
 }
 
 /**
