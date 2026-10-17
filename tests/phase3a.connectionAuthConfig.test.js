@@ -32,6 +32,7 @@ const mockRows = (q) =>
   mockTenants.filter((t) => {
     if (t.isActive === false) return false;
     if (q.$or) return q.$or.some((c) => (c.code && c.code === t.code) || (c._id && String(c._id) === t._id));
+    if (q.code !== undefined) return q.code === t.code; // login resolution queries by Organisation Code only
     return String(q._id) === t._id;
   });
 const mockQuery = (value) => ({

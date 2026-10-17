@@ -9,11 +9,14 @@
  * The connection, not the environment, says which directory the login uses
  * (helpers/connectionAuthConfig.js); the organisation code is only a locator.
  *
+ * The browser-facing locator is the Organisation Code ONLY. The internal tenant _id is never
+ * accepted here (it is backend-only); a value that is not a known code - including a raw _id - gets
+ * the same generic refusal as an unknown or unconfigured organisation.
+ *
  * Choosing a tenant grants nothing by itself: the callback still verifies the token, checks its
  * `tid` against the stored connection, and only finds or creates the user INSIDE that tenant
  * (handlers/azure.ad.handler.js).
  */
-const mongoose = require("mongoose");
 const Tenant = require("../models/tenant.model");
 
 const ENTRA = "Entra ID (Azure AD)";
@@ -34,7 +37,7 @@ function activeEntraConnections(tenant) {
 }
 
 /**
- * @param {string} selector  tenant code (e.g. "DEVTENANTB") or Tenant._id
+ * @param {string} selector  Organisation Code (e.g. "DEVTENANTB"); never the internal Tenant._id
  * @returns {Promise<{tenantId: string, connectionId: string, connection: object}>}  the
  *   organisation and its one active Entra connection. None or several -> LoginTenantError.
  */
@@ -43,10 +46,7 @@ async function resolveLoginTenant(selector) {
   if (!TENANT_SELECTOR.test(raw)) {
     throw new LoginTenantError("INVALID_TENANT", "Unknown organisation");
   }
-  const or = [{ code: raw.toUpperCase() }];
-  if (mongoose.Types.ObjectId.isValid(raw) && /^[0-9a-f]{24}$/i.test(raw)) or.push({ _id: raw });
-
-  const tenants = await Tenant.find({ $or: or, isActive: { $ne: false } })
+  const tenants = await Tenant.find({ code: raw.toUpperCase(), isActive: { $ne: false } })
     .select("_id code authenticationConnections")
     .lean();
   if (tenants.length !== 1) {

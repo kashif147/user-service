@@ -15,7 +15,8 @@ const mockTenants = [];
 jest.mock("../models/tenant.model", () => ({
   find: (q) => {
     const rows = mockTenants.filter(
-      (t) => t.isActive !== false && q.$or.some((c) => (c.code && c.code === t.code) || (c._id && String(c._id) === t._id))
+      // Login resolution queries by Organisation Code only ({ code, isActive }); an _id is never queried.
+      (t) => t.isActive !== false && q._id === undefined && q.code === t.code
     );
     return { select: () => ({ lean: async () => JSON.parse(JSON.stringify(rows)) }) };
   },
@@ -72,8 +73,12 @@ describe("login transaction carries the ProjectShell tenant through the Microsof
     expect(AzureADHandler.handleAzureADAuth).toHaveBeenCalledWith("c", "v", s.nonce, { tenantId: TENANT_B, connectionId: "connB" });
   });
 
-  test("L2 ?tenant=<Tenant._id> works the same as the code", async () => {
-    const s = await start({ tenant: TENANT_A });
+  test("L2 ?tenant=<Tenant._id> (internal id) is NOT a login locator: the same generic 400, no state issued", async () => {
+    const out = await start({ tenant: TENANT_A });
+    expect(out.error).toMatchObject({ status: 400, message: "Microsoft sign-in is not available for this organisation" });
+    expect(AzureADHandler.handleAzureADAuth).not.toHaveBeenCalled();
+    // ... while the Organisation Code of the same organisation resolves normally
+    const s = await start({ tenant: "MULTIAUTH" });
     await callback({ code: "c", codeVerifier: "v", state: s.state });
     expect(AzureADHandler.handleAzureADAuth.mock.calls[0][3]).toEqual({ tenantId: TENANT_A, connectionId: "connA" });
   });
