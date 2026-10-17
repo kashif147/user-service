@@ -79,8 +79,14 @@ describe("working member-portal login is structurally unchanged", () => {
   test("/pkce/generate still served by pkce.controller.generatePKCE", () => {
     const pkce = require("../routes/pkce.routes");
     const ctl = require("../controllers/pkce.controller");
+    const { LOGIN_START_STEPS } = require("../middlewares/loginStartRateLimit");
     const gen = pkce.stack.find((l) => l.route && l.route.path === "/generate" && l.route.methods.get);
-    expect(gen.route.stack.map((x) => x.handle)).toEqual([ctl.generatePKCE]);
+    const handles = gen.route.stack.map((x) => x.handle);
+    // exactly: the three approved login-start rate-limit steps, in order, then the same controller
+    expect(handles).toHaveLength(4);
+    expect(handles[3]).toBe(ctl.generatePKCE);
+    expect(handles.slice(0, 3).map((h) => h.loginStartStep)).toEqual(LOGIN_START_STEPS);
+    expect(LOGIN_START_STEPS).toEqual(["global-observe", "burst-60-per-minute", "sustained-300-per-hour"]);
   });
   test("/auth, /token, /pkce, /policy mounts remain", () => {
     for (const p of ["/auth", "/token", "/pkce", "/policy"]) {

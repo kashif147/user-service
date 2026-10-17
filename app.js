@@ -9,6 +9,9 @@ require("./helpers/entraConfig").logMissingEntraConfig();
 // The DEV shared-directory override (ENTRA_ALLOW_SHARED_DIRECTORY / ENTRA_SHARED_DIRECTORY_ALLOWLIST)
 // configured outside DEPLOYMENT_ENV=dev, or a malformed allow-list, stops the service from starting.
 require("./helpers/directoryClaimPolicy").assertDirectoryClaimConfig();
+// A malformed sign-in rate-limit configuration (LOGIN_RATE_LIMIT_TRUSTED_PROXY not exactly one IP,
+// LOGIN_RATE_GLOBAL_ALERT not a positive integer) stops the service from starting.
+require("./middlewares/loginStartRateLimit").assertLoginRateLimitConfig();
 
 // Suppress Application Insights warnings if not configured
 // Azure App Service auto-injects Application Insights, but warnings appear if key is missing
