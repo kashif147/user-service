@@ -2,6 +2,7 @@ const AzureADHandler = require("../handlers/azure.ad.handler");
 const jwtHelper = require("../helpers/jwt");
 const { AppError } = require("../errors/AppError");
 const { takeLoginTransaction } = require("../helpers/pkceStateStore");
+const { loginOrganisationDisplay } = require("../helpers/loginOrganisationDisplay");
 const { EntraConfigError } = require("../helpers/entraConfig");
 const { microsoftErrorFields, isMicrosoftTokenError } = require("../helpers/microsoftErrorLog");
 
@@ -108,6 +109,10 @@ module.exports.handleAzureADCallback = async (req, res, next) => {
 
     console.log(`Azure AD authentication successful: user ${user._id}, tenant ${user.tenantId}`);
 
+    // Display-only { code, name } of the session's own organisation, for the CRM's remembered
+    // sign-in screen (omitted when it cannot be determined safely; sign-in is unaffected).
+    const organisation = await loginOrganisationDisplay(user, transaction.loginContext);
+
     // Returned as the signed JWT itself. It used to be AES-encrypted with a key derived from
     // JWT_SECRET, which forced the CRM to ship JWT_SECRET (REACT_APP_JWT_SECRET) in its public
     // bundle to decrypt it - that leaked the secret the gateway verifies tokens with. TLS
@@ -118,6 +123,7 @@ module.exports.handleAzureADCallback = async (req, res, next) => {
       message: "Azure AD authentication successful",
       user: userResponse,
       accessToken: tokenData.token,
+      ...(organisation ? { organisation } : {}),
     });
   } catch (error) {
     // Deliberate refusals from the handler (e.g. identity not provisioned in any tenant that
