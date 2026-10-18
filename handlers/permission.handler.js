@@ -1,5 +1,6 @@
 const Permission = require("../models/permission.model");
 const Role = require("../models/role.model");
+const { TENANT_ADMIN_PERMISSION } = require("../constants/tenantAdminPermission");
 
 module.exports.createPermission = async (permissionData, createdBy) => {
   try {
@@ -292,6 +293,9 @@ module.exports.initializeDefaultPermissions = async () => {
         category: "TENANT",
         level: 100,
       },
+      // tenant:admin (authentication connections) - canonical definition, shared with the fallback
+      // catalogue and scripts/ensure-tenant-admin.js (existing environments).
+      { ...TENANT_ADMIN_PERMISSION },
 
       // Portal permissions
       {
@@ -472,7 +476,7 @@ module.exports.initializeDefaultPermissions = async () => {
         description: "View notification history and read notifications",
         resource: "notification",
         action: "read",
-        category: "NOTIFICATION",
+        category: "COMMUNICATION",
         level: 1,
       },
       {
@@ -481,7 +485,7 @@ module.exports.initializeDefaultPermissions = async () => {
         description: "Mark notifications as read and update notification status",
         resource: "notification",
         action: "write",
-        category: "NOTIFICATION",
+        category: "COMMUNICATION",
         level: 10,
       },
 

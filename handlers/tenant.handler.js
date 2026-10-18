@@ -2,6 +2,12 @@ const mongoose = require("mongoose");
 const Tenant = require("../models/tenant.model");
 const Role = require("../models/role.model");
 const User = require("../models/user.model");
+const Permission = require("../models/permission.model");
+const {
+  TENANT_ADMIN_ROLE_CODE,
+  TENANT_ADMIN_ROLE_PERMISSIONS,
+  missingRolePermissions,
+} = require("../constants/tenantAdminPermission");
 const {
   normalizeOrganisationProfile,
   mergeOrganisationProfile,
@@ -188,6 +194,8 @@ module.exports.createTenant = async (tenantData, createdBy) => {
 
     // Initialize default roles for the new tenant
     await initializeTenantRoles(tenant._id.toString());
+    // tenant:admin must not depend on the copied template being current.
+    await ensureTenantAdminOnNewTenant(tenant._id.toString());
 
     return tenant;
   } catch (error) {
@@ -553,6 +561,39 @@ module.exports.updateRegionalSettings = async (
     throw new Error(`Error updating regional settings: ${error.message}`);
   }
 };
+
+/**
+ * New-tenant provisioning: that tenant's ASU role (if provisioning produced one) holds TENANT_READ +
+ * TENANT_ADMIN (constants/tenantAdminPermission.js). Role permissions only - never a user, never a
+ * new role, never another tenant's role. No ASU -> a safe log line (the separate "no template
+ * roles" gap), tenant creation continues. A failure here is logged, not fatal: the tenant already
+ * exists and scripts/ensure-tenant-admin.js converges it.
+ */
+const ensureTenantAdminOnNewTenant = async (tenantId) => {
+  try {
+    const asu = await Role.findOne({ tenantId, code: TENANT_ADMIN_ROLE_CODE, isActive: { $ne: false } })
+      .select("_id permissions")
+      .lean();
+    if (!asu) {
+      console.warn("Tenant provisioning: no ASU role for the new tenant; tenant:admin not assigned", { tenantId });
+      return { status: "NO_ASU_ROLE" };
+    }
+    const perms = await Permission.find({ code: { $in: TENANT_ADMIN_ROLE_PERMISSIONS } }).select("_id code").lean();
+    const idsByCode = Object.fromEntries(perms.map((p) => [p.code, String(p._id)]));
+    const missing = missingRolePermissions(asu.permissions, idsByCode);
+    if (missing.length === 0) return { status: "ALREADY_PRESENT" };
+    await Role.updateOne(
+      { _id: asu._id, tenantId },
+      { $addToSet: { permissions: { $each: missing } }, $set: { updatedBy: "tenant-provisioning", updatedAt: new Date() } }
+    );
+    console.log("Tenant provisioning: ASU role given tenant permissions", { tenantId, added: missing });
+    return { status: "ADDED", added: missing };
+  } catch (error) {
+    console.error("Tenant provisioning: could not ensure tenant:admin on ASU", { tenantId, error: error.message });
+    return { status: "ERROR" };
+  }
+};
+module.exports.ensureTenantAdminOnNewTenant = ensureTenantAdminOnNewTenant;
 
 // Helper function to initialize roles for a new tenant
 const initializeTenantRoles = async (tenantId) => {

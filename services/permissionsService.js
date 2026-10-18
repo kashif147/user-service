@@ -9,6 +9,7 @@
 const Permission = require("../models/permission.model");
 const Role = require("../models/role.model");
 const cache = require("./cacheService");
+const { TENANT_ADMIN_PERMISSION } = require("../constants/tenantAdminPermission");
 
 class PermissionsService {
   constructor() {
@@ -335,6 +336,15 @@ class PermissionsService {
         action: "delete",
         level: 100,
         category: "TENANT",
+      },
+      // tenant:admin - the canonical definition (same fields as the other fallback entries)
+      {
+        code: TENANT_ADMIN_PERMISSION.code,
+        name: TENANT_ADMIN_PERMISSION.name,
+        resource: TENANT_ADMIN_PERMISSION.resource,
+        action: TENANT_ADMIN_PERMISSION.action,
+        level: TENANT_ADMIN_PERMISSION.level,
+        category: TENANT_ADMIN_PERMISSION.category,
       },
 
       // Lookup permissions
