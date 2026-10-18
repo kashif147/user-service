@@ -173,14 +173,22 @@ describe("tenantContextWarn — behaviour (warn mode)", () => {
     expect(nextCount).toBe(1); // still non-blocking
   });
 
-  test("8 falls back to req.ctx.tenantId when the gateway header is absent", () => {
-    const req = gatewayReq({
-      headers: { "x-jwt-verified": undefined },
-      ctx: { tenantId: TRUSTED, userId: "U1" },
-    });
-    const { nextCount } = run(req);
-    expect(req.tenantId).toBe(TRUSTED);
-    expect(nextCount).toBe(1);
+  test("8 req.ctx.tenantId is NOT a trusted source: never promoted without verified gateway headers", () => {
+    // Hardened package (Phase B): only x-auth-source "gateway" + x-jwt-verified "true" + a
+    // 24-lowercase-hex x-tenant-id is trusted. A tenant in req.ctx (e.g. an Entra tid / directory
+    // id from another auth path) must never become the ProjectShell tenant boundary.
+    const DIRECTORY_ID = "9188040d-6c67-4c5b-b112-36a304b66dad";
+    for (const [headers, ctxTenant] of [
+      [{ "x-jwt-verified": undefined }, TRUSTED],
+      [{ "x-jwt-verified": undefined, "x-tenant-id": undefined }, DIRECTORY_ID],
+      [{ "x-auth-source": "azuread", "x-tenant-id": DIRECTORY_ID }, DIRECTORY_ID],
+    ]) {
+      const req = gatewayReq({ headers, ctx: { tenantId: ctxTenant, userId: "U1" }, body: { tenantId: OTHER } });
+      const { nextCount } = run(req);
+      expect(req.tenantId).toBeUndefined();
+      expect(req.ctx.tenantId).toBe(ctxTenant); // left as is, not rewritten either
+      expect(nextCount).toBe(1); // WARN: no trusted tenant -> nothing to compare, request continues
+    }
   });
 });
 
