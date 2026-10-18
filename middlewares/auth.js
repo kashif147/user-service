@@ -19,7 +19,7 @@ const { validateGatewayRequest } = gatewaySecurity;
  * refresh/revoke) or the internal service-to-service routers (verify-ms-token,
  * tenant-lifecycle, internal-role-access), which do not establish a trusted tenant.
  */
-const tenantContextWarn = tenantContextMiddleware({ mode: "warn" });
+const tenantContextWarn = tenantContextMiddleware();
 
 /**
  * Phase 1B — local ProjectShell token verifier for the NON-gateway paths.

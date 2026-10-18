@@ -166,9 +166,10 @@ describe.each(routers)("product-domain router guard — %s", ({ name, router, li
 });
 
 describe("H WARN mode preserved (source assertion)", () => {
-  test("middlewares/auth.js uses mode: \"warn\" and not \"enforce\"", () => {
+  test("middlewares/auth.js does not hard-code a mode (TENANT_CONTEXT_MODE, default warn) and not \"enforce\"", () => {
     const src = fs.readFileSync(path.join(__dirname, "../middlewares/auth.js"), "utf8");
-    expect(src).toMatch(/tenantContextMiddleware\(\{\s*mode:\s*"warn"\s*\}\)/);
+    expect(src).toMatch(/tenantContextMiddleware\(\)/); // mode comes from TENANT_CONTEXT_MODE (default warn)
+    expect(src).not.toMatch(/mode:\s*["']warn["']/);
     expect(src).not.toMatch(/mode:\s*"enforce"/);
   });
 

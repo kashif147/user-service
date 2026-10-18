@@ -204,7 +204,8 @@ describe("tenantContextWarn — adoption wiring", () => {
   test("10 middlewares/auth.js builds it in WARN mode and exports tenantContextWarn", () => {
     const src = readSrc("middlewares/auth.js");
     expect(src).toMatch(/tenantContextMiddleware\s*,?\s*\}\s*=\s*require\(["']@membership\/policy-middleware["']\)/s);
-    expect(src).toMatch(/tenantContextWarn\s*=\s*tenantContextMiddleware\(\{\s*mode:\s*["']warn["']\s*\}\)/);
+    expect(src).toMatch(/tenantContextWarn\s*=\s*tenantContextMiddleware\(\)/); // mode comes from TENANT_CONTEXT_MODE (default warn)
+    expect(src).not.toMatch(/mode:\s*["']warn["']/);
     // exported
     expect(src).toMatch(/module\.exports\s*=\s*\{[\s\S]*tenantContextWarn[\s\S]*\}/);
   });
