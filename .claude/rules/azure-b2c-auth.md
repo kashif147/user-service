@@ -7,6 +7,8 @@ subsequent login go through the exact same code path; there is no separate "sync
 `controllers/auth.controller.js` only covers post-login token lifecycle (`/auth/refresh`,
 `/auth/revoke`, `/auth/revoke-all`) — it doesn't provision anything.
 
-**`"controllers/b2c.users.controller copy.js"` (literal " copy" in the filename) is confirmed dead
-code** — nothing requires it anywhere in the repo; it's an earlier draft with hardcoded
-`localhost:3000` redirects. Safe to ignore or delete.
+**Login tokens are returned as the signed JWT, never encrypted.** There is no token-encryption
+helper: the old `helpers/tokenEncryption.js` (AES-256-GCM keyed off `JWT_SECRET`) and its only
+caller, the dead draft `controllers/b2c.users.controller copy.js`, were deleted because decrypting
+on the client meant shipping `JWT_SECRET`. `JWT_SECRET` is for signing/verifying JWTs only - never
+derive another key from it or hand it to a client (`tests/tokenEncryption.removed.test.js`).
