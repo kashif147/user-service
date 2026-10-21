@@ -106,11 +106,12 @@ describe("B2C sign-up check (POST /api/users/validate)", () => {
     expect(logged()).toMatch(/"memberno":true,"mobilephone":true/);
   });
 
-  test("fail open (profile-service down): the Continue response with email and names is not logged", async () => {
+  test("profile-service down: fails closed (ShowBlockPage, no personal data echoed) and nothing personal is logged", async () => {
     axios.post.mockRejectedValueOnce(Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }));
     const res = fakeRes();
     await UserController.validateUser(signUpRequest(), res, jest.fn());
-    expect(res.body).toMatchObject({ action: "Continue", email: PII.email });
+    expect(res.body).toMatchObject({ action: "ShowBlockPage" });
+    expect(JSON.stringify(res.body)).not.toContain(PII.email);
     expectNoPersonalData();
   });
 

@@ -84,12 +84,13 @@ test("4 each tenant's app resolves to its own tenant", async () => {
   expect(mockPosts[0].headers["x-tenant-id"]).toBe(B);
 });
 
-test("5 profile-service down: fail-open continues with the TRUSTED tenant, never a default", async () => {
+test("5 profile-service down: FAIL CLOSED - the sign-up is blocked, never continued", async () => {
   mockAxiosBehaviour = "down";
   const r = await call({ email: "z@example.test", client_id: "app-B" });
-  expect(r.body.action).toBe("Continue");
-  expect(r.body.tenantId).toBe(B);
-  expect(r.body.tenantId).not.toMatch(/default/);
+  expect(r.code).toBe(200);
+  expect(r.body.action).toBe("ShowBlockPage");
+  expect(r.body.tenantId).toBeUndefined();
+  expect(mockPosts[0].headers["x-tenant-id"]).toBe(B); // the validation was attempted for the trusted tenant only
 });
 
 test("6 a B2C app shared by two tenants signs up only into the auto-provisioning one (never a sign-in-only tenant)", async () => {

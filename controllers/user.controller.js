@@ -283,39 +283,32 @@ const validateUserInternal = async (req, res, next) => {
       console.log(`[${requestId}] ⏱️  Total response time: ${duration}ms`);
       console.log(`[${requestId}] ${"=".repeat(80)}\n`);
 
+      // Only a well-formed B2C connector answer is passed on; anything else blocks the sign-up
+      // (fail closed) instead of handing Azure B2C an unknown or empty action.
+      const profileData = profileResponse.data;
+      if (!profileData || typeof profileData !== 'object' || Array.isArray(profileData) ||
+          !['Continue', 'ShowBlockPage', 'ValidationError'].includes(profileData.action)) {
+        console.error(`[${requestId}] ❌ Profile service returned an unusable validation response - blocking sign-up`);
+        return sendResponse(200, {
+          version: "1.0.0",
+          action: "ShowBlockPage",
+          userMessage: "An error occurred during validation. Please try again.",
+        });
+      }
+
       // Return the response from profile-service with appropriate HTTP status
-      if (profileResponse.data.action === 'ValidationError' && profileResponse.data.status === 400) {
-        return sendResponse(400, profileResponse.data);
+      if (profileData.action === 'ValidationError' && profileData.status === 400) {
+        return sendResponse(400, profileData);
       } else {
-        return sendResponse(200, profileResponse.data);
+        return sendResponse(200, profileData);
       }
     } catch (profileServiceError) {
       const profileServiceDuration = Date.now() - profileServiceStartTime;
       console.error(`[${requestId}] ❌ Profile service call failed after ${profileServiceDuration}ms:`, profileServiceError.message);
       
-      // If profile-service is down or times out, fail open (allow signup)
-      // This ensures Azure B2C signup isn't blocked by profile-service issues
-      if (profileServiceError.code === 'ECONNREFUSED' || profileServiceError.code === 'ETIMEDOUT') {
-        console.warn(`[${requestId}] ⚠️ Profile service unavailable - allowing signup (fail open)`);
-        
-        const defaultTenantId = trustedTenantId; // trusted connector tenant, never a "default" fallback
-        
-        const duration = Date.now() - startTime;
-        console.log(`[${requestId}] ⏱️  Total response time: ${duration}ms`);
-        console.log(`[${requestId}] ${"=".repeat(80)}\n`);
-        
-        return sendResponse(200, {
-          version: "1.0.0",
-          action: "Continue",
-          email: email,
-          tenantId: defaultTenantId,
-          ...(givenName && { givenName }),
-          ...(surname && { surname }),
-          ...(displayName && { displayName }),
-        });
-      }
-      
-      // For other errors, re-throw to be caught by outer catch block
+      // FAIL CLOSED: if the duplicate/eligibility validation cannot be completed (connection refused,
+      // timeout, any non-2xx), the sign-up is blocked (outer catch -> ShowBlockPage). It never
+      // continues without a completed profile-service validation.
       throw profileServiceError;
     }
   } catch (error) {
