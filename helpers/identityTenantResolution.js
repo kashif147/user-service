@@ -181,4 +181,4 @@ async function resolveTenantScopedUser({ tenantId, connectionId, connectionType,
   return { tenantId: scopedTenantId, existingUser: null, connection };
 }
 
-module.exports = { resolveApplicationTenant, resolveTenantScopedUser, IdentityTenantError };
+module.exports = { resolveApplicationTenant, resolveTenantScopedUser, IdentityTenantError, isPlaceholderMicrosoftId };
