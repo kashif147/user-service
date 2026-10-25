@@ -13,6 +13,7 @@ const {
   resolveApplicationTenant,
   resolveTenantScopedUser,
   IdentityTenantError,
+  isPlaceholderMicrosoftId,
 } = require("../helpers/identityTenantResolution");
 const { AppError } = require("../errors/AppError");
 const {
@@ -42,6 +43,32 @@ async function assertCrmSignInAllowed(user, tenantId) {
     console.warn("Azure AD login denied:", { reason: "NO_ACTIVE_ROLE", userId: String(user._id), tenantId });
     throw AppError.forbidden(NO_ORGANISATION_ACCESS);
   }
+}
+
+// CRM sign-in operates only on CRM users, and a stored (non-placeholder) Microsoft id is never
+// re-bound: an email match carrying a different oid, or a non-CRM record, is refused with the
+// standard denial before any write. Checked on both CRM paths, with and without an organisation code.
+function assertCrmIdentityBinding(user, incomingMicrosoftId, tenantId) {
+  let reason = null;
+  if (user.userType !== "CRM") reason = "USER_TYPE_MISMATCH";
+  else if (!isPlaceholderMicrosoftId(user.userMicrosoftId) && user.userMicrosoftId !== incomingMicrosoftId) {
+    reason = "MICROSOFT_ID_MISMATCH";
+  }
+  if (reason) {
+    console.warn("Azure AD login denied:", { reason, userId: String(user._id), tenantId });
+    throw AppError.forbidden("CRM sign-in is not available for this account");
+  }
+}
+
+// Atomic counterpart of assertCrmIdentityBinding for the update filter: the write applies only while
+// the record is still a CRM user whose stored Microsoft id is the one approved above (still unbound,
+// or the same oid), so a concurrent link or re-bind after the check cannot be overwritten.
+function crmIdentityUnchanged(user) {
+  const stored = user.userMicrosoftId;
+  return {
+    userType: "CRM",
+    userMicrosoftId: isPlaceholderMicrosoftId(stored) ? { $in: [null, "", ...(stored ? [stored] : [])] } : stored,
+  };
 }
 
 const GRAPH_ME_ENDPOINT = "https://graph.microsoft.com/v1.0/me";
@@ -343,6 +370,7 @@ class AzureADHandler {
       // deactivated -> refused (as the portal); no active role in this organisation -> refused
       // (zero roles is an intentional state, never repaired at sign-in).
       if (existingUser) {
+        assertCrmIdentityBinding(existingUser, profile.userMicrosoftId, tenantId);
         await assertCrmSignInAllowed(existingUser, tenantId);
       }
 
@@ -378,7 +406,7 @@ class AzureADHandler {
       // (re-checked atomically, never upserted); a new user is inserted keyed by the Entra oid.
       const user = await User.findOneAndUpdate(
         existingUser
-          ? { _id: existingUser._id, isActive: { $ne: false } }
+          ? { _id: existingUser._id, isActive: { $ne: false }, ...crmIdentityUnchanged(existingUser) }
           : { tenantId, userMicrosoftId: profile.userMicrosoftId },
         {
           $set: updateData, // This includes the new tenantId (Tenant._id)
@@ -425,9 +453,15 @@ class AzureADHandler {
             ? { tenantId, userMicrosoftId: profile.userMicrosoftId }
             : { userEmail: email, tenantId: tenantId }
         );
-        // Only adopt the concurrently-created record of the SAME identity: an email collision with
-        // a different oid is a conflict, not a login. It passes the same access checks.
-        if (user && (!loginContext || user.userMicrosoftId === profile.userMicrosoftId)) {
+        // Only adopt the concurrently-created record of the SAME identity (a CRM user already bound
+        // to this oid; never linked or re-bound here): anything else is a conflict, not a login.
+        // It passes the same access checks.
+        if (user) {
+          if (user.userType !== "CRM" || user.userMicrosoftId !== profile.userMicrosoftId) {
+            assertCrmIdentityBinding(user, profile.userMicrosoftId, tenantId);
+            console.warn("Azure AD login denied:", { reason: "MICROSOFT_ID_UNBOUND_ON_RETRY", userId: String(user._id), tenantId });
+            throw AppError.forbidden("CRM sign-in is not available for this account");
+          }
           await assertCrmSignInAllowed(user, tenantId);
           // Update the user with latest data
           Object.assign(user, {
