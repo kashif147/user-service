@@ -22,7 +22,8 @@ const mockStore = { users: [], calls: [], failNextUpdate: null, realTenants: [],
 const mockMatches = (u, q) =>
   Object.entries(q).every(([k, v]) => {
     if (v && typeof v === "object" && "$ne" in v) return u[k] !== v.$ne;
-    if (v && typeof v === "object" && "$in" in v) return v.$in.map(String).includes(String(u[k]));
+    // MongoDB semantics: {$in: [null]} also matches a missing field.
+    if (v && typeof v === "object" && "$in" in v) return v.$in.map(String).includes(String(u[k] ?? null));
     if (v && typeof v === "object" && "$nin" in v) return !v.$nin.map(String).includes(String(u[k]));
     return String(u[k]) === String(v);
   });
@@ -190,7 +191,7 @@ describe("allowed logins (unchanged)", () => {
     expect(out.status).toBe(200);
     expect(out.body).toMatchObject({ success: true, accessToken: "signed.jwt.token", refreshToken: "rt", user: { id: "p1", userType: "PORTAL" } });
     expect(mockStore.calls).toEqual([
-      'update:{"_id":"p1","userType":{"$ne":"CRM"},"isActive":{"$ne":false}}:upsert=false',
+      'update:{"_id":"p1","userType":{"$ne":"CRM"},"isActive":{"$ne":false},"userMicrosoftId":"oid-1"}:upsert=false',
       "roleSync:m@x.com:new=false",
       "publishUpdated",
       `jwt:m@x.com:PORTAL:${B2C_TENANT}`,
@@ -203,7 +204,7 @@ describe("allowed logins (unchanged)", () => {
     expect(out.status).toBe(200);
     expect(mockStore.calls).toEqual([
       `defaultRole:${B2C_TENANT}`,
-      `update:{"userEmail":"new@x.com","tenantId":"${B2C_TENANT}"}:upsert=true`,
+      `update:{"userEmail":"new@x.com","tenantId":"${B2C_TENANT}","userMicrosoftId":{"$in":[null,"","oid-new"]}}:upsert=true`,
       "insert",
       "roleSync:new@x.com:new=true",
       "publishCreated",
@@ -607,5 +608,126 @@ describe("Phase 2a: portal provisioning and access", () => {
     const out = await login("e2@x.com", "oid-e2");
     expect(out.status).toBe(200);
     expect(mockStore.calls).not.toEqual(expect.arrayContaining([expect.stringMatching(/^(insert|defaultRole)/)]));
+  });
+});
+
+// Phase 1B Step 4 finding: an email match re-bound an existing portal user to a DIFFERENT B2C
+// identity by overwriting its stored oid. Invariant: an existing non-empty userMicrosoftId is never
+// replaced because the email matches; an unbound record may be linked once.
+describe("Microsoft identity binding (stored oid is never re-bound by email)", () => {
+  const TENANT_B = "cccccccccccccccccccccccc";
+  const expectUntouched = (id, before) => expect(byId(id)).toMatchObject(before);
+  const mismatchLogged = (id) => warnLogs.some((l) => l.includes("MICROSOFT_ID_MISMATCH") && l.includes(id));
+
+  test("exact oid match -> 200, oid unchanged", async () => {
+    mockStore.users = [user({ id: "m1", email: "x@x.com", tenant: B2C_TENANT, type: "PORTAL", oid: "oid-A" })];
+    const out = await login("x@x.com", "oid-A");
+    expect(out.status).toBe(200);
+    expect(byId("m1").userMicrosoftId).toBe("oid-A");
+    expect(mockStore.users).toHaveLength(1);
+  });
+
+  test("email match + same oid -> 200, treated as the same identity (not a re-link)", async () => {
+    mockStore.users = [user({ id: "m2", email: "x@x.com", tenant: B2C_TENANT, type: "PORTAL", oid: "oid-A" })];
+    const out = await login("X@x.com".toLowerCase(), "oid-A");
+    expect(out.status).toBe(200);
+    expect(mismatchLogged("m2")).toBe(false);
+    expect(byId("m2").userMicrosoftId).toBe("oid-A");
+  });
+
+  test.each([
+    ["missing", undefined],
+    ["null", null],
+    ["empty", ""],
+    ["pending-first-login placeholder", "pending-first-login-123"],
+  ])("email match + %s userMicrosoftId -> linked once to the incoming oid; a later different oid is refused", async (_l, stored) => {
+    const u = user({ id: "m3", email: "x@x.com", tenant: B2C_TENANT, type: "PORTAL", oid: stored });
+    if (stored === undefined) delete u.userMicrosoftId;
+    mockStore.users = [u];
+    const first = await login("x@x.com", "oid-A");
+    expect(first.status).toBe(200);
+    expect(byId("m3").userMicrosoftId).toBe("oid-A");
+    expect(mockStore.users).toHaveLength(1);
+
+    mockStore.calls = [];
+    const second = await login("x@x.com", "oid-B");
+    expectDenied(second);
+    noSideEffects();
+    expect(byId("m3").userMicrosoftId).toBe("oid-A");
+    expect(mockStore.users).toHaveLength(1);
+  });
+
+  test("email match + DIFFERENT stored oid -> 403; user record, roles and tenant unchanged; no duplicate", async () => {
+    mockStore.users = [user({ id: "m4", email: "x@x.com", tenant: B2C_TENANT, type: "PORTAL", oid: "oid-A", roles: ["NON-MEMBER-role"] })];
+    const before = mockClone(byId("m4"));
+    const out = await login("x@x.com", "oid-B");
+    expectDenied(out);
+    noSideEffects();
+    expectUntouched("m4", { userMicrosoftId: "oid-A", tenantId: B2C_TENANT, roles: ["NON-MEMBER-role"], userLastLogin: OLD_LOGIN, userType: "PORTAL" });
+    expect(byId("m4")).toEqual(expect.objectContaining(before));
+    expect(mockStore.users).toHaveLength(1);
+    expect(mismatchLogged("m4")).toBe(true);
+    expect(warnLogs.join(" ")).not.toMatch(/oid-A|oid-B|x@x\.com/);
+  });
+
+  test("cross-tenant: same email with a different oid in another TRUSTING tenant -> 403, nothing linked, moved or created", async () => {
+    mockStore.realTenants.push(TENANT_B);
+    mockStore.trustingTenants.push({ _id: TENANT_B, authenticationConnections: [{ connectionType: "Azure B2C", directoryId: "b2c-dir", isActive: true, autoProvisionUsers: false }] });
+    mockStore.users = [user({ id: "m5", email: "x@x.com", tenant: TENANT_B, type: "PORTAL", oid: "oid-A" })];
+    const out = await login("x@x.com", "oid-B");
+    expectDenied(out);
+    noSideEffects();
+    expectUntouched("m5", { userMicrosoftId: "oid-A", tenantId: TENANT_B });
+    expect(mockStore.users).toHaveLength(1);
+  });
+
+  test("cross-tenant: same email in a real tenant that does NOT trust the directory is never linked or moved", async () => {
+    mockStore.users = [user({ id: "m6", email: "x@x.com", tenant: OTHER_TENANT, type: "PORTAL", oid: "oid-A" })];
+    const out = await login("x@x.com", "oid-B");
+    expect(out.status).toBe(200);
+    expectUntouched("m6", { userMicrosoftId: "oid-A", tenantId: OTHER_TENANT, userLastLogin: OLD_LOGIN });
+    const created = mockStore.users.find((u) => u._id !== "m6");
+    expect(created).toMatchObject({ tenantId: B2C_TENANT, userMicrosoftId: "oid-B" });
+  });
+
+  test("legacy (pre-tenant-mapping) user with a different oid -> 403, not migrated, oid unchanged", async () => {
+    mockStore.users = [user({ id: "m7", email: "x@x.com", tenant: "legacy-directory-id", type: "PORTAL", oid: "oid-A" })];
+    const out = await login("x@x.com", "oid-B");
+    expectDenied(out);
+    noSideEffects();
+    expectUntouched("m7", { userMicrosoftId: "oid-A", tenantId: "legacy-directory-id" });
+  });
+
+  test("ambiguous email match (no oid match, same email in two trusting tenants) fails closed", async () => {
+    mockStore.realTenants.push(TENANT_B);
+    mockStore.trustingTenants.push({ _id: TENANT_B, authenticationConnections: [{ connectionType: "Azure B2C", directoryId: "b2c-dir", isActive: true, autoProvisionUsers: false }] });
+    mockStore.users = [
+      user({ id: "m8a", email: "x@x.com", tenant: B2C_TENANT, type: "PORTAL" }),
+      user({ id: "m8b", email: "x@x.com", tenant: TENANT_B, type: "PORTAL" }),
+    ];
+    expectDenied(await login("x@x.com", "oid-B"));
+    noSideEffects();
+    expect(mockStore.users.map((u) => u.userMicrosoftId)).toEqual([undefined, undefined]);
+  });
+
+  test("oid bound concurrently between lookup and update -> 403, the concurrent binding is not overwritten", async () => {
+    mockStore.users = [user({ id: "m9", email: "x@x.com", tenant: B2C_TENANT, type: "PORTAL", oid: null })];
+    mockStore.failNextUpdate = () => { byId("m9").userMicrosoftId = "oid-A"; };
+    const out = await login("x@x.com", "oid-B");
+    expectDenied(out);
+    expect(byId("m9").userMicrosoftId).toBe("oid-A");
+    expect(mockStore.users).toHaveLength(1);
+    expect(mockStore.calls.filter((c) => /^(insert|roleSync|publish|jwt)/.test(c))).toEqual([]);
+  });
+
+  test("same-email user with a different oid created concurrently (E11000 path) -> 403, oid not overwritten", async () => {
+    mockStore.failNextUpdate = () => {
+      mockStore.users.push(user({ id: "m10", email: "x@x.com", tenant: B2C_TENANT, type: "PORTAL", oid: "oid-A" }));
+    };
+    const out = await login("x@x.com", "oid-B");
+    expectDenied(out);
+    expect(byId("m10").userMicrosoftId).toBe("oid-A");
+    expect(mockStore.users).toHaveLength(1);
+    expect(mockStore.calls.filter((c) => /^(save|roleSync|publish|jwt)/.test(c))).toEqual([]);
   });
 });

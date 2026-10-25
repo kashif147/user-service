@@ -3,7 +3,11 @@ const { jwtVerify, createRemoteJWKSet } = require("jose");
 const B2CUser = require("../models/user.model");
 const Tenant = require("../models/tenant.model");
 const { AppError } = require("../errors/AppError");
-const { resolveApplicationTenant, IdentityTenantError } = require("../helpers/identityTenantResolution");
+const {
+  resolveApplicationTenant,
+  IdentityTenantError,
+  isPlaceholderMicrosoftId,
+} = require("../helpers/identityTenantResolution");
 const {
   isAutomatic,
   resolveJitDefaultRoleId,
@@ -61,6 +65,29 @@ function assertPortalSignInAllowed(user) {
     console.warn("B2C login denied:", { reason, userId: String(user._id), tenantId: user.tenantId });
     throw AppError.forbidden(PORTAL_SIGN_IN_DENIED);
   }
+}
+
+// A stored Microsoft object id is the portal user's durable identity. An email match may link a
+// record that has none yet (or a pending-first-login placeholder) or carries this same oid, but
+// never re-binds it to a different B2C identity: that is refused before any write, like every
+// other portal denial (the CRM tenant-scoped path refuses the same case).
+function assertMicrosoftIdBinding(user, incomingMicrosoftId) {
+  if (isPlaceholderMicrosoftId(user.userMicrosoftId)) return;
+  if (user.userMicrosoftId === incomingMicrosoftId) return;
+  console.warn("B2C login denied:", {
+    reason: "MICROSOFT_ID_MISMATCH",
+    userId: String(user._id),
+    tenantId: user.tenantId,
+  });
+  throw AppError.forbidden(PORTAL_SIGN_IN_DENIED);
+}
+
+// Update-filter condition that keeps the binding check atomic: the write only applies while the
+// record still holds the oid state that assertMicrosoftIdBinding accepted ($in null also matches
+// a missing field), so a concurrent sign-in cannot swap a freshly linked oid.
+function microsoftIdUnchanged(user) {
+  const stored = user.userMicrosoftId;
+  return isPlaceholderMicrosoftId(stored) ? { $in: [null, "", ...(stored ? [stored] : [])] } : stored;
 }
 
 // Public message for a portal user without any active role in the organisation.
@@ -270,6 +297,7 @@ class B2CUsersHandler {
 
       if (existingUser) {
         assertPortalSignInAllowed(existingUser);
+        assertMicrosoftIdBinding(existingUser, profile.userMicrosoftId);
         // A legacy user's roles belong to its pre-mapping tenant; it is provisioned below instead.
         if (!migratingLegacyUser) await assertPortalUserHasAccess(existingUser, tenantId);
       }
@@ -306,15 +334,23 @@ class B2CUsersHandler {
         : {};
 
       // Use atomic findOneAndUpdate with upsert to prevent race conditions. A vetted existing user is
-      // updated by _id (still PORTAL + active, re-checked atomically); otherwise insert by email + tenant.
+      // updated by _id (still PORTAL + active + same oid binding, re-checked atomically); otherwise
+      // insert by email + tenant. A same-email record created concurrently with another oid does not
+      // match the insert filter, so the insert hits the unique index (E11000 path below) instead of
+      // overwriting its oid.
       const user = await B2CUser.findOneAndUpdate(
         existingUser
           ? {
               _id: existingUser._id,
               userType: { $ne: "CRM" },
               isActive: { $ne: false },
+              userMicrosoftId: microsoftIdUnchanged(existingUser),
             }
-          : { userEmail: email, tenantId: tenantId },
+          : {
+              userEmail: email,
+              tenantId: tenantId,
+              userMicrosoftId: { $in: [null, "", profile.userMicrosoftId] },
+            },
         {
           $set: migratingLegacyUser ? { ...updateData, roles: [jitRoleId] } : updateData, // includes tenantId (Tenant._id)
           $setOnInsert: {
@@ -364,6 +400,7 @@ class B2CUsersHandler {
         });
         if (user) {
           assertPortalSignInAllowed(user);
+          assertMicrosoftIdBinding(user, profile.userMicrosoftId);
           await assertPortalUserHasAccess(user, tenantId);
           Object.assign(user, updateData);
           await user.save();
