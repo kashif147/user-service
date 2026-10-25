@@ -24,7 +24,7 @@ const mockStore = { users: [], calls: [], tenants: [] };
 const mockClone = (o) => JSON.parse(JSON.stringify(o));
 const mockMatches = (u, q) =>
   Object.entries(q).every(([k, v]) => {
-    if (v && typeof v === "object" && "$in" in v) return v.$in.map(String).includes(String(u[k]));
+    if (v && typeof v === "object" && "$in" in v) return v.$in.map(String).includes(String(u[k] ?? null));
     if (v && typeof v === "object" && "$nin" in v) return !v.$nin.map(String).includes(String(u[k]));
     if (v && typeof v === "object" && "$ne" in v) return u[k] !== v.$ne;
     return String(u[k]) === String(v);
@@ -138,7 +138,7 @@ describe("positive cases: same Entra directory, tenant chosen by the login conte
     const u = await login(EMAIL_A, OID_A, ctxA);
     expect(u._id).toBe("a1");
     expect(String(u.tenantId)).toBe(TENANT_A);
-    expect(mockStore.calls).toContain(`update:{"_id":"a1","isActive":{"$ne":false}}`);
+    expect(mockStore.calls).toContain(`update:{"_id":"a1","isActive":{"$ne":false},"userType":"CRM","userMicrosoftId":"${OID_A}"}`);
   });
 
   test("S2 User B through DEVTENANTB, first login -> JIT user created ONLY in DEVTENANTB, keyed by oid", async () => {

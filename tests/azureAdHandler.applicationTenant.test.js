@@ -25,7 +25,7 @@ const mockStore = { users: [], calls: [], trustingTenants: [], realTenants: [] }
 const mockClone = (o) => JSON.parse(JSON.stringify(o));
 const mockMatches = (u, q) =>
   Object.entries(q).every(([k, v]) => {
-    if (v && typeof v === "object" && "$in" in v) return v.$in.map(String).includes(String(u[k]));
+    if (v && typeof v === "object" && "$in" in v) return v.$in.map(String).includes(String(u[k] ?? null));
     if (v && typeof v === "object" && "$nin" in v) return !v.$nin.map(String).includes(String(u[k]));
     if (v && typeof v === "object" && "$ne" in v) return u[k] !== v.$ne;
     return String(u[k]) === String(v);
@@ -128,7 +128,7 @@ describe("CRM application tenant comes from the ProjectShell user, not the Entra
     mockStore.users = [crmUser({ id: "a1", email: "a@x.com", tenant: TENANT_A, oid: "oid-a" })];
     const u = await login("a@x.com", "oid-a");
     expect(String(u.tenantId)).toBe(TENANT_A);
-    expect(mockStore.calls).toContain(`update:{"_id":"a1","isActive":{"$ne":false}}`);
+    expect(mockStore.calls).toContain(`update:{"_id":"a1","isActive":{"$ne":false},"userType":"CRM","userMicrosoftId":"oid-a"}`);
   });
 
   test("C2 user provisioned in Tenant B (same directory) -> Tenant B; tenant never rewritten to A", async () => {
