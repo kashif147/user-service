@@ -34,6 +34,15 @@ router
     productController.getProductsByType
   );
 
+// Phase A / A10: products of a product type by the type's stable code (e.g. MEM), optionally one
+// product by its code (?productCode=4080). Tenant from the trusted context only.
+router
+  .route("/products/by-type-code/:typeCode")
+  .get(
+    defaultPolicyAdapter.middleware("product", "read"),
+    productController.getProductsByTypeCode
+  );
+
 router
   .route("/products/:id")
   .get(

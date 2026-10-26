@@ -95,10 +95,92 @@ const getAllProducts = async (req, res, next) => {
   }
 };
 
+// Shared by GET /products/by-type/:productTypeId and GET /products/by-type-code/:typeCode.
+const findProductsOfType = (productType, tenantId, extraFilter = {}) =>
+  Product.find({
+    productTypeId: productType._id,
+    tenantId,
+    isDeleted: false,
+    ...extraFilter,
+  })
+    .populate("createdBy", "firstName lastName email")
+    .populate("updatedBy", "firstName lastName email")
+    .populate("currentPricing")
+    .sort({ name: 1 });
+
+const formatProductsOfType = (products, productType) =>
+  products.map((product) => ({
+    _id: product._id,
+    name: product.name,
+    code: product.code,
+    description: product.description,
+    productType: {
+      _id: productType._id,
+      name: productType.name,
+      code: productType.code,
+      description: productType.description,
+    },
+    status: product.status,
+    isActive: product.isActive,
+    currentPricing: product.currentPricing
+      ? {
+          _id: product.currentPricing._id,
+          currency: product.currentPricing.currency,
+          price: product.currentPricing.price,
+          effectiveFrom: product.currentPricing.effectiveFrom,
+          effectiveTo: product.currentPricing.effectiveTo,
+        }
+      : null,
+    createdBy: product.createdBy
+      ? {
+          _id: product.createdBy._id,
+          name: `${product.createdBy.firstName} ${product.createdBy.lastName}`,
+          email: product.createdBy.email,
+        }
+      : null,
+    updatedBy: product.updatedBy
+      ? {
+          _id: product.updatedBy._id,
+          name: `${product.updatedBy.firstName} ${product.updatedBy.lastName}`,
+          email: product.updatedBy.email,
+        }
+      : null,
+    createdAt: product.createdAt,
+    updatedAt: product.updatedAt,
+  }));
+
+const sendProductsOfType = (req, res, productType, products) => {
+  const formattedProducts = formatProductsOfType(products, productType);
+
+  const productsForCaller = formattedProducts.filter((product) =>
+    shouldExposeMembershipCategoryToRequest(req, product.name) &&
+    shouldExposeMembershipCategoryToRequest(req, product.code),
+  );
+
+  res.status(200).json({
+    success: true,
+    data: {
+      productType: {
+        _id: productType._id,
+        name: productType.name,
+        code: productType.code,
+        description: productType.description,
+      },
+      products: productsForCaller,
+      count: productsForCaller.length,
+    },
+  });
+};
+
 const getProductsByType = async (req, res, next) => {
   try {
     const { productTypeId } = req.params;
     const { tenantId } = req.ctx;
+
+    // Phase A / A10 (B-11): a malformed id is a 400, not a CastError 500.
+    if (!mongoose.Types.ObjectId.isValid(productTypeId)) {
+      return next(AppError.badRequest("Invalid product type ID"));
+    }
 
     // Verify product type exists
     const productType = await ProductType.findOne({
@@ -114,76 +196,75 @@ const getProductsByType = async (req, res, next) => {
       });
     }
 
-    const products = await Product.find({
-      productTypeId,
-      tenantId,
-      isDeleted: false,
-    })
-      .populate("createdBy", "firstName lastName email")
-      .populate("updatedBy", "firstName lastName email")
-      .populate("currentPricing")
-      .sort({ name: 1 });
+    const products = await findProductsOfType(productType, tenantId);
 
-    const formattedProducts = products.map((product) => ({
-      _id: product._id,
-      name: product.name,
-      code: product.code,
-      description: product.description,
-      productType: {
-        _id: productType._id,
-        name: productType.name,
-        code: productType.code,
-        description: productType.description,
-      },
-      status: product.status,
-      isActive: product.isActive,
-      currentPricing: product.currentPricing
-        ? {
-            _id: product.currentPricing._id,
-            currency: product.currentPricing.currency,
-            price: product.currentPricing.price,
-            effectiveFrom: product.currentPricing.effectiveFrom,
-            effectiveTo: product.currentPricing.effectiveTo,
-          }
-        : null,
-      createdBy: product.createdBy
-        ? {
-            _id: product.createdBy._id,
-            name: `${product.createdBy.firstName} ${product.createdBy.lastName}`,
-            email: product.createdBy.email,
-          }
-        : null,
-      updatedBy: product.updatedBy
-        ? {
-            _id: product.updatedBy._id,
-            name: `${product.updatedBy.firstName} ${product.updatedBy.lastName}`,
-            email: product.updatedBy.email,
-          }
-        : null,
-      createdAt: product.createdAt,
-      updatedAt: product.updatedAt,
-    }));
-
-    const productsForCaller = formattedProducts.filter((product) =>
-      shouldExposeMembershipCategoryToRequest(req, product.name) &&
-      shouldExposeMembershipCategoryToRequest(req, product.code),
-    );
-
-    res.status(200).json({
-      success: true,
-      data: {
-        productType: {
-          _id: productType._id,
-          name: productType.name,
-          code: productType.code,
-          description: productType.description,
-        },
-        products: productsForCaller,
-        count: productsForCaller.length,
-      },
-    });
+    sendProductsOfType(req, res, productType, products);
   } catch (error) {
     console.error("Error fetching products by type:", error);
+    return next(AppError.internalServerError("Failed to retrieve products"));
+  }
+};
+
+// Phase A / A10: product types and products addressed by stable code (codes may contain spaces,
+// e.g. "CODE 005").
+const PRODUCT_CODE_PATTERN = /^[A-Z0-9_ -]{1,20}$/;
+const normalizeProductCode = (value) =>
+  String(value ?? "")
+    .trim()
+    .toUpperCase();
+
+/**
+ * Phase A / A10: a tenant's products of one product type, addressed by the type's stable code.
+ * GET /api/products/by-type-code/:typeCode[?productCode=CODE]
+ *
+ * Tenant: req.ctx.tenantId only (router-level requireTenant) - product types are tenant-owned, so a
+ * code that exists only in another tenant is a 404 here; there is no global or cross-tenant fallback.
+ * Response: the GET /products/by-type/:id envelope; unknown type -> 404 PRODUCT_TYPE_NOT_FOUND,
+ * productCode with no match -> 404 PRODUCT_NOT_FOUND.
+ */
+const getProductsByTypeCode = async (req, res, next) => {
+  try {
+    const { tenantId } = req.ctx;
+    const typeCode = normalizeProductCode(req.params.typeCode);
+    const hasProductCode = req.query.productCode !== undefined;
+    const productCode = normalizeProductCode(req.query.productCode);
+
+    if (!PRODUCT_CODE_PATTERN.test(typeCode)) {
+      return next(
+        new AppError("Invalid product type code", 400, "INVALID_PRODUCT_TYPE_CODE")
+      );
+    }
+    if (hasProductCode && !PRODUCT_CODE_PATTERN.test(productCode)) {
+      return next(
+        new AppError("Invalid product code", 400, "INVALID_PRODUCT_CODE")
+      );
+    }
+
+    const productType = await ProductType.findOne({
+      code: typeCode,
+      tenantId,
+      isDeleted: false,
+    });
+
+    if (!productType) {
+      return next(
+        new AppError("Product type not found", 404, "PRODUCT_TYPE_NOT_FOUND")
+      );
+    }
+
+    const products = await findProductsOfType(
+      productType,
+      tenantId,
+      hasProductCode ? { code: productCode } : {}
+    );
+
+    if (hasProductCode && products.length === 0) {
+      return next(new AppError("Product not found", 404, "PRODUCT_NOT_FOUND"));
+    }
+
+    sendProductsOfType(req, res, productType, products);
+  } catch (error) {
+    console.error("Error fetching products by type code:", error);
     return next(AppError.internalServerError("Failed to retrieve products"));
   }
 };
@@ -561,6 +642,7 @@ const deleteProduct = async (req, res, next) => {
 module.exports = {
   getAllProducts,
   getProductsByType,
+  getProductsByTypeCode,
   getProduct,
   createProduct,
   updateProduct,

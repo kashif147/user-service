@@ -189,7 +189,7 @@ const resolveParentLookupTypeId = async (parentId, currentId = null) => {
 const getAllLookupType = async (req, res, next) => {
   try {
     // Use cache service to get all lookup types
-    const lookupTypes = await lookupCacheService.getAllLookupTypes(async () => {
+    const lookupTypes = await lookupCacheService.getAllLookupTypes(req.ctx?.tenantId, async () => {
       // Database query function
       return await LookupType.find().populate(LOOKUP_TYPE_POPULATE);
     });
@@ -216,6 +216,7 @@ const getLookupType = async (req, res, next) => {
 
     // Use cache service to get lookup type by ID
     const lookupType = await lookupCacheService.getLookupTypeById(
+      req.ctx?.tenantId,
       id,
       async () => {
         // Database query function

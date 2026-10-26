@@ -457,8 +457,9 @@ const filterPortalMembershipCategoryLookups = (lookups, req) => {
 
 const getAllLookup = async (req, res, next) => {
   try {
-    const lookups = await lookupCacheService.getAllLookups(async () =>
-      findPopulatedLookups({})
+    const lookups = await lookupCacheService.getAllLookups(
+      req.ctx?.tenantId,
+      async () => findPopulatedLookups({})
     );
 
     if (!lookups?.length) {
@@ -493,8 +494,10 @@ const getLookup = async (req, res, next) => {
       return next(AppError.badRequest("Invalid lookup ID"));
     }
 
-    const lookup = await lookupCacheService.getLookupById(id, async () =>
-      findPopulatedLookup({ _id: id })
+    const lookup = await lookupCacheService.getLookupById(
+      req.ctx?.tenantId,
+      id,
+      async () => findPopulatedLookup({ _id: id })
     );
 
     if (!lookup) {
@@ -801,13 +804,10 @@ const bulkUpdateOfficer = async (req, res, next) => {
 
     const updatedLookups = await findPopulatedLookups({ _id: { $in: ids } });
 
+    // Phase A / A11 (B-12): the officer appears in by-id, hierarchy AND by-type hierarchy results,
+    // so clear all of them (every tenant's entries - lookups are shared until Phase D).
     await lookupCacheService.invalidateLookupCache();
-    await Promise.all(
-      ids.map(async (lookupId) => {
-        await lookupCacheService.invalidateLookupCache(lookupId);
-        await lookupCacheService.invalidateHierarchyCache(lookupId);
-      })
-    );
+    await lookupCacheService.invalidateHierarchyCache();
     await invalidateOfficerMeCaches(req, [...previousOfficerIds, officer]);
 
     const lookupsPayload = isSimpleFormat(req)
@@ -847,7 +847,7 @@ const getLookupHierarchy = async (req, res, next) => {
       return next(AppError.badRequest("Invalid lookup ID"));
     }
 
-    const response = await lookupCacheService.getLookupHierarchy(id, async () => {
+    const response = await lookupCacheService.getLookupHierarchy(req.ctx?.tenantId, id, async () => {
       const lookup = await findPopulatedLookup({ _id: id });
       if (!lookup) return null;
 
@@ -891,132 +891,225 @@ const getLookupHierarchy = async (req, res, next) => {
 };
 
 /**
+ * Build the by-type hierarchy payload for one lookup type (database read; no caching).
+ * Shared by the by-id and by-code routes so both return the identical payload.
+ */
+const buildLookupsByTypeHierarchy = async (lookuptypeId) => {
+  const lookupType = await LookupType.findById(lookuptypeId)
+    .select(LOOKUP_TYPE_SELECT)
+    .populate(LOOKUP_TYPE_POPULATE);
+
+  if (!lookupType) {
+    return {
+      message: "Lookup type not found",
+      lookuptypeId,
+      lookuptype: null,
+      totalCount: 0,
+      results: [],
+    };
+  }
+
+  const lookups = await Lookup.find({
+    lookuptypeId,
+    isdeleted: false,
+    isactive: true,
+  }).populate(LOOKUP_QUERY_POPULATE);
+
+  if (!lookups.length) {
+    return {
+      message: "No lookups found for the specified type",
+      lookuptypeId,
+      lookuptype: formatLookupType(lookupType),
+      totalCount: 0,
+      results: [],
+    };
+  }
+
+  const parentMap = new Map();
+  let pendingIds = new Set(
+    lookups
+      .map((lookup) => lookup.Parentlookupid?._id || lookup.Parentlookupid)
+      .filter(Boolean)
+      .map((id) => id.toString())
+  );
+
+  while (pendingIds.size > 0) {
+    const batchIds = Array.from(pendingIds);
+    pendingIds.clear();
+
+    const parents = await Lookup.find({
+      _id: {
+        $in: batchIds.map((id) => new mongoose.Types.ObjectId(id)),
+      },
+    }).populate(LOOKUP_QUERY_POPULATE);
+
+    for (const parent of parents) {
+      const parentId = parent._id.toString();
+      if (!parentMap.has(parentId)) {
+        parentMap.set(parentId, parent);
+        const nextParentId =
+          parent.Parentlookupid?._id || parent.Parentlookupid;
+        if (nextParentId && !parentMap.has(nextParentId.toString())) {
+          pendingIds.add(nextParentId.toString());
+        }
+      }
+    }
+  }
+
+  const results = lookups.map((lookup) => {
+    const ancestors = [];
+    const seen = new Set();
+    let currentParentId =
+      lookup.Parentlookupid?._id || lookup.Parentlookupid;
+
+    while (currentParentId && !seen.has(currentParentId.toString())) {
+      const parentKey = currentParentId.toString();
+      seen.add(parentKey);
+      const parent = parentMap.get(parentKey);
+      if (!parent) break;
+
+      ancestors.push(parent);
+
+      currentParentId =
+        parent.Parentlookupid?._id || parent.Parentlookupid;
+    }
+
+    ancestors.reverse();
+
+    return buildHierarchyResultItem(
+      formatLookup(lookup),
+      ancestors.map((ancestor) => formatLookup(ancestor)),
+      false
+    );
+  });
+
+  return {
+    lookuptype: formatLookupType(lookupType),
+    totalCount: results.length,
+    results,
+  };
+};
+
+/**
+ * Phase A / A11: the by-type payload, cached under the trusted tenant's namespace
+ * (lookuptype-hierarchy:v2:<tenantId>:type:<lookuptypeId>). The source rows are still global.
+ */
+const loadLookupsByTypeWithHierarchy = (tenantId, lookuptypeId) =>
+  lookupCacheService.getLookupsByTypeWithHierarchy(tenantId, lookuptypeId, () =>
+    buildLookupsByTypeHierarchy(lookuptypeId)
+  );
+
+const sendLookupsByTypeResponse = (req, res, response) => {
+  const simple = isSimpleFormat(req);
+  const lean = isLeanQuery(req);
+
+  if (simple) {
+    return res.status(200).json({
+      lookuptype: response.lookuptype
+        ? buildSimpleLookupTypeMeta(response.lookuptype)
+        : null,
+      totalCount: response.totalCount ?? response.results?.length ?? 0,
+      results: (response.results || []).map(({ lookup, hierarchy }) =>
+        buildSimpleLocationTreeFromFormatted(lookup, hierarchy)
+      ),
+    });
+  }
+
+  res.status(200).json(applyLeanToByTypeResponse(response, lean));
+};
+
+/**
  * Get all lookups by lookup type with their complete parent hierarchy
  */
 const getLookupsByTypeWithHierarchy = async (req, res, next) => {
   try {
     const { lookuptypeId } = req.params;
-    const simple = isSimpleFormat(req);
-    const lean = isLeanQuery(req);
 
     if (!mongoose.Types.ObjectId.isValid(lookuptypeId)) {
       return next(AppError.badRequest("Invalid lookup type ID"));
     }
 
-    const response = await lookupCacheService.getLookupsByTypeWithHierarchy(
-      lookuptypeId,
+    const response = await loadLookupsByTypeWithHierarchy(
+      req.ctx?.tenantId,
+      lookuptypeId
+    );
+
+    sendLookupsByTypeResponse(req, res, response);
+  } catch (error) {
+    console.error("Error fetching lookups by type with hierarchy:", error);
+    return next(
+      AppError.internalServerError("Failed to retrieve lookups by type")
+    );
+  }
+};
+
+// Phase A / A10: lookup types addressed by their stable code instead of a hard-coded ObjectId.
+const LOOKUP_TYPE_CODE_PATTERN = /^[A-Z0-9_-]{3,10}$/;
+const normalizeLookupTypeCode = (value) =>
+  String(value ?? "")
+    .trim()
+    .toUpperCase();
+
+// Portal callers never see honorary membership categories (same rule as GET /lookup).
+// Applied after the cache read - the cached payload is the unfiltered one.
+const filterPortalByTypeResponse = (response, req) => {
+  if (!isPortalUserRequest(req) || !Array.isArray(response?.results)) {
+    return response;
+  }
+  const results = response.results.filter(
+    (item) => filterPortalMembershipCategoryLookups([item?.lookup], req).length > 0
+  );
+  if (results.length === response.results.length) return response;
+  return { ...response, totalCount: results.length, results };
+};
+
+/**
+ * Phase A / A10: all lookups of a lookup type, addressed by the type's stable code.
+ * GET /api/lookup/by-type-code/:typeCode/hierarchy  (lean / format=simple as by-type)
+ *
+ * Tenant: req.ctx.tenantId only (requireTenant on the route) - there is no tenant parameter.
+ * TODAY lookup types/lookups are global, so the code resolves against the shared rows and only the
+ * cache is tenant-keyed. PHASE D (tenant-owned lookups): the resolver filters { tenantId, code } and
+ * the hierarchy query by tenant - same route, same response, same cache keys; no global fallback.
+ * Response: identical to GET /lookup/by-type/:id/hierarchy for the same type; an unknown code is a
+ * 404 LOOKUP_TYPE_NOT_FOUND (the by-id route answers 200 with an empty result instead).
+ */
+const getLookupsByTypeCodeWithHierarchy = async (req, res, next) => {
+  try {
+    const tenantId = req.ctx?.tenantId;
+    const typeCode = normalizeLookupTypeCode(req.params.typeCode);
+
+    if (!LOOKUP_TYPE_CODE_PATTERN.test(typeCode)) {
+      return next(
+        new AppError("Invalid lookup type code", 400, "INVALID_LOOKUP_TYPE_CODE")
+      );
+    }
+
+    const lookuptypeId = await lookupCacheService.getLookupTypeIdByCode(
+      tenantId,
+      typeCode,
       async () => {
-        const lookupType = await LookupType.findById(lookuptypeId)
-          .select(LOOKUP_TYPE_SELECT)
-          .populate(LOOKUP_TYPE_POPULATE);
-
-        if (!lookupType) {
-          return {
-            message: "Lookup type not found",
-            lookuptypeId,
-            lookuptype: null,
-            totalCount: 0,
-            results: [],
-          };
-        }
-
-        const lookups = await Lookup.find({
-          lookuptypeId,
-          isdeleted: false,
-          isactive: true,
-        }).populate(LOOKUP_QUERY_POPULATE);
-
-        if (!lookups.length) {
-          return {
-            message: "No lookups found for the specified type",
-            lookuptypeId,
-            lookuptype: formatLookupType(lookupType),
-            totalCount: 0,
-            results: [],
-          };
-        }
-
-        const parentMap = new Map();
-        let pendingIds = new Set(
-          lookups
-            .map((lookup) => lookup.Parentlookupid?._id || lookup.Parentlookupid)
-            .filter(Boolean)
-            .map((id) => id.toString())
-        );
-
-        while (pendingIds.size > 0) {
-          const batchIds = Array.from(pendingIds);
-          pendingIds.clear();
-
-          const parents = await Lookup.find({
-            _id: {
-              $in: batchIds.map((id) => new mongoose.Types.ObjectId(id)),
-            },
-          }).populate(LOOKUP_QUERY_POPULATE);
-
-          for (const parent of parents) {
-            const parentId = parent._id.toString();
-            if (!parentMap.has(parentId)) {
-              parentMap.set(parentId, parent);
-              const nextParentId =
-                parent.Parentlookupid?._id || parent.Parentlookupid;
-              if (nextParentId && !parentMap.has(nextParentId.toString())) {
-                pendingIds.add(nextParentId.toString());
-              }
-            }
-          }
-        }
-
-        const results = lookups.map((lookup) => {
-          const ancestors = [];
-          const seen = new Set();
-          let currentParentId =
-            lookup.Parentlookupid?._id || lookup.Parentlookupid;
-
-          while (currentParentId && !seen.has(currentParentId.toString())) {
-            const parentKey = currentParentId.toString();
-            seen.add(parentKey);
-            const parent = parentMap.get(parentKey);
-            if (!parent) break;
-
-            ancestors.push(parent);
-
-            currentParentId =
-              parent.Parentlookupid?._id || parent.Parentlookupid;
-          }
-
-          ancestors.reverse();
-
-          return buildHierarchyResultItem(
-            formatLookup(lookup),
-            ancestors.map((ancestor) => formatLookup(ancestor)),
-            false
-          );
-        });
-
-        return {
-          lookuptype: formatLookupType(lookupType),
-          totalCount: results.length,
-          results,
-        };
+        const lookupType = await LookupType.findOne({
+          code: typeCode,
+          isdeleted: { $ne: true },
+        })
+          .select("_id")
+          .lean();
+        return lookupType ? String(lookupType._id) : null;
       }
     );
 
-    if (simple) {
-      return res.status(200).json({
-        lookuptype: response.lookuptype
-          ? buildSimpleLookupTypeMeta(response.lookuptype)
-          : null,
-        totalCount: response.totalCount ?? response.results?.length ?? 0,
-        results: (response.results || []).map(({ lookup, hierarchy }) =>
-          buildSimpleLocationTreeFromFormatted(lookup, hierarchy)
-        ),
-      });
+    if (!lookuptypeId) {
+      return next(
+        new AppError("Lookup type not found", 404, "LOOKUP_TYPE_NOT_FOUND")
+      );
     }
 
-    res.status(200).json(applyLeanToByTypeResponse(response, lean));
+    const response = await loadLookupsByTypeWithHierarchy(tenantId, lookuptypeId);
+
+    sendLookupsByTypeResponse(req, res, filterPortalByTypeResponse(response, req));
   } catch (error) {
-    console.error("Error fetching lookups by type with hierarchy:", error);
+    console.error("Error fetching lookups by type code with hierarchy:", error);
     return next(
       AppError.internalServerError("Failed to retrieve lookups by type")
     );
@@ -1032,6 +1125,9 @@ module.exports = {
   bulkUpdateOfficer,
   getLookupHierarchy,
   getLookupsByTypeWithHierarchy,
+  getLookupsByTypeCodeWithHierarchy,
+  normalizeLookupTypeCode,
+  LOOKUP_TYPE_CODE_PATTERN,
   formatLookup,
   hierarchyConvenienceFields,
   isLeanQuery,
