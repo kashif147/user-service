@@ -85,13 +85,15 @@ async function migrateToTenantIsolation(defaultTenantId) {
         { tenantId: 1, userEmail: 1 },
         { unique: true }
       );
+      // Phase A / A8: identity uniqueness is partial (populated ids only) — never recreate the
+      // old non-partial form here (see scripts/migrate-user-identity-partial-indexes.js).
       await User.collection.createIndex(
         { tenantId: 1, userMicrosoftId: 1 },
-        { unique: true }
+        { unique: true, name: "tenantId_1_userMicrosoftId_1_partial", partialFilterExpression: { userMicrosoftId: { $gt: "" } } }
       );
       await User.collection.createIndex(
         { tenantId: 1, userSubject: 1 },
-        { unique: true }
+        { unique: true, name: "tenantId_1_userSubject_1_partial", partialFilterExpression: { userSubject: { $gt: "" } } }
       );
       console.log("✅ Created user tenant isolation indexes");
     } catch (error) {

@@ -59,8 +59,18 @@ const UserSchema = new mongoose.Schema({
 
 // Compound indexes for tenant isolation
 UserSchema.index({ tenantId: 1, userEmail: 1 }, { unique: true }); // Unique email per tenant
-UserSchema.index({ tenantId: 1, userMicrosoftId: 1 }, { unique: true }); // Unique Microsoft ID per tenant
-UserSchema.index({ tenantId: 1, userSubject: 1 }, { unique: true }); // Unique subject per tenant
+// Phase A / A8: identity uniqueness applies only to POPULATED identifiers. { $gt: "" } matches non-empty
+// strings only (BSON type bracketing excludes null / missing / ""), so users without an oid or sub
+// (e.g. created before first sign-in) no longer collide, while every real id stays unique per tenant.
+// Built by scripts/migrate-user-identity-partial-indexes.js (which drops the old non-partial pair).
+UserSchema.index(
+  { tenantId: 1, userMicrosoftId: 1 },
+  { unique: true, name: "tenantId_1_userMicrosoftId_1_partial", partialFilterExpression: { userMicrosoftId: { $gt: "" } } }
+); // Unique Microsoft ID per tenant (when present)
+UserSchema.index(
+  { tenantId: 1, userSubject: 1 },
+  { unique: true, name: "tenantId_1_userSubject_1_partial", partialFilterExpression: { userSubject: { $gt: "" } } }
+); // Unique subject per tenant (when present)
 UserSchema.index({ tenantId: 1, roles: 1, isActive: 1 }); // Fast role-assigned user lookups
 
 // Index for Azure B2C validation endpoint (cross-tenant duplicate check)
