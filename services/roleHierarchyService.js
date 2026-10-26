@@ -9,20 +9,39 @@
 const Role = require("../models/role.model");
 const cache = require("./cacheService");
 
+// Phase A / A9: roles are tenant-owned, so the hierarchy is cached and loaded PER TENANT. A missing
+// tenant fails closed (no global / cross-tenant merge by role code, no fallback to another tenant).
+const tenantKey = (tenantId) => {
+  const t = tenantId == null ? "" : String(tenantId).trim();
+  if (!t || ["default", "unknown", "system"].includes(t.toLowerCase())) {
+    const err = new Error("Role hierarchy requires a trusted tenant");
+    err.code = "TENANT_REQUIRED";
+    throw err;
+  }
+  return t;
+};
+
 class RoleHierarchyService {
   constructor() {
-    this.cacheKey = "role_hierarchy";
+    this.cachePrefix = "role_hierarchy";
+    this.legacyCacheKey = "role_hierarchy"; // pre-Phase-A global key (purged by clearCache)
     this.cacheTimeout = 300000; // 5 minutes
   }
 
+  cacheKeyFor(tenantId) {
+    return `${this.cachePrefix}:${tenantKey(tenantId)}`;
+  }
+
   /**
-   * Get role hierarchy from database with Redis caching
+   * Get the tenant's role hierarchy from database with caching
+   * @param {string} tenantId - trusted tenant (required)
    * @returns {Promise<Object>} Role hierarchy object
    */
-  async getRoleHierarchy() {
+  async getRoleHierarchy(tenantId) {
+    const cacheKey = this.cacheKeyFor(tenantId);
     try {
       // Try to get from cache first
-      const cached = await cache.get(this.cacheKey);
+      const cached = await cache.get(cacheKey);
       if (cached) {
         console.log("Role hierarchy loaded from cache");
         return cached;
@@ -30,7 +49,7 @@ class RoleHierarchyService {
 
       // Load from database
       console.log("Loading role hierarchy from database...");
-      const roles = await Role.find({ isActive: true })
+      const roles = await Role.find({ tenantId: tenantKey(tenantId), isActive: true })
         .select("code level")
         .lean();
 
@@ -47,7 +66,7 @@ class RoleHierarchyService {
       const finalHierarchy = { ...fallbackHierarchy, ...hierarchy };
 
       // Cache the result
-      await cache.set(this.cacheKey, finalHierarchy, this.cacheTimeout);
+      await cache.set(cacheKey, finalHierarchy, this.cacheTimeout);
 
       console.log(
         `Role hierarchy loaded: ${Object.keys(finalHierarchy).length} roles`
@@ -65,8 +84,8 @@ class RoleHierarchyService {
    * @param {string} roleCode - The role code
    * @returns {Promise<number>} The privilege level
    */
-  async getRoleLevel(roleCode) {
-    const hierarchy = await this.getRoleHierarchy();
+  async getRoleLevel(roleCode, tenantId) {
+    const hierarchy = await this.getRoleHierarchy(tenantId);
     return hierarchy[roleCode] || 0;
   }
 
@@ -75,10 +94,10 @@ class RoleHierarchyService {
    * @param {string[]} roles - Array of role codes
    * @returns {Promise<number>} Highest privilege level
    */
-  async getHighestRoleLevel(roles) {
+  async getHighestRoleLevel(roles, tenantId) {
     if (!roles || !Array.isArray(roles)) return 0;
 
-    const hierarchy = await this.getRoleHierarchy();
+    const hierarchy = await this.getRoleHierarchy(tenantId);
     return Math.max(...roles.map((role) => hierarchy[role] || 0));
   }
 
@@ -88,10 +107,10 @@ class RoleHierarchyService {
    * @param {string} minRole - Minimum required role
    * @returns {Promise<boolean>} True if user has sufficient privileges
    */
-  async hasMinimumRole(userRoles, minRole) {
+  async hasMinimumRole(userRoles, minRole, tenantId) {
     if (!userRoles || !Array.isArray(userRoles)) return false;
 
-    const hierarchy = await this.getRoleHierarchy();
+    const hierarchy = await this.getRoleHierarchy(tenantId);
     const minLevel = hierarchy[minRole] || 0;
     const userMaxLevel = Math.max(
       ...userRoles.map((role) => hierarchy[role] || 0)
@@ -132,8 +151,8 @@ class RoleHierarchyService {
    * @param {number} minLevel - Minimum privilege level
    * @returns {Promise<string[]>} Array of role codes
    */
-  async getRolesAtOrAbove(minLevel) {
-    const hierarchy = await this.getRoleHierarchy();
+  async getRolesAtOrAbove(minLevel, tenantId) {
+    const hierarchy = await this.getRoleHierarchy(tenantId);
     return Object.entries(hierarchy)
       .filter(([_, level]) => level >= minLevel)
       .map(([role, _]) => role);
@@ -143,8 +162,8 @@ class RoleHierarchyService {
    * Get role hierarchy as sorted array
    * @returns {Promise<Array>} Array of {role, level} objects sorted by level
    */
-  async getRoleHierarchySorted() {
-    const hierarchy = await this.getRoleHierarchy();
+  async getRoleHierarchySorted(tenantId) {
+    const hierarchy = await this.getRoleHierarchy(tenantId);
     return Object.entries(hierarchy)
       .map(([role, level]) => ({ role, level }))
       .sort((a, b) => b.level - a.level);
@@ -153,17 +172,19 @@ class RoleHierarchyService {
   /**
    * Clear role hierarchy cache
    */
-  async clearCache() {
-    await cache.del(this.cacheKey);
+  async clearCache(tenantId) {
+    // Always purge the legacy global key (pre-Phase-A format) so it can never be served again.
+    await cache.del(this.legacyCacheKey);
+    if (tenantId !== undefined) await cache.del(this.cacheKeyFor(tenantId));
     console.log("Role hierarchy cache cleared");
   }
 
   /**
-   * Refresh role hierarchy cache
+   * Refresh the tenant's role hierarchy cache
    */
-  async refreshCache() {
-    await this.clearCache();
-    return await this.getRoleHierarchy();
+  async refreshCache(tenantId) {
+    await this.clearCache(tenantId);
+    return await this.getRoleHierarchy(tenantId);
   }
 
   /**

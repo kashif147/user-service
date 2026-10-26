@@ -20,7 +20,7 @@ module.exports.clearAllCaches = async (req, res) => {
     console.log("🧹 Clearing all caches...");
 
     // Clear role hierarchy cache
-    await roleHierarchyService.clearCache();
+    await roleHierarchyService.clearCache(req.ctx?.tenantId);
 
     // Clear permissions cache
     await permissionsService.clearCache();
@@ -57,7 +57,7 @@ module.exports.refreshRoleHierarchyCache = async (req, res) => {
   try {
     console.log("🔄 Refreshing role hierarchy cache...");
 
-    const hierarchy = await roleHierarchyService.refreshCache();
+    const hierarchy = await roleHierarchyService.refreshCache(req.ctx?.tenantId);
 
     res.success({
       message: "Role hierarchy cache refreshed successfully",
@@ -96,7 +96,7 @@ module.exports.getCacheStats = async (req, res) => {
     console.log("📊 Getting cache statistics...");
 
     const redisStats = await cacheService.getStats();
-    const roleHierarchy = await roleHierarchyService.getRoleHierarchy();
+    const roleHierarchy = await roleHierarchyService.getRoleHierarchy(req.ctx?.tenantId);
     const permissions = await permissionsService.getAllPermissions();
     const lookupStats = await lookupCacheService.getCacheStats();
 
@@ -125,7 +125,7 @@ module.exports.getCacheStats = async (req, res) => {
 // Get role hierarchy
 module.exports.getRoleHierarchy = async (req, res) => {
   try {
-    const hierarchy = await roleHierarchyService.getRoleHierarchy();
+    const hierarchy = await roleHierarchyService.getRoleHierarchy(req.ctx?.tenantId);
 
     res.success({
       message: "Role hierarchy retrieved successfully",
@@ -163,7 +163,7 @@ module.exports.getRolePermissions = async (req, res) => {
       return res.sendBadRequest("Role code is required");
     }
 
-    const permissions = await permissionsService.getRolePermissions(roleCode);
+    const permissions = await permissionsService.getRolePermissions(roleCode, req.ctx?.tenantId);
 
     res.success({
       message: `Permissions for role ${roleCode} retrieved successfully`,
@@ -187,7 +187,7 @@ module.exports.testCachePerformance = async (req, res) => {
 
     // Test role hierarchy cache performance
     for (let i = 0; i < iterations; i++) {
-      await roleHierarchyService.getRoleHierarchy();
+      await roleHierarchyService.getRoleHierarchy(req.ctx?.tenantId);
     }
 
     const endTime = Date.now();

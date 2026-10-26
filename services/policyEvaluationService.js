@@ -292,7 +292,7 @@ const evaluatePolicyInternal = async (request) => {
 
     // Step 6: Cache lookup — reached only AFTER successful cryptographic
     // verification of the token.
-    const cachedResult = await cache.get(cacheKey);
+    const cachedResult = cacheKey ? await cache.get(cacheKey) : null;
     if (cachedResult) {
       return {
         ...cachedResult,
@@ -322,12 +322,14 @@ const evaluatePolicyInternal = async (request) => {
       correlationId: context.correlationId,
     };
 
-    // Step 8: Cache the result (fire and forget - don't wait)
-    cache
-      .set(cacheKey, result)
-      .catch((err) =>
-        console.warn("Failed to cache policy result:", err.message)
-      );
+    // Step 8: Cache the result (fire and forget - don't wait). No tenant -> no cache key -> not cached.
+    if (cacheKey) {
+      cache
+        .set(cacheKey, result)
+        .catch((err) =>
+          console.warn("Failed to cache policy result:", err.message)
+        );
+    }
 
     return result;
   } catch (error) {

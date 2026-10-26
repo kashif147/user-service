@@ -87,9 +87,17 @@ class PermissionsService {
    * @param {string} roleCode - Role code
    * @returns {Promise<Array>} Array of permission codes for the role
    */
-  async getRolePermissions(roleCode) {
+  async getRolePermissions(roleCode, tenantId) {
+    // Phase A / A9: role codes are only unique within a tenant — key and query by the trusted tenant;
+    // without one, fail closed (never another tenant's role with the same code).
+    const tid = tenantId == null ? "" : String(tenantId).trim();
+    if (!tid || ["default", "unknown", "system"].includes(tid.toLowerCase())) {
+      const err = new Error("Role permissions require a trusted tenant");
+      err.code = "TENANT_REQUIRED";
+      throw err;
+    }
     try {
-      const cacheKey = `${this.rolePermissionsCacheKey}:${roleCode}`;
+      const cacheKey = `${this.rolePermissionsCacheKey}:${tid}:${roleCode}`;
 
       // Try to get from cache first
       const cached = await cache.get(cacheKey);
@@ -98,7 +106,7 @@ class PermissionsService {
       }
 
       // Load from database
-      const role = await Role.findOne({ code: roleCode, isActive: true })
+      const role = await Role.findOne({ tenantId: tid, code: roleCode, isActive: true })
         .select("permissions")
         .lean();
 
@@ -119,7 +127,7 @@ class PermissionsService {
    * @param {Array} userRoles - Array of user roles
    * @returns {Promise<Array>} Array of unique permission codes
    */
-  async getEffectivePermissions(userRoles) {
+  async getEffectivePermissions(userRoles, tenantId) {
     if (!userRoles || !Array.isArray(userRoles)) return [];
 
     try {
@@ -127,7 +135,8 @@ class PermissionsService {
 
       for (const role of userRoles) {
         const rolePermissions = await this.getRolePermissions(
-          role.code || role
+          role.code || role,
+          tenantId
         );
         rolePermissions.forEach((perm) => allPermissions.add(perm));
       }
@@ -145,8 +154,8 @@ class PermissionsService {
    * @param {string} permissionCode - Permission code to check
    * @returns {Promise<boolean>} True if user has permission
    */
-  async hasPermission(userRoles, permissionCode) {
-    const effectivePermissions = await this.getEffectivePermissions(userRoles);
+  async hasPermission(userRoles, permissionCode, tenantId) {
+    const effectivePermissions = await this.getEffectivePermissions(userRoles, tenantId);
 
     // Check for wildcard permission
     if (effectivePermissions.includes("*")) {
@@ -162,8 +171,8 @@ class PermissionsService {
    * @param {Array} permissionCodes - Array of permission codes to check
    * @returns {Promise<boolean>} True if user has any of the permissions
    */
-  async hasAnyPermission(userRoles, permissionCodes) {
-    const effectivePermissions = await this.getEffectivePermissions(userRoles);
+  async hasAnyPermission(userRoles, permissionCodes, tenantId) {
+    const effectivePermissions = await this.getEffectivePermissions(userRoles, tenantId);
 
     // Check for wildcard permission
     if (effectivePermissions.includes("*")) {
@@ -179,8 +188,8 @@ class PermissionsService {
    * @param {Array} permissionCodes - Array of permission codes to check
    * @returns {Promise<boolean>} True if user has all permissions
    */
-  async hasAllPermissions(userRoles, permissionCodes) {
-    const effectivePermissions = await this.getEffectivePermissions(userRoles);
+  async hasAllPermissions(userRoles, permissionCodes, tenantId) {
+    const effectivePermissions = await this.getEffectivePermissions(userRoles, tenantId);
 
     // Check for wildcard permission
     if (effectivePermissions.includes("*")) {

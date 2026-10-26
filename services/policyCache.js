@@ -439,7 +439,9 @@ class PolicyCache {
    * @returns {string} Cache key
    */
   generateKey(tokenHash, resource, action, context = {}) {
-    const tenantId = context.tenantId || "default";
+    // Phase A / A9: never a shared "default" tenant bucket — no tenant, no cache key (callers skip caching).
+    const tenantId = context.tenantId == null ? "" : String(context.tenantId).trim();
+    if (!tenantId || ["default", "unknown", "system"].includes(tenantId.toLowerCase())) return null;
     const contextStr = JSON.stringify(context);
     return `${tenantId}:${tokenHash}:${resource}:${action}:${this.hashString(
       contextStr
