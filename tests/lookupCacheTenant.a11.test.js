@@ -27,7 +27,8 @@ jest.mock("../helpers/policyAdapter.js", () => ({
   defaultPolicyAdapter: { middleware: () => (req, res, next) => next() },
 }));
 jest.mock("../middlewares/auth", () => require("./helpers/a3Fixtures").authMock());
-jest.mock("../config/bizLogger.js", () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn() }));
+// Only the real logging-lib createLogger() methods used here (it has no info/warn).
+jest.mock("../config/bizLogger.js", () => ({ business: jest.fn(), error: jest.fn() }));
 
 const fx = require("./helpers/a3Fixtures");
 const { A, B, D, TYPES, call, cacheStore, cacheOps } = fx;

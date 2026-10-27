@@ -34,7 +34,8 @@ jest.mock("../helpers/policyAdapter.js", () => ({
   },
 }));
 jest.mock("../middlewares/auth", () => require("./helpers/a3Fixtures").authMock());
-jest.mock("../config/bizLogger.js", () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn() }));
+// Only the real logging-lib createLogger() methods used here (it has no info/warn).
+jest.mock("../config/bizLogger.js", () => ({ business: jest.fn(), error: jest.fn() }));
 
 const fx = require("./helpers/a3Fixtures");
 const { A, B, D, TYPES, call } = fx;
@@ -88,9 +89,9 @@ describe("A10 lookup hierarchy by lookup-type code", () => {
     }
   });
 
-  test("unknown type code is an expected outcome: app.js 404 envelope, logged at info, not as an error", async () => {
+  test("unknown type code is an expected outcome: app.js 404 envelope, logged at business (info) level, not as an error", async () => {
     const bizLogger = require("../config/bizLogger.js");
-    bizLogger.info.mockClear();
+    bizLogger.business.mockClear();
     bizLogger.error.mockClear();
     const r = await call(server, "GET", byCode("ISSUEDESG"), { tenant: B, headers: { "x-correlation-id": "cid-a3r" } });
     expect(r.status).toBe(404);
@@ -99,8 +100,8 @@ describe("A10 lookup hierarchy by lookup-type code", () => {
       error: { message: "Lookup type not found", code: "LOOKUP_TYPE_NOT_FOUND", status: 404 },
       correlationId: "cid-a3r",
     });
-    expect(bizLogger.info).toHaveBeenCalledTimes(1);
-    expect(bizLogger.info.mock.calls[0][1]).toEqual({
+    expect(bizLogger.business).toHaveBeenCalledTimes(1);
+    expect(bizLogger.business.mock.calls[0][1]).toEqual({
       eventType: "lookup.type_code_not_found",
       typeCode: "ISSUEDESG",
       tenantId: B,
@@ -108,6 +109,12 @@ describe("A10 lookup hierarchy by lookup-type code", () => {
     });
     expect(bizLogger.error).not.toHaveBeenCalled();
     expect(console.error).not.toHaveBeenCalled();
+  });
+
+  test("the real bizLogger has the business() method the unknown-code path calls", () => {
+    const real = jest.requireActual("../config/bizLogger.js");
+    expect(typeof real.business).toBe("function");
+    expect(real.info).toBeUndefined(); // the mock above must not offer methods the real logger lacks
   });
 
   test("malformed type code -> 400 INVALID_LOOKUP_TYPE_CODE, no lookup-type query", async () => {
