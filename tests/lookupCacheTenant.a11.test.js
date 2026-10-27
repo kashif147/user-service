@@ -129,15 +129,16 @@ test("every lookup read path keys by the trusted tenant (all, by id, hierarchy, 
   expect(keysFor(D)).toEqual(expect.arrayContaining([`lookuptype:v2:${D}:all`, `lookuptype:v2:${D}:id:${WL}`]));
 });
 
-test("no trusted tenant (missing / placeholder) -> no cache key read or written; DB answers directly", async () => {
-  for (const t of [undefined, null, "", "  ", "default", "unknown", "system"]) {
+test("no trusted tenant (missing / placeholder / malformed) -> TENANT_REQUIRED; no cache key, DB not queried", async () => {
+  for (const t of [undefined, null, "", "  ", "default", "unknown", "system", "a:b", "x*"]) {
     let dbCalls = 0;
-    const out = await lookupCacheService.getLookupsByTypeWithHierarchy(t, WL, async () => {
-      dbCalls++;
-      return { ok: true };
-    });
-    expect(out).toEqual({ ok: true });
-    expect(dbCalls).toBe(1);
+    await expect(
+      lookupCacheService.getLookupsByTypeWithHierarchy(t, WL, async () => {
+        dbCalls++;
+        return { ok: true };
+      })
+    ).rejects.toMatchObject({ name: "AppError", status: 400, code: "TENANT_REQUIRED" });
+    expect(dbCalls).toBe(0);
   }
   expect(cacheOps).toEqual([]);
   expect(cacheStore.size).toBe(0);

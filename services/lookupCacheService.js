@@ -11,15 +11,16 @@
  *   lookuptype-hierarchy:v2:<tenantId>:type:<lookuptypeId>
  * Lookup rows are still GLOBAL today (Phase D makes them tenant-owned), so the database query is
  * unchanged and identical ids may sit under several tenants' keys - but an entry is only ever read
- * back under the trusted tenant that resolved it. No trusted tenant -> no key at all (DB query,
- * nothing cached); not reachable over HTTP, where authenticate + requireTenant (mounted for every /api
- * route via role.routes) reject a request without a tenant first. Writes invalidate every tenant's entries (the data is shared until Phase D).
+ * back under the trusted tenant that resolved it. No trusted tenant (missing, placeholder or
+ * malformed) -> TENANT_REQUIRED, the DB is not queried. Over HTTP the requireTrustedTenant route
+ * guard answers 400 first; the throw is the backstop for any other caller. Writes invalidate every tenant's entries (the data is shared until Phase D).
  * The pre-Phase-A global keys (LEGACY_KEY_PATTERNS) are unreachable (v2 prefix) and purged from Redis
  * at startup and by clearAllCaches. Countries are TENANT-OWNED reference data: stored and cached
  * globally only until Phase E clones them per tenant, when their keys gain the tenant dimension too.
  */
 
 const PolicyCache = require("./policyCache");
+const { AppError } = require("../errors/AppError");
 
 const LOOKUP_CACHE_VERSION = "v2";
 
@@ -108,12 +109,13 @@ class LookupCacheService {
 
   /**
    * Shared read-through: tenant-keyed get -> DB on miss -> set.
-   * No trusted tenant: the DB query runs uncached (no key is read or written).
+   * No trusted tenant: throws TENANT_REQUIRED; no key is read or written and the DB is not queried.
    */
   async readThrough(cache, label, tenantId, key, dbQuery, { cacheEmpty = false } = {}) {
     const cacheKey = this.keyFor(tenantId, key);
     if (!cacheKey) {
-      return await dbQuery();
+      // Fail closed: never read the shared rows for a request without a trusted tenant.
+      throw new AppError("Tenant context required", 400, "TENANT_REQUIRED");
     }
 
     try {

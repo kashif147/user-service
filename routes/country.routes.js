@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const countryController = require("../controllers/country.controller");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter");
+const { requireTrustedTenant } = require("../middlewares/requireTrustedTenant");
 
 /**
  * Country API Routes
@@ -13,6 +14,7 @@ const { defaultPolicyAdapter } = require("../helpers/policyAdapter");
 // Get all countries (must come first to avoid conflict with /:id)
 router.get(
   "/countries",
+  requireTrustedTenant,
   defaultPolicyAdapter.middleware("lookup", "read"),
   countryController.getAllCountries
 );
@@ -20,6 +22,7 @@ router.get(
 // Search countries
 router.get(
   "/countries/search",
+  requireTrustedTenant,
   defaultPolicyAdapter.middleware("lookup", "read"),
   countryController.searchCountries
 );
@@ -27,6 +30,7 @@ router.get(
 // Get country by code
 router.get(
   "/countries/code/:code",
+  requireTrustedTenant,
   defaultPolicyAdapter.middleware("lookup", "read"),
   countryController.getCountryByCode
 );
@@ -34,6 +38,7 @@ router.get(
 // Get single country by ID (must come last)
 router.get(
   "/countries/:id",
+  requireTrustedTenant,
   defaultPolicyAdapter.middleware("lookup", "read"),
   countryController.getCountryById
 );

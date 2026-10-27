@@ -156,14 +156,14 @@ describe("A10 lookup hierarchy by lookup-type code", () => {
     expect(crmAgain.body.totalCount).toBe(2);
   });
 
-  test("route chain: requireTenant > policy lookup:read > handler; old by-type route unchanged", () => {
+  test("route chain: requireTenant > requireTrustedTenant > policy lookup:read > handler; old by-type route guarded too", () => {
     const router = require("../routes/lookup.router");
     const ctl = require("../controllers/lookup.controller");
     const layer = router.stack.find((l) => l.route && l.route.path === "/lookup/by-type-code/:typeCode/hierarchy");
     const names = layer.route.stack.map((x) => Object.keys(ctl).find((k) => ctl[k] === x.handle) || x.handle.name);
-    expect(names).toEqual(["requireTenant", "policy:lookup:read", "getLookupsByTypeCodeWithHierarchy"]);
+    expect(names).toEqual(["requireTenant", "requireTrustedTenant", "policy:lookup:read", "getLookupsByTypeCodeWithHierarchy"]);
     const old = router.stack.find((l) => l.route && l.route.path === "/lookup/by-type/:lookuptypeId/hierarchy");
-    expect(old.route.stack.map((x) => x.handle.name)).toEqual(["policy:lookup:read", "getLookupsByTypeWithHierarchy"]);
+    expect(old.route.stack.map((x) => x.handle.name)).toEqual(["requireTrustedTenant", "policy:lookup:read", "getLookupsByTypeWithHierarchy"]);
   });
 
   test("the confirmed type codes 001 (Title) resolve; unmapped legacy ids are not invented", async () => {

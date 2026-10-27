@@ -7,6 +7,7 @@ const {
   requireTenant,
 } = require("../middlewares/auth");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter.js");
+const { requireTrustedTenant } = require("../middlewares/requireTrustedTenant");
 
 // Apply authentication to all routes (validates gateway headers)
 router.use(authenticate, tenantContextWarn);
@@ -14,6 +15,7 @@ router.use(authenticate, tenantContextWarn);
 router
   .route("/lookup")
   .get(
+    requireTrustedTenant,
     defaultPolicyAdapter.middleware("lookup", "read"),
     lookupController.getAllLookup
   )
@@ -40,6 +42,7 @@ router.patch(
 router
   .route("/lookup/:id")
   .get(
+    requireTrustedTenant,
     defaultPolicyAdapter.middleware("lookup", "read"),
     lookupController.getLookup
   );
@@ -48,6 +51,7 @@ router
 router
   .route("/lookup/:id/hierarchy")
   .get(
+    requireTrustedTenant,
     defaultPolicyAdapter.middleware("lookup", "read"),
     lookupController.getLookupHierarchy
   );
@@ -56,6 +60,7 @@ router
 router
   .route("/lookup/by-type/:lookuptypeId/hierarchy")
   .get(
+    requireTrustedTenant,
     defaultPolicyAdapter.middleware("lookup", "read"),
     lookupController.getLookupsByTypeWithHierarchy
   );
@@ -66,6 +71,7 @@ router
   .route("/lookup/by-type-code/:typeCode/hierarchy")
   .get(
     requireTenant,
+    requireTrustedTenant,
     defaultPolicyAdapter.middleware("lookup", "read"),
     lookupController.getLookupsByTypeCodeWithHierarchy
   );

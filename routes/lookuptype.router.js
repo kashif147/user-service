@@ -2,10 +2,12 @@ const express = require("express");
 const router = express.Router();
 const lookuptypeController = require("../controllers/lookuptype.ontroller.js");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter.js");
+const { requireTrustedTenant } = require("../middlewares/requireTrustedTenant");
 
 router
   .route("/lookuptype")
   .get(
+    requireTrustedTenant,
     defaultPolicyAdapter.middleware("lookupType", "read"),
     lookuptypeController.getAllLookupType
   )
@@ -25,6 +27,7 @@ router
 router
   .route("/lookuptype/:id")
   .get(
+    requireTrustedTenant,
     defaultPolicyAdapter.middleware("lookupType", "read"),
     lookuptypeController.getLookupType
   );
