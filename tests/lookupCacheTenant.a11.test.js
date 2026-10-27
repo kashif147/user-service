@@ -27,6 +27,7 @@ jest.mock("../helpers/policyAdapter.js", () => ({
   defaultPolicyAdapter: { middleware: () => (req, res, next) => next() },
 }));
 jest.mock("../middlewares/auth", () => require("./helpers/a3Fixtures").authMock());
+jest.mock("../config/bizLogger.js", () => ({ info: jest.fn(), warn: jest.fn(), error: jest.fn() }));
 
 const fx = require("./helpers/a3Fixtures");
 const { A, B, D, TYPES, call, cacheStore, cacheOps } = fx;
@@ -172,7 +173,7 @@ test("key format is versioned and tenant-dimensioned", () => {
   expect(lookupCacheService.lookupTypeCache.prefix).toBe("lookuptype:v2:");
   expect(lookupCacheService.hierarchyCache.prefix).toBe("hierarchy:v2:");
   expect(lookupCacheService.lookupTypeHierarchyCache.prefix).toBe("lookuptype-hierarchy:v2:");
-  expect(lookupCacheService.countryCache.prefix).toBe("country:"); // platform reference data, unchanged
+  expect(lookupCacheService.countryCache.prefix).toBe("country:"); // unchanged in A-3; tenant-keyed with the Phase E country clone
   const { LEGACY_KEY_PATTERNS } = require("../services/lookupCacheService");
   const re = (p) => new RegExp(`^${p.replace(/\*/g, ".*")}$`);
   for (const t of [A, B, D]) {

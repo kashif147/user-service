@@ -4,6 +4,8 @@ const { AppError } = require("../errors/AppError");
 const lookupCacheService = require("../services/lookupCacheService");
 const { invalidateMeCache } = require("./me.controller");
 const mongoose = require("mongoose");
+const crypto = require("crypto");
+const bizLogger = require("../config/bizLogger.js");
 const {
   isSimpleFormat,
   buildSimpleLookupTypeMeta,
@@ -1072,7 +1074,8 @@ const filterPortalByTypeResponse = (response, req) => {
  * cache is tenant-keyed. PHASE D (tenant-owned lookups): the resolver filters { tenantId, code } and
  * the hierarchy query by tenant - same route, same response, same cache keys; no global fallback.
  * Response: identical to GET /lookup/by-type/:id/hierarchy for the same type; an unknown code is a
- * 404 LOOKUP_TYPE_NOT_FOUND (the by-id route answers 200 with an empty result instead).
+ * 404 LOOKUP_TYPE_NOT_FOUND (the by-id route answers 200 with an empty result instead), logged at
+ * info (eventType lookup.type_code_not_found), not as an error.
  */
 const getLookupsByTypeCodeWithHierarchy = async (req, res, next) => {
   try {
@@ -1100,9 +1103,20 @@ const getLookupsByTypeCodeWithHierarchy = async (req, res, next) => {
     );
 
     if (!lookuptypeId) {
-      return next(
-        new AppError("Lookup type not found", 404, "LOOKUP_TYPE_NOT_FOUND")
-      );
+      // An absent code is an expected outcome for by-code callers (e.g. issue-service's ISSUEDESG,
+      // which has no lookup type in DEV), not a server fault: answer with the app.js AppError
+      // envelope directly and log it at info, instead of the error-level unhandled-error logger.
+      bizLogger.info("Lookup type code not found", {
+        eventType: "lookup.type_code_not_found",
+        typeCode,
+        tenantId,
+        correlationId: req.correlationId || req.headers["x-correlation-id"],
+      });
+      return res.status(404).json({
+        success: false,
+        error: { message: "Lookup type not found", code: "LOOKUP_TYPE_NOT_FOUND", status: 404 },
+        correlationId: req.correlationId || req.headers["x-correlation-id"] || crypto.randomUUID(),
+      });
     }
 
     const response = await loadLookupsByTypeWithHierarchy(tenantId, lookuptypeId);
