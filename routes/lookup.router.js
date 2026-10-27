@@ -8,6 +8,7 @@ const {
 } = require("../middlewares/auth");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter.js");
 const { requireTrustedTenant } = require("../middlewares/requireTrustedTenant");
+const { freezeGlobalWrites } = require("../middlewares/globalDataFreeze");
 
 // Apply authentication to all routes (validates gateway headers)
 router.use(authenticate, tenantContextWarn);
@@ -20,21 +21,26 @@ router
     lookupController.getAllLookup
   )
   .post(
+    freezeGlobalWrites("lookup"),
     defaultPolicyAdapter.middleware("lookup", "write"),
     lookupController.createNewLookup
   )
   .put(
+    freezeGlobalWrites("lookup"),
     defaultPolicyAdapter.middleware("lookup", "write"),
     lookupController.updateLookup
   )
   .delete(
+    freezeGlobalWrites("lookup"),
     defaultPolicyAdapter.middleware("lookup", "delete"),
     lookupController.deleteLookup
   );
 
-// Bulk officer assignment (updates many lookups at once)
+// Bulk officer assignment (updates many lookups at once). Phase A / A14: frozen with the other
+// global lookup writes (officer repair happens only in Phase D).
 router.patch(
   "/lookups/officer",
+  freezeGlobalWrites("lookup"),
   defaultPolicyAdapter.middleware("lookup", "write"),
   lookupController.bulkUpdateOfficer
 );

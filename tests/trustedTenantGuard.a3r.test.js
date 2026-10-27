@@ -90,9 +90,11 @@ test("product by-code with a valid tenant is unchanged: own MEM products; no fal
   expect(d.body.error.code).toBe("PRODUCT_TYPE_NOT_FOUND");
 });
 
-test("lookup writes are unchanged (guard is per read route, not router-level)", async () => {
+test("the read guard is per read route, not router-level: a write is not answered TENANT_REQUIRED", async () => {
+  // Phase A / A14: lookup writes are frozen (423 GLOBAL_DATA_FROZEN) before any tenant check.
   const r = await call(server, "PATCH", "/api/lookups/officer", { tenant: "default", body: { ids: [fx.id(22)], officer: null } });
-  expect(r.status).toBe(200);
+  expect(r.status).toBe(423);
+  expect(r.body.error.code).toBe("GLOBAL_DATA_FROZEN");
 });
 
 const guardedGets = (router) =>

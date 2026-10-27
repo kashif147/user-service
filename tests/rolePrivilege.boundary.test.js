@@ -10,6 +10,7 @@
 const A = "68cbf7806080b4621d469d34";
 const OID_TENANT_CREATE = "111111111111111111111111";
 const OID_LOOKUP_READ = "222222222222222222222222";
+const OID_LOOKUP_WRITE = "333333333333333333333333";
 
 const mockRoles = {
   rCustom: { _id: "rCustom", code: "CUSTOM", isSystemRole: false, permissions: ["role:read", "TENANT_CREATE"] },
@@ -41,6 +42,7 @@ jest.mock("../models/permission.model", () => ({
       [
         { _id: "111111111111111111111111", resource: "tenant", action: "create" },
         { _id: "222222222222222222222222", resource: "lookup", action: "read" },
+        { _id: "333333333333333333333333", resource: "lookup", action: "write" },
       ].filter((d) => q._id.$in.includes(d._id)),
   }),
 }));
@@ -111,7 +113,7 @@ describe("legitimate tenant-level editing still works (non-SU)", () => {
         category: "CRM",
         isActive: true,
         // existing reserved permission (TENANT_CREATE) is kept, not "added"; lookup:read is new and ordinary
-        permissions: ["role:read", "TENANT_CREATE", OID_LOOKUP_READ, "lookup:write"],
+        permissions: ["role:read", "TENANT_CREATE", OID_LOOKUP_READ, "profile:read"],
         tenantId: "aaaaaaaaaaaaaaaaaaaaaaaa",
       },
       A,
@@ -169,6 +171,43 @@ describe("createRole and updateRolePermissions share the boundary", () => {
   });
 });
 
+describe("Phase A / A14: shared-metadata write permissions are reserved during the transition", () => {
+  const RESERVED_FORMS = [["lookup:write"], ["LOOKUP_WRITE"], ["lookupType:write"], ["LOOKUPTYPE_WRITE"], [OID_LOOKUP_WRITE]];
+
+  test.each(RESERVED_FORMS)("ASU cannot grant %p through updateRole", async (perm) => {
+    await rejects(RoleHandler.updateRole("rPlain", { permissions: ["role:read", perm] }, A, "u1", ASU));
+    expect(mockWrites).toHaveLength(0);
+  });
+
+  test.each(RESERVED_FORMS)("ASU cannot grant %p through createRole", async (perm) => {
+    await rejects(RoleHandler.createRole({ code: "LKW", name: "x", level: 40, permissions: [perm] }, A, "u1", ASU));
+    expect(mockSaved).toHaveLength(0);
+  });
+
+  test.each(RESERVED_FORMS)("ASU cannot grant %p through updateRolePermissions (incl. to its own role)", async (perm) => {
+    const id = "aaaaaaaaaaaaaaaaaaaaaaad";
+    mockRoles[id] = { _id: id, code: "TENANT_ADMIN", isSystemRole: false, permissions: ["role:read"] };
+    await rejects(RoleHandler.updateRolePermissions(id, ["role:read", perm], A, "u1", ASU));
+    expect(mockWrites).toHaveLength(0);
+  });
+
+  test("a role that already holds lookup:write keeps it on an unrelated edit (no destructive rewrite)", async () => {
+    const id = "aaaaaaaaaaaaaaaaaaaaaaae";
+    mockRoles[id] = { _id: id, code: "MO", isSystemRole: false, permissions: ["role:read", "LOOKUP_WRITE"] };
+    await RoleHandler.updateRolePermissions(id, ["role:read", "LOOKUP_WRITE", "profile:read"], A, "u1", ASU);
+    expect(mockWrites).toHaveLength(1);
+  });
+
+  test("read and delete stay grantable (reads unaffected; deletes are frozen by the 423 write freeze)", () => {
+    expect(RoleHandler.isReservedPermission("lookup:write")).toBe(true);
+    expect(RoleHandler.isReservedPermission("lookuptype:write")).toBe(true);
+    expect(RoleHandler.isReservedPermission("lookup:read")).toBe(false);
+    expect(RoleHandler.isReservedPermission("lookuptype:read")).toBe(false);
+    expect(RoleHandler.isReservedPermission("lookup:delete")).toBe(false);
+    expect(RoleHandler.isReservedPermission("lookuptype:delete")).toBe(false);
+  });
+});
+
 describe("controllers map violations to 403 using trusted req.ctx roles", () => {
   const ctxReq = (roles, extra = {}) => ({ ctx: { tenantId: A, userId: "u1", roles }, params: {}, body: {}, ...extra });
   const mkRes = () => {
@@ -218,6 +257,6 @@ describe("controllers map violations to 403 using trusted req.ctx roles", () => 
 
 test("reserved-permission classifier", () => {
   const r = RoleHandler.isReservedPermission;
-  for (const p of ["*", "tenant:create", "permission:admin", "permission:delete", "admin:read", "lookup:super_admin"]) expect(r(p)).toBe(true);
-  for (const p of ["tenant:read", "tenant:update", "permission:read", "role:admin", "lookup:write", "user:read"]) expect(r(p)).toBe(false);
+  for (const p of ["*", "tenant:create", "permission:admin", "permission:delete", "admin:read", "lookup:super_admin", "lookup:write", "lookuptype:write"]) expect(r(p)).toBe(true);
+  for (const p of ["tenant:read", "tenant:update", "permission:read", "role:admin", "lookup:read", "lookup:delete", "user:read"]) expect(r(p)).toBe(false);
 });

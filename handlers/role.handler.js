@@ -166,7 +166,9 @@ module.exports.getRoleById = async (roleId, tenantId) => {
 //   - cannot create a role with isSystemRole: true
 //   - cannot set level >= ASU's level (platform-admin tier) or category SYSTEM
 //   - cannot ADD reserved permissions: "*", platform-catalogue / tenant-creation / admin-resource
-//     permissions, or any ":super_admin" action (permissions already on the role are untouched)
+//     permissions, any ":super_admin" action, or (Phase A / A14, until the tenant cutover) the
+//     shared-metadata writes lookup:write / lookupType:write (permissions already on the role are
+//     untouched)
 // SU actors are exempt. tenantId/_id/Mongo operators stay non-editable for everyone.
 // ---------------------------------------------------------------------------
 const RESERVED_ROLE_CODES = ["SU", "ASU"];
@@ -182,6 +184,11 @@ const isReservedPermission = (canonical) => {
   if (resource === "admin") return true; // platform admin resource (e.g. global cache control)
   if (resource === "permission" && action !== "read") return true; // global permission catalogue
   if (resource === "tenant" && action === "create") return true; // new tenants
+  // Phase A / A14: lookups and lookup types are still global (shared by every tenant) until the
+  // Phase D/E cutover, so a tenant must not be able to grant itself write access to them. The
+  // write APIs are also frozen (423). delete is deliberately not reserved here: an existing JIT
+  // default role (DEV) carries lookuptype:delete, and reserving it would refuse that sign-up path.
+  if ((resource === "lookup" || resource === "lookuptype") && action === "write") return true;
   return false;
 };
 

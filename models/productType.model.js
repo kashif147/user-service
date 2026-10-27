@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+const { tenantOwnershipPlugin } = require("./plugins/tenantOwnership.plugin");
 
 const productTypeSchema = new mongoose.Schema(
   {
@@ -75,5 +76,8 @@ productTypeSchema.pre("save", function (next) {
   }
   next();
 });
+
+// Phase A / A15: tenantId is immutable once written (ownership cannot move between tenants).
+productTypeSchema.plugin(tenantOwnershipPlugin, { modelName: "ProductType" });
 
 module.exports = mongoose.model("ProductType", productTypeSchema);

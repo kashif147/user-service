@@ -160,7 +160,10 @@ test("writes invalidate every tenant's entries (lookups are shared until Phase D
   expect([...cacheStore.keys()]).toEqual(["policy:x"]);
 });
 
-test("B-12: bulk officer update clears the by-type hierarchy cache for every tenant", async () => {
+// Phase A / A14: lookup writes are frozen (423) by default; the cache-invalidation rule still applies
+// behind the freeze, so it is exercised in the ops rollback mode (GLOBAL_DATA_WRITES=open).
+test("B-12: bulk officer update clears the by-type hierarchy cache for every tenant (writes open)", async () => {
+  process.env.GLOBAL_DATA_WRITES = "open";
   for (const t of [A, B]) await call(server, "GET", byCode("WORKLOC"), { tenant: t });
   await call(server, "GET", `/api/lookup/${fx.id(22)}`, { tenant: A });
   expect(keysFor(A)).toContain(`lookuptype-hierarchy:v2:${A}:type:${WL}`);
@@ -168,6 +171,17 @@ test("B-12: bulk officer update clears the by-type hierarchy cache for every ten
   expect(r.status).toBe(200);
   const left = [...cacheStore.keys()];
   expect(left.filter((k) => k.startsWith("lookuptype-hierarchy:") || k.startsWith("hierarchy:") || k.startsWith("lookup:"))).toEqual([]);
+  delete process.env.GLOBAL_DATA_WRITES;
+});
+
+test("A14: the same bulk officer update is frozen by default (423) and leaves the cache untouched", async () => {
+  delete process.env.GLOBAL_DATA_WRITES;
+  await call(server, "GET", byCode("WORKLOC"), { tenant: A });
+  const before = [...cacheStore.keys()].sort();
+  const r = await call(server, "PATCH", "/api/lookups/officer", { tenant: A, body: { ids: [fx.id(22)], officer: null } });
+  expect(r.status).toBe(423);
+  expect(r.body.error.code).toBe("GLOBAL_DATA_FROZEN");
+  expect([...cacheStore.keys()].sort()).toEqual(before);
 });
 
 test("key format is versioned and tenant-dimensioned", () => {
