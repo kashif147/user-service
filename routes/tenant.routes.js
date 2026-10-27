@@ -11,6 +11,8 @@ const {
   tenantContextWarn,
 } = require("../middlewares/auth");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter.js");
+// Phase B / Z2: shadow-only platform authorization observers (never change the response; Z5 migrates).
+const { observePlatformPermission } = require("../middlewares/requirePlatformPermission");
 
 // Apply authentication to all routes
 router.use(authenticate, tenantContextWarn);
@@ -18,6 +20,7 @@ router.use(authenticate, tenantContextWarn);
 // Tenant CRUD operations (Super User only for create/update/delete)
 router.post(
   "/tenants",
+  observePlatformPermission("platform:tenant:create"),
   requireTenant,
   requireSuperUser, // Phase 1C-2B: creating a tenant is a platform (SU-only) action
   defaultPolicyAdapter.middleware("tenant", "create"),
@@ -26,6 +29,7 @@ router.post(
 
 router.get(
   "/tenants",
+  observePlatformPermission("platform:tenant:read:any"),
   defaultPolicyAdapter.middleware("tenant", "read"),
   TenantController.getAllTenants
 );
@@ -38,6 +42,7 @@ router.get(
 
 router.get(
   "/tenants/:id",
+  observePlatformPermission("platform:tenant:read:any"),
   requireTenant,
   requireTenantPathAccess("id"),
   defaultPolicyAdapter.middleware("tenant", "read"),
@@ -46,6 +51,7 @@ router.get(
 
 router.get(
   "/tenants/code/:code",
+  observePlatformPermission("platform:tenant:read:any"),
   requireTenant, // Phase 1C-2B: non-SU result is confined to the trusted tenant in the controller
   defaultPolicyAdapter.middleware("tenant", "read"),
   TenantController.getTenantByCode
@@ -53,6 +59,7 @@ router.get(
 
 router.get(
   "/tenants/domain/:domain",
+  observePlatformPermission("platform:tenant:read:any"),
   requireTenant, // Phase 1C-2B: non-SU result is confined to the trusted tenant in the controller
   defaultPolicyAdapter.middleware("tenant", "read"),
   TenantController.getTenantByDomain
@@ -68,6 +75,7 @@ router.put(
 
 router.delete(
   "/tenants/:id",
+  observePlatformPermission("platform:tenant:delete:any"),
   requireTenant,
   requireTenantPathAccess("id"),
   defaultPolicyAdapter.middleware("tenant", "delete"),
@@ -77,6 +85,7 @@ router.delete(
 // Tenant management operations
 router.get(
   "/tenants/:id/stats",
+  observePlatformPermission("platform:tenant:read:any"),
   requireTenant,
   requireTenantPathAccess("id"),
   defaultPolicyAdapter.middleware("tenant", "read"),

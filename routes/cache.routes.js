@@ -8,6 +8,8 @@ const {
   tenantContextWarn,
 } = require("../middlewares/auth");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter.js");
+// Phase B / Z2: shadow-only platform authorization observers (never change the response; Z5 migrates).
+const { observePlatformPermission } = require("../middlewares/requirePlatformPermission");
 
 // Apply authentication to all routes
 router.use(authenticate, tenantContextWarn);
@@ -15,6 +17,7 @@ router.use(authenticate, tenantContextWarn);
 // Cache management routes (Super User only)
 router.post(
   "/cache/clear",
+  observePlatformPermission("platform:cache:admin"),
   requireTenant,
   requireSuperUser, // Phase 1C-2D: platform-level write (SU only, trusted req.ctx roles)
   defaultPolicyAdapter.middleware("admin", "write"),
@@ -23,6 +26,7 @@ router.post(
 
 router.post(
   "/cache/refresh/role-hierarchy",
+  observePlatformPermission("platform:cache:admin"),
   requireTenant,
   requireSuperUser, // Phase 1C-2D: platform-level write (SU only, trusted req.ctx roles)
   defaultPolicyAdapter.middleware("admin", "write"),
@@ -31,6 +35,7 @@ router.post(
 
 router.post(
   "/cache/refresh/permissions",
+  observePlatformPermission("platform:cache:admin"),
   requireTenant,
   requireSuperUser, // Phase 1C-2D: platform-level write (SU only, trusted req.ctx roles)
   defaultPolicyAdapter.middleware("admin", "write"),
@@ -39,6 +44,7 @@ router.post(
 
 router.get(
   "/cache/stats",
+  observePlatformPermission("platform:cache:admin"),
   requireTenant,
   requireSuperUser, // Phase 1C-2H: platform-level read (SU only, trusted req.ctx roles)
   defaultPolicyAdapter.middleware("admin", "read"),
@@ -47,6 +53,7 @@ router.get(
 
 router.get(
   "/cache/performance/test",
+  observePlatformPermission("platform:cache:admin"),
   requireTenant,
   requireSuperUser, // Phase 1C-2H: platform-level read (SU only, trusted req.ctx roles)
   defaultPolicyAdapter.middleware("admin", "read"),
@@ -56,6 +63,7 @@ router.get(
 // Data access routes (Super User only)
 router.get(
   "/role-hierarchy",
+  observePlatformPermission("platform:cache:admin"),
   requireTenant,
   requireSuperUser, // Phase 1C-2H: platform-level read (SU only, trusted req.ctx roles)
   defaultPolicyAdapter.middleware("admin", "read"),
@@ -64,6 +72,7 @@ router.get(
 
 router.get(
   "/permissions-map",
+  observePlatformPermission("platform:cache:admin"),
   requireTenant,
   requireSuperUser, // Phase 1C-2H: platform-level read (SU only, trusted req.ctx roles)
   defaultPolicyAdapter.middleware("admin", "read"),
@@ -72,6 +81,7 @@ router.get(
 
 router.get(
   "/role-permissions/:roleCode",
+  observePlatformPermission("platform:cache:admin"),
   requireTenant,
   requireSuperUser, // Phase 1C-2H: platform-level read (SU only, trusted req.ctx roles)
   defaultPolicyAdapter.middleware("admin", "read"),
@@ -81,6 +91,7 @@ router.get(
 // Lookup cache management routes
 router.post(
   "/lookup/clear",
+  observePlatformPermission("platform:cache:admin"),
   requireTenant,
   requireSuperUser, // Phase 1C-2D: platform-level write (SU only, trusted req.ctx roles)
   defaultPolicyAdapter.middleware("admin", "write"),
@@ -89,6 +100,7 @@ router.post(
 
 router.get(
   "/lookup/stats",
+  observePlatformPermission("platform:cache:admin"),
   requireTenant,
   requireSuperUser, // Phase 1C-2H: platform-level read (SU only, trusted req.ctx roles)
   defaultPolicyAdapter.middleware("admin", "read"),
@@ -98,6 +110,7 @@ router.get(
 // Country cache management routes
 router.post(
   "/country/clear",
+  observePlatformPermission("platform:cache:admin"),
   requireTenant,
   requireSuperUser, // Phase 1C-2D: platform-level write (SU only, trusted req.ctx roles)
   defaultPolicyAdapter.middleware("admin", "write"),

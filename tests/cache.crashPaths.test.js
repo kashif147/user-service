@@ -187,7 +187,12 @@ test("route chains unchanged: every cache route is requireTenant > requireSuperU
   const wide = router.stack.filter((l) => !l.route).map((l) => l.name);
   expect(wide).toHaveLength(2); // authenticate, tenantContextWarn
   expect(wide[0]).toBe("authenticate");
-  const rows = router.stack.filter((l) => l.route).map((l) => l.route.stack.map((x) => name(x.handle)));
+  // Phase B / Z2: each route starts with its shadow platform observer (never changes the response).
+  const rows = router.stack.filter((l) => l.route).map((l) => {
+    const r = l.route.stack.map((x) => name(x.handle));
+    expect(r[0]).toBe("platformAuthzObserver");
+    return r.slice(1);
+  });
   expect(rows).toHaveLength(11);
   for (const r of rows) {
     expect(r.slice(0, 2)).toEqual(["requireTenant", "requireSuperUser"]);

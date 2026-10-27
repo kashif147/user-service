@@ -3,6 +3,8 @@ const router = express.Router();
 const contactController = require("../controllers/contact.controller");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter");
 const { freezeGlobalWrites } = require("../middlewares/globalDataFreeze");
+// Phase B / Z2: shadow-only platform authorization observers (never change the response; Z5 migrates).
+const { observePlatformPermission } = require("../middlewares/requirePlatformPermission");
 
 /**
  * Contact API Routes
@@ -37,6 +39,7 @@ router.get(
 // writes are frozen (423) until their tenancy migration. Reads are unchanged.
 router.post(
   "/contacts",
+  observePlatformPermission("platform:reference-data:manage"),
   freezeGlobalWrites("contact"),
   defaultPolicyAdapter.middleware("contact", "write"),
   contactController.createContact
@@ -45,6 +48,7 @@ router.post(
 // Update contact
 router.put(
   "/contacts/:id",
+  observePlatformPermission("platform:reference-data:manage"),
   freezeGlobalWrites("contact"),
   defaultPolicyAdapter.middleware("contact", "write"),
   contactController.updateContact
@@ -53,6 +57,7 @@ router.put(
 // Delete contact
 router.delete(
   "/contacts/:id",
+  observePlatformPermission("platform:reference-data:manage"),
   freezeGlobalWrites("contact"),
   defaultPolicyAdapter.middleware("contact", "delete"),
   contactController.deleteContact

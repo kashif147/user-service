@@ -3,6 +3,8 @@ const router = express.Router();
 const countryController = require("../controllers/country.controller");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter");
 const { freezeGlobalWrites } = require("../middlewares/globalDataFreeze");
+// Phase B / Z2: shadow-only platform authorization observers (never change the response; Z5 migrates).
+const { observePlatformPermission } = require("../middlewares/requirePlatformPermission");
 const { requireTrustedTenant } = require("../middlewares/requireTrustedTenant");
 
 /**
@@ -49,6 +51,7 @@ router.get(
 // (no tenantId) until Phase E - every write would change all tenants' data, so writes are frozen (423).
 router.post(
   "/countries",
+  observePlatformPermission("platform:reference-data:manage"),
   freezeGlobalWrites("country"),
   defaultPolicyAdapter.middleware("lookup", "write"),
   countryController.createCountry
@@ -57,6 +60,7 @@ router.post(
 // Update country (requires write permission)
 router.put(
   "/countries/:id",
+  observePlatformPermission("platform:reference-data:manage"),
   freezeGlobalWrites("country"),
   defaultPolicyAdapter.middleware("lookup", "write"),
   countryController.updateCountry
@@ -65,6 +69,7 @@ router.put(
 // Delete country (requires delete permission)
 router.delete(
   "/countries/:id",
+  observePlatformPermission("platform:reference-data:manage"),
   freezeGlobalWrites("country"),
   defaultPolicyAdapter.middleware("lookup", "delete"),
   countryController.deleteCountry

@@ -15,8 +15,9 @@
  *  - changes: append-only history of who did what (ops script in Z1; platform API from Z2).
  *  - Unknown fields are rejected (strict "throw"): no tokens, secrets, emails or names are stored.
  *
- * Written only by scripts/platform-principal.js in Z1 (owner-approved, reviewed). No HTTP route
- * reads or writes this collection in Z1 apart from the sign-in claim lookup.
+ * Written only by scripts/platform-principal.js (owner-approved, reviewed). Read by the CRM sign-in
+ * claim lookup (Z1) and by the platform authorization evaluator (Z2,
+ * services/platformAuthorizationService.js); no HTTP route writes it.
  */
 const mongoose = require("mongoose");
 const { PLATFORM_PERMISSIONS } = require("../constants/platformPermissions");

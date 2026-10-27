@@ -143,7 +143,8 @@ test("E every route in cache.routes.js (reads and writes) is now SU-guarded", ()
   expect(routes.length).toBe(11);
   for (const l of routes) {
     const names = l.route.stack.map((s) => s.name);
-    expect(names.slice(0, 2)).toEqual(["requireTenant", "requireSuperUser"]);
+    // Phase B / Z2: a shadow platform observer first (never changes the response), then the same guards.
+    expect(names.slice(0, 3)).toEqual(["platformAuthzObserver", "requireTenant", "requireSuperUser"]);
   }
 });
 

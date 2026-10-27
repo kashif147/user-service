@@ -9,6 +9,8 @@ const {
 } = require("../middlewares/auth");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter.js");
 const { freezeGlobalWrites } = require("../middlewares/globalDataFreeze");
+// Phase B / Z2: shadow-only platform authorization observers (never change the response; Z5 migrates).
+const { observePlatformPermission } = require("../middlewares/requirePlatformPermission");
 
 // Apply authentication to all routes
 router.use(authenticate, tenantContextWarn);
@@ -18,6 +20,7 @@ router.use(authenticate, tenantContextWarn);
 // tenant (every tenant has one), so catalogue writes are frozen (423) and stay deployment/script controlled.
 router.post(
   "/permissions",
+  observePlatformPermission("platform:permission-catalogue:manage"),
   freezeGlobalWrites("permission"),
   requireTenant,
   requireSuperUser, // Phase 1C-2D: platform-level write (SU only, trusted req.ctx roles)
@@ -64,6 +67,7 @@ router.get(
 
 router.put(
   "/permissions/:id",
+  observePlatformPermission("platform:permission-catalogue:manage"),
   freezeGlobalWrites("permission"),
   requireTenant,
   requireSuperUser, // Phase 1C-2D: platform-level write (SU only, trusted req.ctx roles)
@@ -73,6 +77,7 @@ router.put(
 
 router.delete(
   "/permissions/:id",
+  observePlatformPermission("platform:permission-catalogue:manage"),
   freezeGlobalWrites("permission"),
   requireTenant,
   requireSuperUser, // Phase 1C-2D: platform-level write (SU only, trusted req.ctx roles)
@@ -82,6 +87,7 @@ router.delete(
 
 router.post(
   "/permissions/initialize",
+  observePlatformPermission("platform:permission-catalogue:manage"),
   freezeGlobalWrites("permission"),
   requireTenant,
   requireSuperUser, // Phase 1C-2D: platform-level write (SU only, trusted req.ctx roles)

@@ -57,7 +57,7 @@ test("off (default): no lookup; generateToken(user) exactly as before Z1", async
 
 test("shadow + active principal: generateToken(user, { platformClaim }); response shape unchanged", async () => {
   process.env.PLATFORM_AUTH_MODE = "shadow";
-  lookup({ _id: PID, tid: DIR, status: "active", revision: 2, permissions: ["platform:tenant:read"] });
+  lookup({ _id: PID, tid: DIR, status: "active", revision: 2, permissions: ["platform:tenant:read:any"] });
   const { status, body } = await callback();
   expect(status).toBe(200);
   expect(jwtHelper.generateToken).toHaveBeenCalledWith(user, { platformClaim: { v: 1, pid: PID, rev: 2 } });

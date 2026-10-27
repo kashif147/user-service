@@ -23,6 +23,13 @@ router.use("/api", require("./tenantLifecycle.routes"));
 router.use("/api", require("./internalRoleAccess.routes"));
 router.use("/api", require("./internalMsTokenVerification.routes"));
 
+// Phase B / Z2: DEV-only platform authorization probe (PLATFORM_AUTHZ_PROBE=on at boot; absent otherwise).
+// Its middleware is per-route, so it changes nothing for any other request.
+{
+  const platformProbe = require("./platformProbe.routes");
+  if (platformProbe.probeEnabled()) router.use("/api", platformProbe.router);
+}
+
 // =====================================================
 // Standard authenticated APIs
 // =====================================================

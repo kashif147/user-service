@@ -558,6 +558,9 @@ module.exports = {
   requireTenantPathAccess,
   requireSuperUser,
 
+  // Phase B / Z2: the platform authorization evaluator re-verifies the forwarded Bearer with this.
+  verifyProjectShellToken,
+
   // Utility functions (for backward compatibility, but prefer policy-middleware)
   hasRole,
   hasAnyRole,

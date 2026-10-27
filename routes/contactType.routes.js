@@ -3,6 +3,8 @@ const router = express.Router();
 const contactTypeController = require("../controllers/contactType.controller");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter");
 const { freezeGlobalWrites } = require("../middlewares/globalDataFreeze");
+// Phase B / Z2: shadow-only platform authorization observers (never change the response; Z5 migrates).
+const { observePlatformPermission } = require("../middlewares/requirePlatformPermission");
 
 /**
  * Contact Type API Routes
@@ -37,6 +39,7 @@ router.get(
 // (no tenantId) until Phase E - writes are frozen (423) until the cutover. Reads are unchanged.
 router.post(
   "/contact-types",
+  observePlatformPermission("platform:reference-data:manage"),
   freezeGlobalWrites("contactType"),
   defaultPolicyAdapter.middleware("contact", "write"),
   contactTypeController.createContactType
@@ -45,6 +48,7 @@ router.post(
 // Update contact type
 router.put(
   "/contact-types/:id",
+  observePlatformPermission("platform:reference-data:manage"),
   freezeGlobalWrites("contactType"),
   defaultPolicyAdapter.middleware("contact", "write"),
   contactTypeController.updateContactType
@@ -53,6 +57,7 @@ router.put(
 // Delete contact type
 router.delete(
   "/contact-types/:id",
+  observePlatformPermission("platform:reference-data:manage"),
   freezeGlobalWrites("contactType"),
   defaultPolicyAdapter.middleware("contact", "delete"),
   contactTypeController.deleteContactType

@@ -25,7 +25,7 @@ const identity = (o = {}) => ({ issuer: ISSUER, oid: OID, tid: DIR, amr: null, .
 const crmUser = (o = {}) => ({
   _id: "u1", tenantId: TENANT_A, userEmail: "platform@example.org", userType: "CRM", userMicrosoftId: OID, ...o,
 });
-const principal = (o = {}) => ({ _id: PID, tid: DIR, status: "active", revision: 3, permissions: ["platform:tenant:read"], ...o });
+const principal = (o = {}) => ({ _id: PID, tid: DIR, status: "active", revision: 3, permissions: ["platform:tenant:read:any"], ...o });
 
 function mockLookup(result) {
   const lean = typeof result === "function" ? jest.fn(result) : jest.fn().mockResolvedValue(result);

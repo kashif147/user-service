@@ -178,8 +178,10 @@ test("route tables: every non-GET route in both routers is SU-guarded", () => {
     const router = require(`../routes/${file}`);
     for (const l of router.stack.filter((x) => x.route)) {
       const methods = Object.keys(l.route.methods);
-      const names = l.route.stack.map((s) => s.name);
       if (methods.includes("get") && file === "permission.routes") continue;
+      // Phase B / Z2: every route checked here starts with a shadow platform observer (never changes the response).
+      expect(l.route.stack[0].name).toBe("platformAuthzObserver");
+      const names = l.route.stack.slice(1).map((s) => s.name);
       // Phase A / A-5 review: catalogue writes start with the global-data freeze (423 for every caller).
       const chain = file === "permission.routes" ? (expect(names[0]).toBe("globalDataFreeze"), names.slice(1)) : names;
       expect(chain.slice(0, 2)).toEqual(["requireTenant", expect.any(String)]);

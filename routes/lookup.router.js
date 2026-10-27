@@ -9,6 +9,8 @@ const {
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter.js");
 const { requireTrustedTenant } = require("../middlewares/requireTrustedTenant");
 const { freezeGlobalWrites } = require("../middlewares/globalDataFreeze");
+// Phase B / Z2: shadow-only platform authorization observers (never change the response; Z5 migrates).
+const { observePlatformPermission } = require("../middlewares/requirePlatformPermission");
 
 // Apply authentication to all routes (validates gateway headers)
 router.use(authenticate, tenantContextWarn);
@@ -21,16 +23,19 @@ router
     lookupController.getAllLookup
   )
   .post(
+    observePlatformPermission("platform:reference-data:manage"),
     freezeGlobalWrites("lookup"),
     defaultPolicyAdapter.middleware("lookup", "write"),
     lookupController.createNewLookup
   )
   .put(
+    observePlatformPermission("platform:reference-data:manage"),
     freezeGlobalWrites("lookup"),
     defaultPolicyAdapter.middleware("lookup", "write"),
     lookupController.updateLookup
   )
   .delete(
+    observePlatformPermission("platform:reference-data:manage"),
     freezeGlobalWrites("lookup"),
     defaultPolicyAdapter.middleware("lookup", "delete"),
     lookupController.deleteLookup
@@ -40,6 +45,7 @@ router
 // global lookup writes (officer repair happens only in Phase D).
 router.patch(
   "/lookups/officer",
+  observePlatformPermission("platform:reference-data:manage"),
   freezeGlobalWrites("lookup"),
   defaultPolicyAdapter.middleware("lookup", "write"),
   lookupController.bulkUpdateOfficer
