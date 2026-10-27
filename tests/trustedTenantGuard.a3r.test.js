@@ -59,16 +59,17 @@ const WL = TYPES.WORKLOC._id;
 const LOOKUP_READS = ["/api/lookup", `/api/lookup/${fx.id(22)}`, `/api/lookup/${fx.id(22)}/hierarchy`, `/api/lookup/by-type/${WL}/hierarchy`, "/api/lookup/by-type-code/WORKLOC/hierarchy"];
 const PLACEHOLDERS = ["default", "unknown", "system", "null", "undefined", "DEFAULT", "a:b"];
 
-test("placeholder / malformed tenant -> 400 missingTenant on every lookup read; nothing read from cache or DB", async () => {
+test("placeholder / malformed tenant -> 400 TENANT_REQUIRED on every lookup read and product by-code; nothing read", async () => {
   for (const t of PLACEHOLDERS) {
-    for (const path of LOOKUP_READS) {
+    for (const path of [...LOOKUP_READS, "/api/products/by-type-code/MEM", "/api/products/by-type-code/MEM?productCode=4080"]) {
       const r = await call(server, "GET", path, { tenant: t });
       expect([path, t, r.status]).toEqual([path, t, 400]);
-      expect(r.body.error).toEqual({ message: "Tenant context required", code: "BAD_REQUEST", status: 400, authError: true, missingTenant: true });
+      expect(r.body.error).toEqual({ message: "Tenant context required", code: "TENANT_REQUIRED", status: 400, authError: true, missingTenant: true });
     }
   }
   expect(cacheOps).toEqual([]);
   expect(fx.calls.lookupTypeFindOne).toEqual([]);
+  expect(fx.calls.productTypeFindOne).toEqual([]);
 });
 
 test("valid tenants still pass the guard on every lookup read", async () => {
@@ -78,6 +79,15 @@ test("valid tenants still pass the guard on every lookup read", async () => {
       expect([path, t, r.status]).toEqual([path, t, 200]);
     }
   }
+});
+
+test("product by-code with a valid tenant is unchanged: own MEM products; no fallback for a tenant without MEM", async () => {
+  const a = await call(server, "GET", "/api/products/by-type-code/MEM?productCode=4080", { tenant: A });
+  expect(a.status).toBe(200);
+  expect(a.body.data.products.map((p) => p.name)).toEqual(["Retired Associate"]);
+  const d = await call(server, "GET", "/api/products/by-type-code/MEM", { tenant: D });
+  expect(d.status).toBe(404);
+  expect(d.body.error.code).toBe("PRODUCT_TYPE_NOT_FOUND");
 });
 
 test("lookup writes are unchanged (guard is per read route, not router-level)", async () => {

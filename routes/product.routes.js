@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const productController = require("../controllers/product.controller");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter");
+const { requireTrustedTenant } = require("../middlewares/requireTrustedTenant");
 const {
   authenticate,
   tenantContextWarn,
@@ -35,10 +36,12 @@ router
   );
 
 // Phase A / A10: products of a product type by the type's stable code (e.g. MEM), optionally one
-// product by its code (?productCode=4080). Tenant from the trusted context only.
+// product by its code (?productCode=4080). Tenant from the trusted context only; a placeholder or
+// malformed tenant is 400 TENANT_REQUIRED (requireTrustedTenant), same as the lookup by-code route.
 router
   .route("/products/by-type-code/:typeCode")
   .get(
+    requireTrustedTenant,
     defaultPolicyAdapter.middleware("product", "read"),
     productController.getProductsByTypeCode
   );

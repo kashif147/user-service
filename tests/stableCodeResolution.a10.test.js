@@ -265,10 +265,10 @@ describe("A10 products by product-type code", () => {
     expect(unknown.body).toEqual({ data: null, message: "Not found" });
   });
 
-  test("route chain: router-level authenticate > tenantContextWarn > requireTenant; policy product:read", () => {
+  test("route chain: router-level authenticate > tenantContextWarn > requireTenant; requireTrustedTenant > policy product:read", () => {
     const router = require("../routes/product.routes");
     const layer = router.stack.find((l) => l.route && l.route.path === "/products/by-type-code/:typeCode");
-    expect(layer.route.stack.map((x) => x.handle.name)).toEqual(["policy:product:read", "getProductsByTypeCode"]);
+    expect(layer.route.stack.map((x) => x.handle.name)).toEqual(["requireTrustedTenant", "policy:product:read", "getProductsByTypeCode"]);
     const wide = router.stack.filter((l) => !l.route).map((l) => l.name);
     expect(wide).toEqual(["authenticate", "tenantContextWarn", "requireTenant"]);
   });
