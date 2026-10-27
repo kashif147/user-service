@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const countryController = require("../controllers/country.controller");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter");
+const { freezeGlobalWrites } = require("../middlewares/globalDataFreeze");
 const { requireTrustedTenant } = require("../middlewares/requireTrustedTenant");
 
 /**
@@ -44,8 +45,11 @@ router.get(
 );
 
 // Create new country (requires write permission)
+// Phase A / A-5 review: countries are tenant-owned in the target design but still stored globally
+// (no tenantId) until Phase E - every write would change all tenants' data, so writes are frozen (423).
 router.post(
   "/countries",
+  freezeGlobalWrites("country"),
   defaultPolicyAdapter.middleware("lookup", "write"),
   countryController.createCountry
 );
@@ -53,6 +57,7 @@ router.post(
 // Update country (requires write permission)
 router.put(
   "/countries/:id",
+  freezeGlobalWrites("country"),
   defaultPolicyAdapter.middleware("lookup", "write"),
   countryController.updateCountry
 );
@@ -60,6 +65,7 @@ router.put(
 // Delete country (requires delete permission)
 router.delete(
   "/countries/:id",
+  freezeGlobalWrites("country"),
   defaultPolicyAdapter.middleware("lookup", "delete"),
   countryController.deleteCountry
 );

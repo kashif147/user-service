@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const contactTypeController = require("../controllers/contactType.controller");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter");
+const { freezeGlobalWrites } = require("../middlewares/globalDataFreeze");
 
 /**
  * Contact Type API Routes
@@ -32,8 +33,11 @@ router.get(
 );
 
 // Create new contact type
+// Phase A / A-5 review: contact types are tenant-owned in the target design but still stored globally
+// (no tenantId) until Phase E - writes are frozen (423) until the cutover. Reads are unchanged.
 router.post(
   "/contact-types",
+  freezeGlobalWrites("contactType"),
   defaultPolicyAdapter.middleware("contact", "write"),
   contactTypeController.createContactType
 );
@@ -41,6 +45,7 @@ router.post(
 // Update contact type
 router.put(
   "/contact-types/:id",
+  freezeGlobalWrites("contactType"),
   defaultPolicyAdapter.middleware("contact", "write"),
   contactTypeController.updateContactType
 );
@@ -48,6 +53,7 @@ router.put(
 // Delete contact type
 router.delete(
   "/contact-types/:id",
+  freezeGlobalWrites("contactType"),
   defaultPolicyAdapter.middleware("contact", "delete"),
   contactTypeController.deleteContactType
 );

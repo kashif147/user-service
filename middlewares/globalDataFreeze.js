@@ -20,7 +20,7 @@ const GLOBAL_DATA_FROZEN_MESSAGE = "Shared metadata is temporarily read-only dur
 
 const isGlobalDataFrozen = () => process.env.GLOBAL_DATA_WRITES !== "open";
 
-const freezeGlobalWrites = (resource) => (req, res, next) => {
+const freezeGlobalWrites = (resource) => function globalDataFreeze(req, res, next) {
   if (!isGlobalDataFrozen()) return next();
   const correlationId = req.correlationId || req.headers["x-correlation-id"];
   bizLogger.business("Global data write refused (frozen)", {

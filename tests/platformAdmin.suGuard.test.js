@@ -7,6 +7,9 @@
  * headers read ONLY by the stub authenticate (standing in for the gateway-verified req.ctx).
  * No DB / Redis / network.
  */
+// Phase A / A-5 review: permission-catalogue writes are frozen (423) by default (globalDataFreeze.a5r.test.js);
+// the SU-only chain below still applies behind the freeze, so it runs in the ops rollback mode.
+process.env.GLOBAL_DATA_WRITES = "open";
 const http = require("http");
 const express = require("express");
 
@@ -177,8 +180,10 @@ test("route tables: every non-GET route in both routers is SU-guarded", () => {
       const methods = Object.keys(l.route.methods);
       const names = l.route.stack.map((s) => s.name);
       if (methods.includes("get") && file === "permission.routes") continue;
-      expect(names.slice(0, 2)).toEqual(["requireTenant", expect.any(String)]);
-      expect(names.length).toBeGreaterThanOrEqual(4); // requireTenant, requireSuperUser, policy, controller
+      // Phase A / A-5 review: catalogue writes start with the global-data freeze (423 for every caller).
+      const chain = file === "permission.routes" ? (expect(names[0]).toBe("globalDataFreeze"), names.slice(1)) : names;
+      expect(chain.slice(0, 2)).toEqual(["requireTenant", expect.any(String)]);
+      expect(chain.length).toBeGreaterThanOrEqual(4); // requireTenant, requireSuperUser, policy, controller
     }
   }
 });

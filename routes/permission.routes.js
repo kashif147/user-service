@@ -8,13 +8,17 @@ const {
   tenantContextWarn,
 } = require("../middlewares/auth");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter.js");
+const { freezeGlobalWrites } = require("../middlewares/globalDataFreeze");
 
 // Apply authentication to all routes
 router.use(authenticate, tenantContextWarn);
 
 // Permission CRUD operations (Super User only for create/update/delete)
+// Phase A / A-5 review: the permission catalogue is platform-owned. requireSuperUser accepts the SU of ANY
+// tenant (every tenant has one), so catalogue writes are frozen (423) and stay deployment/script controlled.
 router.post(
   "/permissions",
+  freezeGlobalWrites("permission"),
   requireTenant,
   requireSuperUser, // Phase 1C-2D: platform-level write (SU only, trusted req.ctx roles)
   defaultPolicyAdapter.middleware("permission", "admin"),
@@ -60,6 +64,7 @@ router.get(
 
 router.put(
   "/permissions/:id",
+  freezeGlobalWrites("permission"),
   requireTenant,
   requireSuperUser, // Phase 1C-2D: platform-level write (SU only, trusted req.ctx roles)
   defaultPolicyAdapter.middleware("permission", "admin"),
@@ -68,6 +73,7 @@ router.put(
 
 router.delete(
   "/permissions/:id",
+  freezeGlobalWrites("permission"),
   requireTenant,
   requireSuperUser, // Phase 1C-2D: platform-level write (SU only, trusted req.ctx roles)
   defaultPolicyAdapter.middleware("permission", "admin"),
@@ -76,6 +82,7 @@ router.delete(
 
 router.post(
   "/permissions/initialize",
+  freezeGlobalWrites("permission"),
   requireTenant,
   requireSuperUser, // Phase 1C-2D: platform-level write (SU only, trusted req.ctx roles)
   defaultPolicyAdapter.middleware("permission", "admin"),

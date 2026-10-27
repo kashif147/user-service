@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const contactController = require("../controllers/contact.controller");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter");
+const { freezeGlobalWrites } = require("../middlewares/globalDataFreeze");
 
 /**
  * Contact API Routes
@@ -32,8 +33,11 @@ router.get(
 );
 
 // Create new contact
+// Phase A / A-5 review: contacts are business data with no tenantId yet (shared by every tenant) -
+// writes are frozen (423) until their tenancy migration. Reads are unchanged.
 router.post(
   "/contacts",
+  freezeGlobalWrites("contact"),
   defaultPolicyAdapter.middleware("contact", "write"),
   contactController.createContact
 );
@@ -41,6 +45,7 @@ router.post(
 // Update contact
 router.put(
   "/contacts/:id",
+  freezeGlobalWrites("contact"),
   defaultPolicyAdapter.middleware("contact", "write"),
   contactController.updateContact
 );
@@ -48,6 +53,7 @@ router.put(
 // Delete contact
 router.delete(
   "/contacts/:id",
+  freezeGlobalWrites("contact"),
   defaultPolicyAdapter.middleware("contact", "delete"),
   contactController.deleteContact
 );
