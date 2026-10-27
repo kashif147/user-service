@@ -24,4 +24,5 @@ tenant with the same contract.
 `lookup:v2:<tenantId>:…`, `lookuptype:v2:<tenantId>:…` (incl. `code:<CODE>`), `hierarchy:v2:<tenantId>:<id>`,
 `lookuptype-hierarchy:v2:<tenantId>:type:<id>`. Always pass the trusted `req.ctx.tenantId`; with no
 tenant nothing is cached. Lookup/lookuptype writes clear every tenant's entries (shared data). The
-pre-v2 global keys are purged at startup (`purgeLegacyKeys`). Countries stay global.
+pre-v2 global keys are purged at startup (`purgeLegacyKeys`). Countries are tenant-owned reference data;
+their rows and `country:` cache keys stay global only until Phase E clones them per tenant.

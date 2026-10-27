@@ -11,10 +11,12 @@
  *   lookuptype-hierarchy:v2:<tenantId>:type:<lookuptypeId>
  * Lookup rows are still GLOBAL today (Phase D makes them tenant-owned), so the database query is
  * unchanged and identical ids may sit under several tenants' keys - but an entry is only ever read
- * back under the trusted tenant that resolved it. No trusted tenant -> no key at all (straight DB
- * query, nothing cached). Writes invalidate every tenant's entries (the data is shared until Phase D).
+ * back under the trusted tenant that resolved it. No trusted tenant -> no key at all (DB query,
+ * nothing cached); not reachable over HTTP, where authenticate + requireTenant (mounted for every /api
+ * route via role.routes) reject a request without a tenant first. Writes invalidate every tenant's entries (the data is shared until Phase D).
  * The pre-Phase-A global keys (LEGACY_KEY_PATTERNS) are unreachable (v2 prefix) and purged from Redis
- * at startup and by clearAllCaches. Countries are platform reference data and stay global.
+ * at startup and by clearAllCaches. Countries are TENANT-OWNED reference data: stored and cached
+ * globally only until Phase E clones them per tenant, when their keys gain the tenant dimension too.
  */
 
 const PolicyCache = require("./policyCache");
@@ -59,7 +61,7 @@ class LookupCacheService {
       prefix: `lookuptype:${LOOKUP_CACHE_VERSION}:`,
     });
 
-    // Initialize cache for countries (platform reference data - global, unversioned)
+    // Initialize cache for countries (tenant-owned; global storage and key only until the Phase E clone)
     this.countryCache = new PolicyCache({
       enabled,
       ttl,
