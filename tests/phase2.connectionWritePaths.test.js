@@ -326,10 +326,13 @@ describe("POST /tenants with connections", () => {
 
 describe("GET /tenants/:id/auth-connections/default-role-options", () => {
   const opts = (t, type, o) => call("GET", `${P(t)}/default-role-options?connectionType=${encodeURIComponent(type)}`, o);
-  test("SU editing another organisation gets THAT organisation's eligible roles", async () => {
+  // Phase A / A16 SU closure (temporary until Phase B): the legacy per-tenant SU is tenant-scoped.
+  test("SU cannot read another organisation's eligible roles (403); its own organisation still works", async () => {
     const r = await opts(B, ENTRA, { tenant: A, roles: ["SU"] });
-    expect(r.status).toBe(200);
-    expect(r.body.data.map((x) => x._id)).toEqual([REO_B]);
+    expect(r.status).toBe(403);
+    const own = await opts(B, ENTRA, { tenant: B, roles: ["SU"] });
+    expect(own.status).toBe(200);
+    expect(own.body.data.map((x) => x._id)).toEqual([REO_B]);
   });
   test("only active, non-privileged roles of the matching type", async () => {
     expect((await opts(A, ENTRA)).body.data.map((x) => x.code)).toEqual(["REO"]);

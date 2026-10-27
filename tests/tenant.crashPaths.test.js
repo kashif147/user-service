@@ -182,7 +182,8 @@ describe("PUT /api/tenants/:id/status", () => {
     expect(mockState.mutations).toEqual([]);
   });
   test("tenant not found (SU) -> 404", async () => {
-    const r = await call("PUT", `/api/tenants/${C}/status`, { body: { status: "ACTIVE" }, roles: ["SU"] });
+    // Phase A / A16 SU closure: the caller's OWN (non-existent) tenant - SU no longer reaches another tenant.
+    const r = await call("PUT", `/api/tenants/${C}/status`, { body: { status: "ACTIVE" }, roles: ["SU"], tenant: C });
     expect(r.status).toBe(404);
     expect(errMsg(r)).toBe("Tenant not found");
   });
@@ -208,7 +209,8 @@ describe("authentication connections", () => {
     expect(mockState.mutations).toEqual([]);
   });
   test("add: tenant not found (SU) -> 404; unexpected failure -> 500", async () => {
-    const nf = await call("POST", P(C), { body: { directoryId: "x" }, roles: ["SU"] });
+    // Phase A / A16 SU closure: the caller's OWN (non-existent) tenant - SU no longer reaches another tenant.
+    const nf = await call("POST", P(C), { body: { directoryId: "x" }, roles: ["SU"], tenant: C });
     expect(nf.status).toBe(404);
     mockState.fail = "save";
     expect500(await call("POST", P(A), { body: { directoryId: "new-dir" } }), "Failed to add authentication connection");
@@ -225,7 +227,7 @@ describe("authentication connections", () => {
     expect(errMsg(nc)).toBe("Authentication connection not found");
     const dup = await call("PUT", P(A, CONN), { body: { directoryId: "dir-2" } });
     expect(dup.status).toBe(400);
-    const nt = await call("PUT", P(C, CONN), { body: {}, roles: ["SU"] });
+    const nt = await call("PUT", P(C, CONN), { body: {}, roles: ["SU"], tenant: C });
     expect(nt.status).toBe(404);
     expect(errMsg(nt)).toBe("Tenant not found");
     expect(mockState.mutations).toEqual([]);
@@ -249,7 +251,8 @@ describe("authentication connections", () => {
     const ok = await call("GET", P(A));
     expect(ok.status).toBe(200);
     expect(ok.body.data.map((c) => c.directoryId)).toEqual(["dir-1", "dir-2"]);
-    const nf = await call("GET", P(C), { roles: ["SU"] });
+    // Phase A / A16 SU closure: the caller's OWN (non-existent) tenant - SU no longer reaches another tenant.
+    const nf = await call("GET", P(C), { roles: ["SU"], tenant: C });
     expect(nf.status).toBe(404);
     mockState.fail = "find";
     expect500(await call("GET", P(A)), "Failed to retrieve authentication connections");
@@ -259,9 +262,11 @@ describe("authentication connections", () => {
 describe("a Microsoft directory id is not an organisation id", () => {
   // Tenant A's connections carry directoryId "dir-1"; previously /tenants/dir-1 loaded tenant A.
   // SU is used so the path guard is not what stops it.
-  test("GET /tenants/:id/auth-connections with a directory id -> 404, nothing loaded", async () => {
+  test("GET /tenants/:id/auth-connections with a directory id -> refused, nothing loaded", async () => {
     const r = await call("GET", `/api/tenants/dir-1/auth-connections`, { roles: ["SU"] });
-    expect(r.status).toBe(404);
+    // Phase A / A16 SU closure: a path id that is not the caller's tenant is refused by the path guard
+    // (403) before anything is loaded - also for SU (previously 404 from the handler).
+    expect(r.status).toBe(403);
     expect(mockState.mutations).toEqual([]);
   });
 

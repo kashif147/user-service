@@ -114,9 +114,17 @@ describe("3 normal resource/action denials unchanged", () => {
   });
 });
 
-describe("4 SU bypass unchanged", () => {
-  test("SU with a PORTAL user type on a CRM-only resource -> PERMIT SUPER_USER_BYPASS", async () => {
-    expect(await applyPolicyRules(ctx({ roles: ["SU"], userType: "PORTAL" }))).toMatchObject({ decision: "PERMIT", reason: "SUPER_USER_BYPASS" });
+describe("4 SU bypass - own tenant only (Phase A / A16 SU closure, temporary until Phase B)", () => {
+  test("SU with a PORTAL user type on a CRM-only resource, own tenant -> PERMIT SUPER_USER_OWN_TENANT", async () => {
+    expect(await applyPolicyRules(ctx({ roles: ["SU"], userType: "PORTAL" }))).toMatchObject({ decision: "PERMIT", reason: "SUPER_USER_OWN_TENANT" });
+  });
+  test("SU (even with \"*\") targeting another tenant -> TENANT_SCOPE_VIOLATION; no tenant -> MISSING_TENANT_CONTEXT", async () => {
+    expect(await applyPolicyRules(ctx({ roles: ["SU"], permissions: ["*"], tenantId: TB }))).toMatchObject({ decision: "DENY", reason: "TENANT_SCOPE_VIOLATION" });
+    expect(await applyPolicyRules(ctx({ roles: ["SU"], permissions: ["*"], tenantId: null }))).toMatchObject({ decision: "DENY", reason: "MISSING_TENANT_CONTEXT" });
+  });
+  test("SU on the tenant resource: own tenant PERMIT, other tenant TENANT_SCOPE_VIOLATION", async () => {
+    expect(await applyPolicyRules(ctx({ roles: ["SU"], resource: "tenant", permissions: ["*"] }))).toMatchObject({ decision: "PERMIT" });
+    expect(await applyPolicyRules(ctx({ roles: ["SU"], resource: "tenant", permissions: ["*"], tenantId: TB }))).toMatchObject({ decision: "DENY", reason: "TENANT_SCOPE_VIOLATION" });
   });
 });
 

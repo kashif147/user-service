@@ -497,7 +497,11 @@ const requireTenantPathAccess = (paramName) => {
     };
 
     if (!trusted) return deny("MISSING_TRUSTED_TENANT");
-    if (hasRole(req.ctx.roles, "SU")) return next();
+    // Phase A / A16 SU closure (TEMPORARY until Phase B): today's SU is a legacy role cloned into every tenant,
+    // so it cannot be told apart from a genuine platform SU. It is tenant-scoped like everyone else:
+    // no role (SU included) and no permission ("*" included) may reach another tenant through the path.
+    // Cross-tenant platform administration uses reviewed scripts until Phase B adds an explicit
+    // platform-SU authorization model.
     if (!requested || requested !== trusted) return deny("TENANT_PATH_MISMATCH");
     return next();
   };

@@ -58,17 +58,22 @@ describe("requireTenantPathAccess", () => {
     }
   });
 
-  test("C SU may access another tenant (role codes or role objects)", () => {
+  // Phase A / A16 SU closure (temporary until Phase B): the legacy per-tenant SU is tenant-scoped.
+  test("C SU (role codes or objects, with or without \"*\") may NOT access another tenant; own tenant passes", () => {
     for (const roles of [["SU"], [{ code: "SU" }], ["ASU", "SU"]]) {
-      const { nextCalls } = run(byTenantId, { ctx: { tenantId: A, roles }, params: { tenantId: B } });
-      expect(nextCalls).toBe(1);
+      const other = run(byTenantId, { ctx: { tenantId: A, roles, permissions: ["*"] }, params: { tenantId: B } });
+      expect(other.nextCalls).toBe(0);
+      expect(other.res.statusCode).toBe(403);
+      expect(other.res.body.error).toMatchObject({ code: "FORBIDDEN", tenantScopeViolation: true });
+      expect(run(byTenantId, { ctx: { tenantId: A, roles }, params: { tenantId: A } }).nextCalls).toBe(1);
     }
   });
 
   test("D same contract for the :id parameter name", () => {
     expect(run(byId, { ctx: { tenantId: A, roles: [] }, params: { id: A } }).nextCalls).toBe(1);
     expect(run(byId, { ctx: { tenantId: A, roles: [] }, params: { id: B } }).res.statusCode).toBe(403);
-    expect(run(byId, { ctx: { tenantId: A, roles: ["SU"] }, params: { id: B } }).nextCalls).toBe(1);
+    expect(run(byId, { ctx: { tenantId: A, roles: ["SU"] }, params: { id: B } }).res.statusCode).toBe(403);
+    expect(run(byId, { ctx: { tenantId: A, roles: ["SU"] }, params: { id: A } }).nextCalls).toBe(1);
     // the guard reads only the param it was configured with
     expect(run(byId, { ctx: { tenantId: A, roles: [] }, params: { tenantId: A } }).res.statusCode).toBe(403);
   });

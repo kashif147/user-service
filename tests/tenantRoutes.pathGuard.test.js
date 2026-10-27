@@ -165,11 +165,13 @@ describe("B1 /tenants/:tenantId/* (offices, public holidays, departments, contac
     expect(hasController()).toBe(false);
   });
 
-  test.each(B1)("%s %s %s — SU may manage another tenant", async (_d, m, suffix, policy) => {
-    const res = await call(m, `/api/tenants/${B}${suffix}`, { roles: ["SU"] });
-    expect(res.status).toBe(299);
-    expect(mockCalls).toContain(policy);
-    expect(hasController()).toBe(true);
+  // Phase A / A16 SU closure (temporary until Phase B): the legacy per-tenant SU is tenant-scoped.
+  test.each(B1)("%s %s %s — SU may NOT manage another tenant: 403 before policy/controller", async (_d, m, suffix) => {
+    const res = await call(m, `/api/tenants/${B}${suffix}`, { roles: ["SU"], body: m === "GET" ? undefined : { tenantId: B } });
+    expect(res.status).toBe(403);
+    expect(res.body.error.tenantScopeViolation).toBe(true);
+    expect(hasPolicy()).toBe(false);
+    expect(hasController()).toBe(false);
   });
 
   test("own-tenant /tenant/* routes (no tenant in path) are unchanged — no path guard", async () => {
@@ -229,10 +231,12 @@ describe("B2 /tenants/:id*", () => {
     expect(res.status).not.toBe(403);
   });
 
-  test.each(B2)("%s /tenants/:id%s — SU passes the guard for another tenant", async (m, suffix, policy) => {
-    await call(m, `/api/tenants/${B}${suffix}`, { roles: ["SU"], body: m === "GET" ? undefined : { status: "active" } });
+  test.each(B2)("%s /tenants/:id%s — SU is refused for another tenant (A16 SU closure)", async (m, suffix) => {
+    const res = await call(m, `/api/tenants/${B}${suffix}`, { roles: ["SU"], body: m === "GET" ? undefined : { status: "active" } });
+    expect(res.status).toBe(403);
     expect(mockCalls).toContain("pathGuard:id");
-    expect(mockCalls).toContain(policy);
+    expect(hasPolicy()).toBe(false);
+    expect(mockTenantHandlerCalls).toHaveLength(0);
   });
 
   test("unauthenticated (no trusted tenant) /tenants/:id fails closed", async () => {
@@ -251,11 +255,11 @@ describe("B2 GET /tenants listing", () => {
     expect(c.args[0]).toEqual({ status: "active", plan: undefined, ownTenantId: A });
   });
 
-  test("SU: platform-wide listing (no ownTenantId restriction)", async () => {
+  test("SU: own tenant only (no platform-wide listing until Phase B; A16 SU closure)", async () => {
     const res = await call("GET", "/api/tenants", { roles: ["SU"] });
     expect(res.status).toBe(200);
     const c = mockTenantHandlerCalls.find((x) => x.name === "getAllTenants");
-    expect(c.args[0]).toEqual({ status: undefined, plan: undefined });
+    expect(c.args[0]).toEqual({ status: undefined, plan: undefined, ownTenantId: A });
   });
 
   test("/tenants/code/:code and /tenants/domain/:domain are not path-guarded (param is not a tenant id)", async () => {
@@ -284,16 +288,61 @@ describe("B2 GET /tenants/code/:code and /tenants/domain/:domain — ownership f
     expect(res.body).not.toHaveProperty("data");
   });
 
-  test.each(lookups)("%s: SU retrieves another tenant (unscoped selector)", async (seg, _own, other, fn) => {
+  test.each(lookups)("%s: SU cannot retrieve another tenant (owner-scoped selector; A16 SU closure)", async (seg, own, other, fn) => {
     const res = await call("GET", `/api/tenants/${seg}/${other}`, { roles: ["SU"] });
-    expect(res.status).toBe(200);
-    expect(res.body.data._id).toBe(B);
-    expect(mockTenantHandlerCalls.find((x) => x.name === fn).args[1]).toEqual({});
+    expect(res.status).toBe(404);
+    expect(res.body).not.toHaveProperty("data");
+    expect(mockTenantHandlerCalls.find((x) => x.name === fn).args[1]).toEqual({ ownTenantId: A });
+    expect((await call("GET", `/api/tenants/${seg}/${own}`, { roles: ["SU"] })).status).toBe(200);
   });
 
   test.each(lookups)("%s: trusted tenant drives ownership (Tenant B caller sees only B)", async (seg, own, other) => {
     expect((await call("GET", `/api/tenants/${seg}/${other}`, { tenant: B, roles: ["ASU"] })).status).toBe(200);
     expect((await call("GET", `/api/tenants/${seg}/${own}`, { tenant: B, roles: ["ASU"] })).status).toBe(404);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase A / A16 SU closure matrix (temporary until Phase B adds an explicit platform-SU model):
+// an SU of MULTIAUTH and an SU of DEVTENANTB (each holding "*") reach their own tenant only.
+// ---------------------------------------------------------------------------
+describe("A16 SU closure: per-tenant SU is tenant-scoped on every /tenants/:id(*) route", () => {
+  const MULTIAUTH = "68cbf7806080b4621d469d34";
+  const DEVTENANTB = "6acd6119b28a863c61361ae0";
+  const DEVDIRB = "6ad4e0c941376f7df605fd57";
+  const ROUTES = [
+    ...B2.map(([m, suffix, policy]) => [m, suffix, policy, "id"]),
+    ...B1.map(([, m, suffix, policy]) => [m, suffix, policy, "tenantId"]),
+  ];
+  // Connection lifecycle routes: this file's handler stub does not serve them, so only the cross-tenant
+  // refusal is asserted here (their own-tenant behaviour: stage5c*.test.js).
+  const CROSS_ONLY = [
+    ["POST", "/auth-connections/c1/connect", "policy:tenant:admin", "id"],
+    ["POST", "/auth-connections/c1/connect/complete", "policy:tenant:admin", "id"],
+    ["POST", "/auth-connections/c1/test", "policy:tenant:admin", "id"],
+    ["POST", "/auth-connections/c1/disconnect", "policy:tenant:admin", "id"],
+    ["GET", "/auth-connections/c1/status", "policy:tenant:read", "id"],
+    ["GET", "/auth-connections/default-role-options", "policy:tenant:read", "id"],
+  ];
+  const CASES = [];
+  for (const caller of [MULTIAUTH, DEVTENANTB]) {
+    for (const target of [MULTIAUTH, DEVTENANTB, DEVDIRB]) {
+      for (const [m, suffix, policy, param] of [...ROUTES, ...(caller === target ? [] : CROSS_ONLY)]) CASES.push([caller === MULTIAUTH ? "MULTIAUTH" : "DEVTENANTB", target === MULTIAUTH ? "MULTIAUTH" : target === DEVTENANTB ? "DEVTENANTB" : "DEVDIRB", m, suffix, policy, param, caller, target]);
+    }
+  }
+  test.each(CASES)("SU of %s -> %s: %s /tenants/:id%s", async (_c, _t, m, suffix, policy, param, caller, target) => {
+    const res = await call(m, `/api/tenants/${target}${suffix}`, { tenant: caller, roles: ["SU"], body: m === "GET" ? undefined : { status: "active", tenantId: target } });
+    expect(mockCalls).toContain(`pathGuard:${param}`);
+    if (caller === target) {
+      expect(res.status).not.toBe(403);
+      expect(mockCalls).toContain(policy);
+    } else {
+      expect(res.status).toBe(403);
+      expect(res.body.error.tenantScopeViolation).toBe(true);
+      expect(hasPolicy()).toBe(false);
+      expect(hasController()).toBe(false);
+      expect(mockTenantHandlerCalls).toHaveLength(0);
+    }
   });
 });
 

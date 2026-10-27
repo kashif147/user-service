@@ -441,11 +441,19 @@ const validateToken = async (token) => {
 const applyPolicyRules = async (context) => {
   const { roles, permissions, resource, action, tenantId } = context;
 
-  // Rule 1: Super User bypasses all authorization
+  // Rule 1: Super User skips the permission rules - but, Phase A / A16 SU closure (TEMPORARY until
+  // Phase B), only inside its own tenant: today's SU is a legacy role cloned into every tenant and
+  // cannot be told apart from a genuine platform SU, so it never bypasses the tenant boundary.
   if (roleHierarchyService.isSuperUser(roles)) {
+    if (!tenantId) {
+      return { decision: "DENY", reason: "MISSING_TENANT_CONTEXT" };
+    }
+    if (context.userTenantId && String(tenantId) !== String(context.userTenantId)) {
+      return { decision: "DENY", reason: "TENANT_SCOPE_VIOLATION" };
+    }
     return {
       decision: "PERMIT",
-      reason: "SUPER_USER_BYPASS",
+      reason: "SUPER_USER_OWN_TENANT",
     };
   }
 
@@ -561,16 +569,9 @@ const evaluateResourcePolicy = async (context) => {
       const hasASURole = roles.includes("ASU");
       const hasSURole = roles.includes("SU");
 
-      // SU can manage any tenant globally
-      if (hasSURole) {
-        return {
-          decision: "PERMIT",
-          reason: "SUPER_USER_GLOBAL_ACCESS",
-        };
-      }
-
-      // ASU can only manage their own tenant
-      if (hasASURole) {
+      // ASU - and, Phase A / A16 SU closure (TEMPORARY until Phase B), the legacy per-tenant SU -
+      // can only manage their own tenant. Phase B: an explicit platform-SU authorization model.
+      if (hasSURole || hasASURole) {
         if (!tenantId || !userTenantId) {
           return {
             decision: "DENY",
@@ -587,7 +588,7 @@ const evaluateResourcePolicy = async (context) => {
 
         return {
           decision: "PERMIT",
-          reason: "ASU_OWN_TENANT_ACCESS",
+          reason: hasSURole ? "SUPER_USER_OWN_TENANT" : "ASU_OWN_TENANT_ACCESS",
         };
       }
     }

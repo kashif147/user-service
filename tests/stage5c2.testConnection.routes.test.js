@@ -138,9 +138,14 @@ describe("POST /tenants/:id/auth-connections/:connectionId/test", () => {
     expect(reachedController()).toBe(false);
   });
 
-  test("SU follows the existing tenant administration rule (may address another organisation)", async () => {
+  // Phase A / A16 SU closure (temporary until Phase B): the legacy per-tenant SU is tenant-scoped.
+  test("SU may NOT address another organisation (403 before policy); own organisation passes", async () => {
     const res = await post(URL_FOR(B), { roles: ["SU"] });
-    expect(res.status).toBe(299);
+    expect(res.status).toBe(403);
+    expect(mockCalls).not.toContain("policy:tenant:admin");
+    mockCalls.length = 0;
+    const own = await post(URL_FOR(A), { roles: ["SU"] });
+    expect(own.status).toBe(299);
     expect(mockCalls).toContain("policy:tenant:admin");
   });
 

@@ -93,10 +93,12 @@ describe("C shared role code in another tenant cannot affect the result", () => 
   });
 });
 
-describe("D/E SU and ASU unchanged", () => {
-  test("SU bypasses by code (no permissions, any level)", async () => {
+describe("D/E SU and ASU", () => {
+  test("SU bypasses the permission rules by code - inside its own tenant only (Phase A / A16 SU closure)", async () => {
     expect(await decide({ roles: ["SU"], permissions: [] })).toBe("PERMIT");
-    expect(await decide({ roles: ["SU"], permissions: [], tenantId: null })).toBe("PERMIT");
+    // legacy per-tenant SU never bypasses the tenant boundary or a missing tenant context
+    expect(await decide({ roles: ["SU"], permissions: [], tenantId: null })).toBe("DENY");
+    expect(await decide({ roles: ["SU"], permissions: ["*"], tenantId: TB, userTenantId: TA })).toBe("DENY");
   });
   test("ASU on the tenant resource: needs tenant:read; own tenant permitted", async () => {
     expect(await decide({ roles: ["ASU"], resource: "tenant", action: "read", permissions: ["tenant:read"] })).toBe("PERMIT");

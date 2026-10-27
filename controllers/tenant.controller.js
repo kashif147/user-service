@@ -1,6 +1,5 @@
 const TenantHandler = require("../handlers/tenant.handler");
 const { AppError } = require("../errors/AppError");
-const { hasRole } = require("../middlewares/auth");
 const {
   pickOrganisationProfilePayload,
 } = require("../constants/tenantOrganisationDefaults");
@@ -13,10 +12,10 @@ const disconnectedError = (e) => new AppError(e.message, e.status, e.code);
 // Every response carrying a tenant or its authentication connections goes through this allow-list.
 const { toTenantView, toConnectionView } = require("../helpers/authConnectionView");
 
-// Phase 1C-2B: non-SU lookups are confined to the caller's trusted tenant (req.ctx), never a
-// caller-supplied value. SU (from trusted roles) is unrestricted.
-const ownTenantScope = (req) =>
-  hasRole(req.ctx?.roles, "SU") ? {} : { ownTenantId: String(req.ctx?.tenantId || "") || "__none__" };
+// Phase 1C-2B: lookups are confined to the caller's trusted tenant (req.ctx), never a caller-supplied
+// value. Phase A / A16 SU closure (TEMPORARY until Phase B): the legacy per-tenant SU is confined too -
+// it is a role cloned into every tenant and cannot be told apart from a genuine platform SU yet.
+const ownTenantScope = (req) => ({ ownTenantId: String(req.ctx?.tenantId || "") || "__none__" });
 
 // Create tenant
 module.exports.createTenant = async (req, res, next) => {
@@ -38,14 +37,13 @@ module.exports.getAllTenants = async (req, res, next) => {
       status: req.query.status,
       plan: req.query.plan,
     };
-    // Phase 1C-2B: only SU (from trusted roles) lists every tenant; everyone else gets their own
-    // tenant only, from the trusted req.ctx.tenantId — never a caller-supplied filter.
-    if (!hasRole(req.ctx?.roles, "SU")) {
-      if (!req.ctx?.tenantId) {
-        return next(AppError.forbidden("Tenant context required"));
-      }
-      filters.ownTenantId = String(req.ctx.tenantId);
+    // Every caller (SU included until Phase B - see ownTenantScope) gets its own tenant only, from
+    // the trusted req.ctx.tenantId — never a caller-supplied filter. Listing all tenants is a
+    // platform operation (reviewed scripts until Phase B).
+    if (!req.ctx?.tenantId) {
+      return next(AppError.forbidden("Tenant context required"));
     }
+    filters.ownTenantId = String(req.ctx.tenantId);
     const tenants = await TenantHandler.getAllTenants(filters);
     res.status(200).json({ status: "success", data: tenants.map(toTenantView) });
   } catch (error) {
