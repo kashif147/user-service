@@ -5,6 +5,7 @@ const { takeLoginTransaction } = require("../helpers/pkceStateStore");
 const { loginOrganisationDisplay } = require("../helpers/loginOrganisationDisplay");
 const { EntraConfigError } = require("../helpers/entraConfig");
 const { microsoftErrorFields, isMicrosoftTokenError } = require("../helpers/microsoftErrorLog");
+const { resolvePlatformClaim } = require("../services/platformClaimService");
 
 /** The only user fields the CRM sign-in callback returns (see handleAzureADCallback). */
 const CRM_CALLBACK_USER_FIELDS = ["userEmail", "userFirstName", "userLastName", "userFullName", "userType"];
@@ -73,15 +74,21 @@ module.exports.handleAzureADCallback = async (req, res, next) => {
     }
 
     console.log("Processing Azure AD authentication...");
-    const { user } = await AzureADHandler.handleAzureADAuth(
+    const { user, verifiedIdentity } = await AzureADHandler.handleAzureADAuth(
       code,
       codeVerifier,
       expectedNonce,
       transaction.loginContext
     );
 
+    // Phase B / Z1: the platform claim, only for an active PlatformPrincipal bound to the verified
+    // Entra identity (never from the request). Tenant claims are unaffected; off = no lookup.
+    const { claim: platformClaim } = await resolvePlatformClaim({ verifiedIdentity, user });
+
     // Use the new JWT helper that includes roles and permissions
-    const tokenData = await jwtHelper.generateToken(user);
+    const tokenData = platformClaim
+      ? await jwtHelper.generateToken(user, { platformClaim })
+      : await jwtHelper.generateToken(user);
 
     // Minimal, display-only user data. The CRM operates on the ProjectShell JWT alone: no Microsoft
     // token (ID / access / refresh) and no Microsoft identity metadata (oid, sub, audience, issuer,

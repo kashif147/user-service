@@ -4,9 +4,12 @@ const RoleHandler = require("../handlers/role.handler");
 /**
  * Generate JWT access token for user
  * @param {Object} user - User object from database
+ * @param {Object} [options]
+ * @param {Object} [options.platformClaim] - Phase B / Z1 `plat` claim, only from
+ *   services/platformClaimService.js (CRM Entra sign-in). Never set on the fallback token.
  * @returns {Object} - Token and user data
  */
-module.exports.generateToken = async (user) => {
+module.exports.generateToken = async (user, options = {}) => {
   try {
     console.log("=== JWT Generation: Starting ===");
     console.log("User ID:", user._id);
@@ -76,6 +79,11 @@ module.exports.generateToken = async (user) => {
       })),
       permissions: permissions, // REQUIRED: Policy evaluation needs permissions
     };
+    // Phase B / Z1: platform authority is a separate claim, never derived from roles/permissions.
+    if (options && options.platformClaim) {
+      const { v, pid, rev } = options.platformClaim;
+      tokenPayload.plat = { v, pid, rev };
+    }
 
     console.log("Generating JWT token with payload...");
     const token =

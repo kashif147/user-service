@@ -271,6 +271,19 @@ class AzureADHandler {
       microsoftDirectoryId: extractedDirectoryId,
     };
 
+    // Phase B / Z1: the verified identity for the platform-claim decision (services/platformClaimService.js).
+    // Strictly oid (no sub fallback). Non-enumerable, so spreading the profile into the user record
+    // never copies it.
+    Object.defineProperty(profile, "verifiedIdentity", {
+      value: Object.freeze({
+        issuer: payload.iss || null,
+        oid: payload.oid || null,
+        tid: payload.tid || null,
+        amr: Array.isArray(payload.amr) ? [...payload.amr] : null,
+      }),
+      enumerable: false,
+    });
+
     return profile;
   }
 
@@ -564,7 +577,7 @@ class AzureADHandler {
       console.log(`CRM sign-in complete: user ${user._id}, tenant ${user.tenantId}`);
 
       console.log("=== Azure AD Handler: Authentication Completed ===");
-      return { user, tokens };
+      return { user, tokens, verifiedIdentity: baseProfile.verifiedIdentity || null };
     } catch (error) {
       console.error("=== Azure AD Handler Error ===");
       if (isMicrosoftTokenError(error)) {
