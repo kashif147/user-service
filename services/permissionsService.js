@@ -10,6 +10,7 @@ const Permission = require("../models/permission.model");
 const Role = require("../models/role.model");
 const cache = require("./cacheService");
 const { TENANT_ADMIN_PERMISSION } = require("../constants/tenantAdminPermission");
+const { tenantPermissionGranted } = require("../constants/permissionClassification");
 
 class PermissionsService {
   constructor() {
@@ -156,13 +157,8 @@ class PermissionsService {
    */
   async hasPermission(userRoles, permissionCode, tenantId) {
     const effectivePermissions = await this.getEffectivePermissions(userRoles, tenantId);
-
-    // Check for wildcard permission
-    if (effectivePermissions.includes("*")) {
-      return true;
-    }
-
-    return effectivePermissions.includes(permissionCode);
+    // Phase B / Z3: tenant evaluation - exact or "*", never a platform code.
+    return tenantPermissionGranted(effectivePermissions, permissionCode);
   }
 
   /**
@@ -173,13 +169,11 @@ class PermissionsService {
    */
   async hasAnyPermission(userRoles, permissionCodes, tenantId) {
     const effectivePermissions = await this.getEffectivePermissions(userRoles, tenantId);
-
-    // Check for wildcard permission
-    if (effectivePermissions.includes("*")) {
-      return true;
-    }
-
-    return permissionCodes.some((code) => effectivePermissions.includes(code));
+    // Phase B / Z3: tenant evaluation - exact or "*", never a platform code.
+    return (
+      permissionCodes.some((code) => tenantPermissionGranted(effectivePermissions, code)) ||
+      (permissionCodes.length === 0 && effectivePermissions.includes("*")) // unchanged: "*" with nothing requested
+    );
   }
 
   /**
@@ -190,13 +184,8 @@ class PermissionsService {
    */
   async hasAllPermissions(userRoles, permissionCodes, tenantId) {
     const effectivePermissions = await this.getEffectivePermissions(userRoles, tenantId);
-
-    // Check for wildcard permission
-    if (effectivePermissions.includes("*")) {
-      return true;
-    }
-
-    return permissionCodes.every((code) => effectivePermissions.includes(code));
+    // Phase B / Z3: tenant evaluation - exact or "*", never a platform code.
+    return permissionCodes.every((code) => tenantPermissionGranted(effectivePermissions, code));
   }
 
   /**

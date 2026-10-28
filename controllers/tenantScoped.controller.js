@@ -108,6 +108,9 @@ module.exports.assignPermissionsToRoleInTenant = async (req, res) => {
       return res.sendBadRequest("Role not found in your tenant");
     }
 
+    // Phase B / Z3: a platform code is refused as a privilege violation (403), never as "not found".
+    await RoleHandler.assertTenantGrantablePermissions(permissions);
+
     // Verify all permissions exist
     const permissionPromises = permissions.map((permissionCode) =>
       PermissionHandler.getPermissionByCode(permissionCode)

@@ -20,7 +20,8 @@
  * services/platformAuthorizationService.js); no HTTP route writes it.
  */
 const mongoose = require("mongoose");
-const { PLATFORM_PERMISSIONS } = require("../constants/platformPermissions");
+const { PLATFORM_PERMISSIONS, isPlatformPermission } = require("../constants/platformPermissions");
+const fieldWriteGuard = require("./plugins/fieldWriteGuard");
 
 const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const ENTRA_V2_ISSUER = /^https:\/\/login\.microsoftonline\.com\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/v2\.0$/;
@@ -84,6 +85,16 @@ function refuseIdentityUpdate(next) {
 for (const op of ["updateOne", "updateMany", "findOneAndUpdate", "replaceOne", "findOneAndReplace"]) {
   platformPrincipalSchema.pre(op, refuseIdentityUpdate);
 }
+
+// Phase B / Z3: permissions hold exact catalogue codes only - never "*", "platform:*", a prefix wildcard or a
+// tenant code - on every write path, including query updates without runValidators.
+platformPrincipalSchema.plugin(fieldWriteGuard, {
+  fields: ["permissions"],
+  check(values) {
+    const bad = values.filter((v) => !isPlatformPermission(v));
+    if (bad.length) throw new Error("PlatformPrincipal permissions must be exact platform catalogue codes");
+  },
+});
 
 const PlatformPrincipal = mongoose.model("PlatformPrincipal", platformPrincipalSchema);
 

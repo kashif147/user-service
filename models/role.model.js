@@ -1,4 +1,7 @@
 const mongoose = require("mongoose");
+const fieldWriteGuard = require("./plugins/fieldWriteGuard");
+const { isPlatformNamespace, canonicalPermission } = require("../constants/permissionClassification");
+const { RolePrivilegeError } = require("../errors/RolePrivilegeError");
 
 const RoleSchema = new mongoose.Schema({
   // Tenant isolation - mandatory field
@@ -68,6 +71,22 @@ RoleSchema.index({ tenantId: 1, name: 1 }, { unique: true }); // Unique role nam
 RoleSchema.pre("save", function (next) {
   this.updatedAt = Date.now();
   next();
+});
+
+// Phase B / Z3: a tenant role can never hold a platform-namespace permission (today's catalogue or any
+// future platform:* code), on any Mongoose write path - not only through handlers/role.handler.js.
+// ObjectId entries reference the Permission catalogue, which can never contain a platform code
+// (models/permission.model.js). See constants/permissionClassification.js.
+RoleSchema.plugin(fieldWriteGuard, {
+  fields: ["permissions"],
+  check(values) {
+    const platform = values.filter((v) => typeof v === "string" && isPlatformNamespace(v));
+    if (platform.length) {
+      throw new RolePrivilegeError(
+        `Platform permissions cannot be granted to a tenant role: ${[...new Set(platform.map(canonicalPermission))].join(", ")}`
+      );
+    }
+  },
 });
 
 module.exports = mongoose.model("Role", RoleSchema);

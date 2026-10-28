@@ -1,4 +1,6 @@
 const mongoose = require("mongoose");
+const fieldWriteGuard = require("./plugins/fieldWriteGuard");
+const { isPlatformNamespace } = require("../constants/permissionClassification");
 
 const PermissionSchema = new mongoose.Schema({
   name: {
@@ -87,6 +89,22 @@ PermissionSchema.index({ isSystemPermission: 1 });
 PermissionSchema.pre("save", function (next) {
   this.updatedAt = Date.now();
   next();
+});
+
+// Phase B / Z3: the platform namespace is not part of the tenant permission catalogue. Platform codes live
+// in code (constants/platformPermissions.js) and are granted only to PlatformPrincipals, so no code or
+// resource in the "platform" namespace may be written here - which also means a role's ObjectId
+// permission entry can never resolve to a platform code. See constants/permissionClassification.js.
+PermissionSchema.plugin(fieldWriteGuard, {
+  fields: ["code", "resource"],
+  check(values, field) {
+    if (values.some((v) => typeof v === "string" && isPlatformNamespace(v))) {
+      const err = new Error(`Platform permissions are not part of the tenant permission catalogue (${field})`);
+      err.status = 403;
+      err.code = "PLATFORM_PERMISSION_RESERVED";
+      throw err;
+    }
+  },
 });
 
 module.exports = mongoose.model("Permission", PermissionSchema);

@@ -5,6 +5,11 @@ const { AppError } = require("../errors/AppError");
 const axios = require("axios");
 const roleHierarchyService = require("./roleHierarchyService");
 const permissionsService = require("./permissionsService");
+const {
+  isPlatformNamespace,
+  tenantPermissionGranted,
+  tenantWildcardCovers,
+} = require("../constants/permissionClassification");
 
 // Removed hardcoded DEFAULT_PERMISSIONS - now using database-driven permissionsService
 
@@ -441,6 +446,13 @@ const validateToken = async (token) => {
 const applyPolicyRules = async (context) => {
   const { roles, permissions, resource, action, tenantId } = context;
 
+  // Rule 0 (Phase B / Z3): this is the TENANT policy decision point. A platform-namespace resource is
+  // platform authority, decided only by the platform evaluator (middlewares/requirePlatformPermission.js)
+  // from a PlatformPrincipal - never here, never by "*", never by the legacy SU rule below.
+  if (isPlatformNamespace(String(resource || "")) || isPlatformNamespace(`${resource}:${action}`)) {
+    return { decision: "DENY", reason: "PLATFORM_PERMISSION_NOT_TENANT_EVALUABLE" };
+  }
+
   // Rule 1: Super User skips the permission rules - but, Phase A / A16 SU closure (TEMPORARY until
   // Phase B), only inside its own tenant: today's SU is a legacy role cloned into every tenant and
   // cannot be told apart from a genuine platform SU, so it never bypasses the tenant boundary.
@@ -538,7 +550,7 @@ const evaluateResourcePolicy = async (context) => {
         (perm) =>
           resourcePermissionCodes.includes(perm) || // Check code format (backward compatibility)
           resourcePermissionCanonical.includes(perm) || // Check canonical format (current format)
-          permissions.includes("*") // Wildcard
+          tenantWildcardCovers(permissions, String(resource)) // Tenant wildcard (never platform)
       );
 
     // Phase 1C-2G: the former "via roles" fallback (permissionsService.hasAnyPermission, which
@@ -707,7 +719,7 @@ const evaluateActionPolicy = async (context) => {
     const requiredPermission = `${resource.toLowerCase()}:${action.toLowerCase()}`;
 
     // Check for exact match or wildcard (permissions already normalized)
-    if (permissions.includes(requiredPermission) || permissions.includes("*")) {
+    if (tenantPermissionGranted(permissions, requiredPermission)) {
       return {
         decision: "PERMIT",
         reason: "ACTION_AUTHORIZED_BY_PERMISSION",
@@ -756,7 +768,7 @@ const evaluatePermissionPolicy = async (context) => {
 
     if (!requiredPermission) {
       // If no specific permission found in database, check if there's a wildcard permission
-      const hasWildcardPermission = permissions.includes("*");
+      const hasWildcardPermission = tenantWildcardCovers(permissions, `${resource}:${action}`);
       if (hasWildcardPermission) {
         return {
           decision: "PERMIT",
@@ -786,9 +798,7 @@ const evaluatePermissionPolicy = async (context) => {
     const requiredPermissionCanonical = `${resource.toLowerCase()}:${action.toLowerCase()}`;
 
     // Check if user has the required permission (direct comparison - permissions already normalized)
-    const hasPermission =
-      permissions.includes(requiredPermissionCanonical) || // Canonical format: portal:create
-      permissions.includes("*"); // Wildcard
+    const hasPermission = tenantPermissionGranted(permissions, requiredPermissionCanonical); // exact or tenant "*"
 
     if (!hasPermission) {
       console.log(`Permission check failed for ${resource}:${action}`, {
@@ -908,8 +918,7 @@ const getResourcePermissions = async (resource, roles, permissions) => {
 
     // Filter permissions user actually has
     return resourcePermissions.filter(
-      (permission) =>
-        permissions.includes(permission) || permissions.includes("*")
+      (permission) => tenantPermissionGranted(permissions, permission)
     );
   } catch (error) {
     console.error("Error getting resource permissions:", error);

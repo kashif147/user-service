@@ -3,6 +3,13 @@ const User = require("../models/user.model");
 const Tenant = require("../models/tenant.model");
 const Permission = require("../models/permission.model");
 const mongoose = require("mongoose");
+const { RolePrivilegeError } = require("../errors/RolePrivilegeError");
+const {
+  canonicalPermission,
+  isPlatformNamespace,
+  isLegacyReservedPermission,
+  isMalformedWildcard,
+} = require("../constants/permissionClassification");
 
 module.exports.initializeRoles = async (tenantId) => {
   try {
@@ -170,77 +177,83 @@ module.exports.getRoleById = async (roleId, tenantId) => {
 //     shared-metadata writes lookup:write / lookupType:write (permissions already on the role are
 //     untouched)
 // SU actors are exempt. tenantId/_id/Mongo operators stay non-editable for everyone.
+//
+// Phase B / Z3: two rules apply to EVERY actor, legacy SU included (constants/permissionClassification.js):
+//   - no platform-namespace permission ("platform" resource: today's catalogue or any future code) may be
+//     on a tenant role at all - checked over the whole proposed permission set, ObjectId entries resolved;
+//   - no malformed wildcard ("*:*", "*:read", "pay*:read") may be added.
+// models/role.model.js enforces the platform rule again on every write path below the handlers.
 // ---------------------------------------------------------------------------
 const RESERVED_ROLE_CODES = ["SU", "ASU"];
 const PLATFORM_ADMIN_MIN_LEVEL = 95; // ASU level in roleHierarchyService's fallback hierarchy
 const RESERVED_CATEGORIES = ["SYSTEM"];
 const OBJECT_ID_RE = /^[0-9a-fA-F]{24}$/;
 
-const isReservedPermission = (canonical) => {
-  if (!canonical) return false;
-  if (canonical === "*") return true;
-  const [resource, action] = canonical.split(":");
-  if (action === "super_admin") return true;
-  if (resource === "admin") return true; // platform admin resource (e.g. global cache control)
-  if (resource === "permission" && action !== "read") return true; // global permission catalogue
-  if (resource === "tenant" && action === "create") return true; // new tenants
-  // Phase A / A14: lookups and lookup types are still global (shared by every tenant) until the
-  // Phase D/E cutover, so a tenant must not be able to grant itself write access to them. The
-  // write APIs are also frozen (423). delete is deliberately not reserved here: an existing JIT
-  // default role (DEV) carries lookuptype:delete, and reserving it would refuse that sign-up path.
-  if ((resource === "lookup" || resource === "lookuptype") && action === "write") return true;
-  return false;
-};
+// Reserved for SU (legacy list) - and, Phase B / Z3, every platform-namespace code (reserved for everyone).
+const isReservedPermission = (canonical) => isPlatformNamespace(canonical) || isLegacyReservedPermission(canonical);
 
-const toCanonicalPermission = (perm) => {
-  if (!perm || typeof perm !== "string") return null;
-  const p = perm.trim();
-  if (p === "*") return "*";
-  if (p.includes(":")) return p.toLowerCase();
-  return p.toLowerCase().replace(/_/g, ":"); // CODE_FORMAT -> resource:action (as helpers/jwt.js)
-};
-
-class RolePrivilegeError extends Error {
-  constructor(message) {
-    super(message);
-    this.name = "RolePrivilegeError";
-    this.status = 403;
-    this.code = "ROLE_PRIVILEGE_VIOLATION";
-  }
-}
+const toCanonicalPermission = canonicalPermission;
 
 const isSuperUserActor = (actor) =>
   Array.isArray(actor?.roles) &&
   actor.roles.some((r) => (typeof r === "string" ? r : r?.code) === "SU");
 
+// Canonical form of permission entries (ObjectId entries resolved against the catalogue).
+const resolveCanonicalPermissions = async (entries) => {
+  const list = (Array.isArray(entries) ? entries : []).map((e) => String(e).trim());
+  const ids = list.filter((e) => OBJECT_ID_RE.test(e));
+  const byId = new Map();
+  if (ids.length) {
+    const docs = await Permission.find({ _id: { $in: ids } }).select("code resource action");
+    for (const d of docs) {
+      byId.set(
+        String(d._id),
+        d.resource && d.action ? `${d.resource}:${d.action}`.toLowerCase() : toCanonicalPermission(d.code)
+      );
+    }
+  }
+  return list.map((e) => (OBJECT_ID_RE.test(e) ? byId.get(e) || `unresolved:${e}` : toCanonicalPermission(e)));
+};
+
 // Canonical form of permission entries the role does not already have (ObjectId entries resolved).
 const canonicalAddedPermissions = async (proposed, existing = []) => {
-  const resolve = async (entries) => {
-    const list = (Array.isArray(entries) ? entries : []).map((e) => String(e).trim());
-    const ids = list.filter((e) => OBJECT_ID_RE.test(e));
-    const byId = new Map();
-    if (ids.length) {
-      const docs = await Permission.find({ _id: { $in: ids } }).select("code resource action");
-      for (const d of docs) {
-        byId.set(
-          String(d._id),
-          d.resource && d.action ? `${d.resource}:${d.action}`.toLowerCase() : toCanonicalPermission(d.code)
-        );
-      }
-    }
-    return list.map((e) => (OBJECT_ID_RE.test(e) ? byId.get(e) || `unresolved:${e}` : toCanonicalPermission(e)));
-  };
-  const have = new Set(await resolve(existing));
-  return (await resolve(proposed)).filter((p) => !have.has(p));
+  const have = new Set(await resolveCanonicalPermissions(existing));
+  return (await resolveCanonicalPermissions(proposed)).filter((p) => !have.has(p));
 };
 
 /**
- * Throws RolePrivilegeError when a non-SU actor's role change would cross the privilege boundary.
+ * Phase B / Z3: throws RolePrivilegeError when a tenant role's permission set would hold a platform-namespace
+ * code (any actor, SU included; raw entries and resolved ObjectId entries). Also used by the tenant-scoped
+ * permission API before its catalogue lookup, so the answer is the same 403 there.
+ */
+const assertTenantGrantablePermissions = async (entries) => {
+  const raw = (Array.isArray(entries) ? entries : []).map((e) => String(e));
+  const resolved = await resolveCanonicalPermissions(raw);
+  const platform = [...new Set([...raw, ...resolved].filter(isPlatformNamespace).map((p) => canonicalPermission(p)))];
+  if (platform.length) {
+    throw new RolePrivilegeError(`Platform permissions cannot be granted to a tenant role: ${platform.join(", ")}`);
+  }
+};
+
+/**
+ * Throws RolePrivilegeError when a role change would cross the privilege boundary: the platform-namespace
+ * and malformed-wildcard rules for every actor, then the reserved rules for non-SU actors.
  * persisted: the current role document (null on create). proposed: the fields being written.
  */
 const assertRoleChangeAllowed = async (actor, persisted, proposed) => {
   if (!actor || !Array.isArray(actor.roles)) {
     throw new RolePrivilegeError("Actor context required for role changes");
+  }
+  if (proposed.permissions !== undefined) {
+    // A single string would be cast by Mongoose to a one-element array: check it as one.
+    const list = Array.isArray(proposed.permissions) ? proposed.permissions : proposed.permissions == null ? [] : [proposed.permissions];
+    proposed = { ...proposed, permissions: list };
+    await assertTenantGrantablePermissions(list);
+    const existing = new Set((persisted?.permissions || []).map((e) => String(e).trim()));
+    const malformed = list.map((e) => String(e).trim()).filter((e) => !existing.has(e) && isMalformedWildcard(e));
+    if (malformed.length) {
+      throw new RolePrivilegeError(`Malformed wildcard permission: ${malformed.join(", ")}`);
+    }
   }
   if (isSuperUserActor(actor)) return;
 
@@ -346,6 +359,7 @@ module.exports.assertRequestedRoleRemovalAllowed = assertRequestedRoleRemovalAll
 module.exports.assertImplicitRoleRemovalAllowed = assertImplicitRoleRemovalAllowed;
 module.exports.isProtectedRole = isProtectedRole;
 module.exports.isReservedPermission = isReservedPermission;
+module.exports.assertTenantGrantablePermissions = assertTenantGrantablePermissions;
 
 module.exports.createRole = async (roleData, tenantId, createdBy, actor) => {
   try {
