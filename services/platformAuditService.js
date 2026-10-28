@@ -11,9 +11,12 @@
  * Principal create / disable / enable / set-permissions run in the operator script, which has no trusted
  * tenant to own an audit row (A1); the principal's append-only `changes` history records them (Z5 decision).
  *
- * Context: actorScope "platform", actorTenantId null (a platform actor's authority never comes from a tenant),
- * targetTenantId null (no Z4 route targets a tenant), loginTenantId = the trusted tenant the event happened in
- * (context only). The envelope tenant (the row's A1 owner) is that same trusted request tenant.
+ * Context: when a PlatformPrincipal is identified (claim decisions; authz decisions carrying a well-formed
+ * claim's pid) the actor is a PLATFORM actor: actorScope "platform", actorTenantId null (a platform actor's
+ * authority never comes from a tenant), targetTenantId null (no Z4 route targets a tenant), loginTenantId =
+ * the trusted tenant the event happened in (context only). A caller with no usable claim (legacy SU with "*",
+ * ASU, ordinary users) is a TENANT actor attempting platform authority: actorScope "tenant", actor = target =
+ * its own trusted tenant. The envelope tenant (the row's A1 owner) is always that trusted request tenant.
  * Payload: decision fields and ids only - never a token, oid, issuer, email or name.
  * Fire-and-forget: a publish failure is logged and never changes the sign-in or the authorization result.
  */
@@ -30,7 +33,11 @@ function platformAuditContext(tenantId) {
   return { actorScope: "platform", actorTenantId: null, targetTenantId: null, loginTenantId: tenantId };
 }
 
-function publish(eventType, tenantId, data, correlationId) {
+function tenantAuditContext(tenantId) {
+  return { actorScope: "tenant", actorTenantId: tenantId, targetTenantId: tenantId };
+}
+
+function publish(eventType, tenantId, data, correlationId, scope = "platform") {
   const tenant = tenantId == null ? "" : String(tenantId);
   if (!INTERNAL_TENANT_ID.test(tenant)) {
     // No trusted tenant to own the row: never fabricate one.
@@ -42,7 +49,7 @@ function publish(eventType, tenantId, data, correlationId) {
       rabbit().publishDomainEvent(eventType, data, {
         tenantId: tenant,
         ...(correlationId ? { correlationId: String(correlationId) } : {}),
-        auditContext: platformAuditContext(tenant),
+        auditContext: scope === "platform" ? platformAuditContext(tenant) : tenantAuditContext(tenant),
       })
     )
     .catch((err) => {
@@ -80,8 +87,9 @@ function auditAuthzDecision({ req, permission, mode, decision }) {
       revMatch: decision.revMatch ?? null,
       route: `${req?.method} ${(req?.baseUrl || "") + (req?.route?.path || "")}`,
     },
-    req?.correlationId || req?.headers?.["x-correlation-id"]
+    req?.correlationId || req?.headers?.["x-correlation-id"],
+    decision.pid ? "platform" : "tenant"
   );
 }
 
-module.exports = { auditClaimDecision, auditAuthzDecision, platformAuditContext, EVENTS };
+module.exports = { auditClaimDecision, auditAuthzDecision, platformAuditContext, tenantAuditContext, EVENTS };

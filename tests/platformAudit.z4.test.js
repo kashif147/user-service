@@ -151,6 +151,16 @@ describe("enforced platform authorization (route-enforce guard)", () => {
     expect(res.statusCode).toBe(403);
     expect(mockPublished.map((x) => [x[1].allowed, x[1].reason])).toEqual([[false, "permission_missing"]]);
   });
+  test("a caller without a usable claim (legacy SU with '*') -> 403 audited as a TENANT actor on its own tenant", async () => {
+    process.env.PLATFORM_AUTH_MODE = "shadow";
+    const { res } = await run(requirePlatformPermission("platform:cache:admin", { mode: "route-enforce" }), {
+      token: sign({ plat: undefined, roles: [{ code: "SU" }], permissions: ["*"] }),
+    });
+    expect(res.statusCode).toBe(403);
+    expect(mockPublished).toHaveLength(1);
+    expect(mockPublished[0][1]).toMatchObject({ allowed: false, reason: "no_plat", principalId: null });
+    expect(mockPublished[0][2]).toMatchObject({ tenantId: A, auditContext: { actorScope: "tenant", actorTenantId: A, targetTenantId: A } });
+  });
   test("401 (no / invalid token) -> not audited", async () => {
     process.env.PLATFORM_AUTH_MODE = "shadow";
     const { res } = await run(requirePlatformPermission("platform:cache:admin", { mode: "route-enforce" }), { token: null });
