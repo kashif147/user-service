@@ -22,6 +22,7 @@
  * A lookup failure never fails the sign-in: it is logged and no claim is issued (fail closed).
  */
 const PlatformPrincipal = require("../models/platformPrincipal.model");
+const { auditClaimDecision } = require("./platformAuditService");
 
 const CLAIM_NAME = "plat";
 const CLAIM_VERSION = 1;
@@ -87,11 +88,23 @@ async function resolvePlatformClaim({ verifiedIdentity, user }) {
   if (!principal) return done("not_principal");
 
   const extra = { principalId: mask(principal._id), mfa: mfaSignal(id.amr) };
-  if (principal.tid !== id.tid) return done("identity_mismatch", extra);
-  if (principal.status !== "active") return done("disabled", extra);
+
+  // Phase B / Z4: a sign-in that resolved to a REAL principal is a durable security event (issued or refused).
+  const audit = (decision, more = {}) =>
+    auditClaimDecision({ tenantId: base.tenantId, userId: base.userId, principalId: principal._id, decision, mode, mfa: extra.mfa, ...more });
+  if (principal.tid !== id.tid) {
+    audit("identity_mismatch");
+    return done("identity_mismatch", extra);
+  }
+  if (principal.status !== "active") {
+    audit("disabled");
+    return done("disabled", extra);
+  }
 
   const claim = { v: CLAIM_VERSION, pid: String(principal._id), rev: principal.revision };
-  return done("issued", { ...extra, rev: principal.revision, permissionCount: (principal.permissions || []).length }, claim);
+  const permissionCount = (principal.permissions || []).length;
+  audit("issued", { rev: principal.revision, permissionCount });
+  return done("issued", { ...extra, rev: principal.revision, permissionCount }, claim);
 }
 
 module.exports = { resolvePlatformClaim, platformAuthMode, CLAIM_NAME, CLAIM_VERSION, MODES };

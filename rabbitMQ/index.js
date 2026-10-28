@@ -50,6 +50,9 @@ async function initEventSystem() {
       "pricing.created.v1": "product.events",
       "pricing.updated.v1": "product.events",
       "pricing.deleted.v1": "product.events",
+      // Phase B / Z4: platform-auth audit events (services/platformAuditService.js -> audit.platform.events)
+      "platform.claim.decision.v1": "user.events",
+      "platform.authz.decision.v1": "user.events",
     });
     
     isInitialized = true;
@@ -258,6 +261,8 @@ const EVENT_TYPES = {
   PRICING_CREATED: "pricing.created.v1",
   PRICING_UPDATED: "pricing.updated.v1",
   PRICING_DELETED: "pricing.deleted.v1",
+  PLATFORM_CLAIM_DECISION: "platform.claim.decision.v1",
+  PLATFORM_AUTHZ_DECISION: "platform.authz.decision.v1",
 };
 
 module.exports = {

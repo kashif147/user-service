@@ -23,6 +23,9 @@
  * Public responses never say why: 401 is the usual unauthenticated body; every platform-authority failure
  * is the same 403 PLATFORM_AUTHORITY_REQUIRED body. The reason goes to the log line only.
  *
+ * Audit (Phase B / Z4): enforced allow / 403 decisions are also published as platform.authz.decision.v1
+ * (services/platformAuditService.js); shadow evaluations and 401s are not.
+ *
  * Log: one `[platform-authz]` line per evaluation - mode, effective, allowed, reason, permission, masked pid,
  * token / current revision, caller tenant, masked user, method + route pattern, correlation id. Never the
  * JWT, the Authorization header, the claim object, oid, issuer, email or a full id.
@@ -31,6 +34,7 @@ const { verifyProjectShellToken } = require("./auth");
 const { isPlatformPermission } = require("../constants/platformPermissions");
 const { platformAuthMode } = require("../services/platformClaimService");
 const { evaluatePlatformPermission } = require("../services/platformAuthorizationService");
+const { auditAuthzDecision } = require("../services/platformAuditService");
 
 const PLATFORM_AUTHORITY_REQUIRED = "PLATFORM_AUTHORITY_REQUIRED";
 const mask = (v) => (v ? `…${String(v).slice(-6)}` : null);
@@ -114,6 +118,9 @@ function requirePlatformPermission(code, { mode: routeMode } = {}) {
       d = { allowed: false, status: 403, reason: "lookup_error", pid: null, tokenRev: null, currentRev: null, revMatch: null };
     }
     logDecision(req, code, mode, "enforce", d);
+    // Phase B / Z4: an ENFORCED allow / 403 deny is a durable audit event (401 = unauthenticated, log only;
+    // shadow observers stay log only). Fire-and-forget: never changes the response.
+    if (d.allowed || d.status !== 401) auditAuthzDecision({ req, permission: code, mode, decision: d });
     if (!d.allowed) return d.status === 401 ? unauthorized(res) : forbidden(res);
     Object.defineProperty(req, "platform", { value: Object.freeze({ pid: d.pid, permission: code }), enumerable: false, configurable: true });
     return next();
