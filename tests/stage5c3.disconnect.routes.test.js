@@ -155,7 +155,8 @@ describe("POST /tenants/:id/auth-connections/:connectionId/disconnect", () => {
     const src = fs.readFileSync(path.join(__dirname, "..", "routes", "tenant.routes.js"), "utf8");
     const route = '"/tenants/:id/auth-connections/:connectionId/disconnect"';
     expect(src).toContain(route);
-    const block = src.slice(src.indexOf(route), src.indexOf(");", src.indexOf(route)));
+    // Z6: the tenant chain is the LAST registration of the path (the platform registration precedes it).
+    const block = src.slice(src.lastIndexOf(route), src.indexOf(");", src.lastIndexOf(route)));
     expect(block).toMatch(/requireTenant,/);
     expect(block).toMatch(/requireTenantPathAccess\("id"\)/);
     expect(block).toContain('defaultPolicyAdapter.middleware("tenant", "admin")');

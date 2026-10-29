@@ -49,9 +49,14 @@ module.exports.getAllTenants = async (req, res, next) => {
       status: req.query.status,
       plan: req.query.plan,
     };
-    // Every caller (SU included until Phase B - see ownTenantScope) gets its own tenant only, from
-    // the trusted req.ctx.tenantId — never a caller-supplied filter. Listing all tenants is a
-    // platform operation (reviewed scripts until Phase B).
+    // Phase B / Z6: a platform principal holding platform:tenant:read:any (req.platform, set only by
+    // middlewares/platformTenantAdmin.js) lists every tenant.
+    if (req.platform?.permission === "platform:tenant:read:any") {
+      const tenants = await TenantHandler.getAllTenants(filters);
+      return res.status(200).json({ status: "success", data: tenants.map(toTenantView) });
+    }
+    // Every tenant actor (legacy SU with "*" and ASU included - see ownTenantScope) gets its own tenant only,
+    // from the trusted req.ctx.tenantId — never a caller-supplied filter.
     if (!req.ctx?.tenantId) {
       return next(AppError.forbidden("Tenant context required"));
     }

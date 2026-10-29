@@ -58,6 +58,9 @@ async function initEventSystem() {
       "platform.tenant.create.failed.v1": "user.events",
       "platform.principal.changed.v1": "user.events",
       "tenant.lifecycle.created.v1": "user.events",
+      // Phase B / Z6: cross-tenant tenant-administration outcome (-> platform_audit_logs) + approved tenant copy
+      "platform.tenant.admin.changed.v1": "user.events",
+      "tenant.lifecycle.changed.v1": "user.events",
     });
     
     isInitialized = true;
@@ -272,6 +275,8 @@ const EVENT_TYPES = {
   PLATFORM_TENANT_CREATE_FAILED: "platform.tenant.create.failed.v1",
   PLATFORM_PRINCIPAL_CHANGED: "platform.principal.changed.v1",
   TENANT_LIFECYCLE_CREATED: "tenant.lifecycle.created.v1",
+  PLATFORM_TENANT_ADMIN_CHANGED: "platform.tenant.admin.changed.v1",
+  TENANT_LIFECYCLE_CHANGED: "tenant.lifecycle.changed.v1",
 };
 
 module.exports = {

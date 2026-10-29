@@ -268,7 +268,8 @@ describe("start: organizations authority, shared app, server-side state", () => 
       ['"/tenants/:id/auth-connections/:connectionId/connect/complete"', '"admin"'],
       ['"/tenants/:id/auth-connections/:connectionId/status"', '"read"'],
     ]) {
-      const block = src.slice(src.indexOf(route), src.indexOf(");", src.indexOf(route)));
+      // Z6: the tenant chain is the LAST registration of the path (the platform registration precedes it).
+      const block = src.slice(src.lastIndexOf(route), src.indexOf(");", src.lastIndexOf(route)));
       expect(block).toMatch(/requireTenant,/);
       expect(block).toMatch(/requireTenantPathAccess\("id"\)/);
       expect(block).toContain(`defaultPolicyAdapter.middleware("tenant", ${perm})`);

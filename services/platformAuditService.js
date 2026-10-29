@@ -18,6 +18,11 @@
  *                                     (target = the new tenant)  +  tenant.lifecycle.created.v1 (tenant copy).
  *   platform.tenant.create.failed.v1  an authorized tenant creation that failed (no tenant exists: target NULL).
  *   platform.principal.changed.v1     a principal-admin script mutation (system actor platform:principal-admin).
+ *   platform.tenant.admin.changed.v1  (Z6) outcome of a cross-tenant tenant-administration mutation by a platform
+ *                                     principal (target = the route tenant)  +, for approved lifecycle /
+ *                                     configuration changes only, tenant.lifecycle.changed.v1 (copy owned by the
+ *                                     target tenant: action + section / status values / connection id, nothing else).
+ *                                     Cross-tenant reads and denials are platform.authz.decision.v1 with the target.
  *
  * Actor context:
  *   platform  a PlatformPrincipal is identified (pid): actorTenantId null, targetTenantId null unless the
@@ -40,6 +45,8 @@ const EVENTS = Object.freeze({
   PLATFORM_TENANT_CREATE_FAILED: "platform.tenant.create.failed.v1",
   PLATFORM_PRINCIPAL_CHANGED: "platform.principal.changed.v1",
   TENANT_LIFECYCLE_CREATED: "tenant.lifecycle.created.v1",
+  PLATFORM_TENANT_ADMIN_CHANGED: "platform.tenant.admin.changed.v1",
+  TENANT_LIFECYCLE_CHANGED: "tenant.lifecycle.changed.v1",
 });
 const PRINCIPAL_ADMIN_ACTOR = "platform:principal-admin";
 const TENANT_CREATE_PERMISSION = "platform:tenant:create";
@@ -103,7 +110,7 @@ function auditClaimDecision({ tenantId, userId, principalId, decision, mode, rev
  * An enforced platform authorization decision (allow / deny). `status` = the HTTP status the route answered
  * (e.g. 423 when a valid platform actor then hits the A14 freeze, or a tenant actor is refused while frozen).
  */
-function auditAuthzDecision({ req, permission, mode, decision, status }) {
+function auditAuthzDecision({ req, permission, mode, decision, status, targetTenantId = null }) {
   const data = {
     allowed: decision.allowed === true,
     reason: decision.reason,
@@ -119,7 +126,7 @@ function auditAuthzDecision({ req, permission, mode, decision, status }) {
   };
   let auditContext;
   if (decision.pid) {
-    auditContext = platformAuditContext(req?.ctx?.tenantId);
+    auditContext = platformAuditContext(req?.ctx?.tenantId, targetTenantId);
   } else {
     const tenant = tenantOrNull(req?.ctx?.tenantId);
     if (!tenant || decision.allowed === true) {
@@ -168,6 +175,55 @@ function auditTenantCreateFailed({ req, reason, status }) {
   }, { auditContext: platformAuditContext(req.ctx?.tenantId), correlationId: correlationOf(req) });
 }
 
+// Z6 tenant-copy rule (owner brief §14): only material lifecycle / configuration changes are copied to the
+// target tenant's own history. Reads, denials, connect-start, test and tenant delete (a deleted tenant can no
+// longer sign anyone in to read it) are platform-only.
+const TENANT_COPY_ACTIONS = new Set([
+  "TENANT_UPDATED", "TENANT_SUSPENDED", "TENANT_REACTIVATED", "TENANT_STATUS_CHANGED",
+  "AUTH_CONNECTION_ADDED", "AUTH_CONNECTION_UPDATED", "AUTH_CONNECTION_REMOVED",
+  "AUTH_CONNECTION_CONNECTED", "AUTH_CONNECTION_DISCONNECTED",
+]);
+const OBJECT_ID = /^[0-9a-f]{24}$/;
+
+/**
+ * Z6: the outcome of a cross-tenant tenant-administration mutation (req.platform set by
+ * middlewares/platformTenantAdmin.js). result success -> authoritative platform record + (approved actions only)
+ * the target tenant's copy; failure -> platform record only. Never the request body.
+ */
+function auditTenantAdminChange({ req, action, result, status, reason, section, connectionId, fromStatus, toStatus }) {
+  const target = tenantOrNull(req?.platform?.targetTenantId);
+  if (!target || !req?.platform?.pid) {
+    warn("platform.audit.skipped", { eventType: EVENTS.PLATFORM_TENANT_ADMIN_CHANGED, reason: "no_platform_actor_or_target" });
+    return;
+  }
+  const conn = connectionId && OBJECT_ID.test(String(connectionId)) ? String(connectionId) : undefined;
+  const safe = {
+    ...(section ? { section } : {}),
+    ...(conn ? { connectionId: conn } : {}),
+    ...(fromStatus ? { fromStatus } : {}),
+    ...(toStatus ? { toStatus } : {}),
+  };
+  const correlationId = correlationOf(req);
+  publish(EVENTS.PLATFORM_TENANT_ADMIN_CHANGED, {
+    principalId: String(req.platform.pid),
+    actorUserId: idOrNull(req.ctx?.userId),
+    tenantId: target,
+    action,
+    permission: req.platform.permission,
+    result,
+    status,
+    ...(reason ? { reason } : {}),
+    route: routeOf(req),
+    ...safe,
+  }, { auditContext: platformAuditContext(req.ctx?.tenantId, target), correlationId });
+  if (result !== "success" || !TENANT_COPY_ACTIONS.has(action)) return;
+  publish(EVENTS.TENANT_LIFECYCLE_CHANGED, { tenantId: target, action, ...safe }, {
+    envelopeTenantId: target,
+    auditContext: { actorScope: "platform", actorTenantId: null, targetTenantId: target },
+    correlationId,
+  });
+}
+
 /**
  * A principal-admin script mutation (system actor). Awaitable: resolves true when published.
  * operatorLabel / approvalRef are operator-supplied (--by / --approval), not authenticated identity.
@@ -194,6 +250,8 @@ module.exports = {
   auditTenantCreated,
   auditTenantCreateFailed,
   auditPrincipalChange,
+  auditTenantAdminChange,
+  TENANT_COPY_ACTIONS,
   platformAuditContext,
   tenantAuditContext,
   systemAuditContext,

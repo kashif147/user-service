@@ -10,9 +10,19 @@ const {
   tenantContextWarn,
 } = require("../middlewares/auth");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter.js");
-// Phase B: POST /tenants is enforced platform authorization (Z5). The other observers stay shadow-only (never
-// change the response): cross-tenant tenant read/update/delete is the Z6 target-tenant model, not Z5.
+// Phase B: POST /tenants is enforced platform authorization (Z5). Code / domain lookups keep a shadow observer
+// only (not a Z6 target: they are not addressed by tenant id).
 const { observePlatformPermission, requirePlatformPermission } = require("../middlewares/requirePlatformPermission");
+// Phase B / Z6: cross-tenant tenant administration by a platform principal. Each shared route below is
+// registered twice: `platform(...)` first (platform principal: exact platform permission, explicit :id target),
+// then the UNCHANGED tenant chain (tenant actors - legacy SU "*", ASU, ordinary users: own tenant only), reached
+// via next("route") whenever the caller carries no verified platform claim. See middlewares/platformTenantAdmin.js.
+const { platformTenantAdmin } = require("../middlewares/platformTenantAdmin");
+const READ_ANY = "platform:tenant:read:any";
+const UPDATE_ANY = "platform:tenant:update:any";
+const DELETE_ANY = "platform:tenant:delete:any";
+const CONNECTIONS_ANY = "platform:tenant:auth-connections:manage:any";
+const platform = (method, path, guard, ...handlers) => router[method](path, guard, ...handlers);
 
 // Apply authentication to all routes
 router.use(authenticate, tenantContextWarn);
@@ -26,9 +36,9 @@ router.post(
   TenantController.createTenant
 );
 
+platform("get", "/tenants", platformTenantAdmin(READ_ANY), TenantController.getAllTenants);
 router.get(
   "/tenants",
-  observePlatformPermission("platform:tenant:read:any"),
   defaultPolicyAdapter.middleware("tenant", "read"),
   TenantController.getAllTenants
 );
@@ -39,9 +49,9 @@ router.get(
   TenantBrandingController.getBrandingPlaceholders
 );
 
+platform("get", "/tenants/:id", platformTenantAdmin(READ_ANY, { target: "id" }), TenantController.getTenantById);
 router.get(
   "/tenants/:id",
-  observePlatformPermission("platform:tenant:read:any"),
   requireTenant,
   requireTenantPathAccess("id"),
   defaultPolicyAdapter.middleware("tenant", "read"),
@@ -64,6 +74,7 @@ router.get(
   TenantController.getTenantByDomain
 );
 
+platform("put", "/tenants/:id", platformTenantAdmin(UPDATE_ANY, { target: "id", change: "TENANT_UPDATED", section: "profile" }), TenantController.updateTenant);
 router.put(
   "/tenants/:id",
   requireTenant,
@@ -72,9 +83,11 @@ router.put(
   TenantController.updateTenant
 );
 
+// Z6: the existing delete is a SOFT delete (isActive false, status INACTIVE); platform record only (no tenant copy:
+// an inactive tenant can no longer sign anyone in to read its own history).
+platform("delete", "/tenants/:id", platformTenantAdmin(DELETE_ANY, { target: "id", change: "TENANT_DELETED" }), TenantController.deleteTenant);
 router.delete(
   "/tenants/:id",
-  observePlatformPermission("platform:tenant:delete:any"),
   requireTenant,
   requireTenantPathAccess("id"),
   defaultPolicyAdapter.middleware("tenant", "delete"),
@@ -82,15 +95,16 @@ router.delete(
 );
 
 // Tenant management operations
+platform("get", "/tenants/:id/stats", platformTenantAdmin(READ_ANY, { target: "id" }), TenantController.getTenantStats);
 router.get(
   "/tenants/:id/stats",
-  observePlatformPermission("platform:tenant:read:any"),
   requireTenant,
   requireTenantPathAccess("id"),
   defaultPolicyAdapter.middleware("tenant", "read"),
   TenantController.getTenantStats
 );
 
+platform("put", "/tenants/:id/status", platformTenantAdmin(UPDATE_ANY, { target: "id", change: "status", section: "status" }), TenantController.updateTenantStatus);
 router.put(
   "/tenants/:id/status",
   requireTenant,
@@ -99,6 +113,7 @@ router.put(
   TenantController.updateTenantStatus
 );
 
+platform("patch", "/tenants/:id/organisation-profile", platformTenantAdmin(UPDATE_ANY, { target: "id", change: "TENANT_UPDATED", section: "organisation-profile" }), TenantController.updateOrganisationProfile);
 router.patch(
   "/tenants/:id/organisation-profile",
   requireTenant,
@@ -107,6 +122,7 @@ router.patch(
   TenantController.updateOrganisationProfile
 );
 
+platform("patch", "/tenants/:id/branding", platformTenantAdmin(UPDATE_ANY, { target: "id", change: "TENANT_UPDATED", section: "branding" }), TenantController.updateBranding);
 router.patch(
   "/tenants/:id/branding",
   requireTenant,
@@ -115,6 +131,7 @@ router.patch(
   TenantController.updateBranding
 );
 
+platform("patch", "/tenants/:id/regional-settings", platformTenantAdmin(UPDATE_ANY, { target: "id", change: "TENANT_UPDATED", section: "regional-settings" }), TenantController.updateRegionalSettings);
 router.patch(
   "/tenants/:id/regional-settings",
   requireTenant,
@@ -123,6 +140,7 @@ router.patch(
   TenantController.updateRegionalSettings
 );
 
+platform("post", "/tenants/:id/branding/assets", platformTenantAdmin(UPDATE_ANY, { target: "id", change: "TENANT_UPDATED", section: "branding-asset" }), brandingAssetUploadMw, TenantBrandingController.uploadBrandingAsset);
 router.post(
   "/tenants/:id/branding/assets",
   requireTenant,
@@ -133,6 +151,9 @@ router.post(
 );
 
 // Authentication Connection Management Routes
+// Z6: every auth-connection route (reads included) needs platform:tenant:auth-connections:manage:any for a
+// platform principal - read:any / update:any never reach another tenant's connections.
+platform("post", "/tenants/:id/auth-connections", platformTenantAdmin(CONNECTIONS_ANY, { target: "id", change: "AUTH_CONNECTION_ADDED", section: "auth-connections" }), TenantController.addAuthenticationConnection);
 router.post(
   "/tenants/:id/auth-connections",
   requireTenant,
@@ -141,6 +162,7 @@ router.post(
   TenantController.addAuthenticationConnection
 );
 
+platform("get", "/tenants/:id/auth-connections", platformTenantAdmin(CONNECTIONS_ANY, { target: "id" }), TenantController.getAuthenticationConnections);
 router.get(
   "/tenants/:id/auth-connections",
   requireTenant,
@@ -149,6 +171,7 @@ router.get(
   TenantController.getAuthenticationConnections
 );
 
+platform("get", "/tenants/:id/auth-connections/default-role-options", platformTenantAdmin(CONNECTIONS_ANY, { target: "id" }), TenantController.getDefaultRoleOptions);
 router.get(
   "/tenants/:id/auth-connections/default-role-options",
   requireTenant,
@@ -157,6 +180,7 @@ router.get(
   TenantController.getDefaultRoleOptions
 );
 
+platform("put", "/tenants/:id/auth-connections/:connectionId", platformTenantAdmin(CONNECTIONS_ANY, { target: "id", change: "AUTH_CONNECTION_UPDATED", section: "auth-connections" }), TenantController.updateAuthenticationConnection);
 router.put(
   "/tenants/:id/auth-connections/:connectionId",
   requireTenant,
@@ -167,6 +191,7 @@ router.put(
 
 // Connect Microsoft Entra (Stage 5c-1): prove the connection's directory with a Microsoft
 // administrator sign-in and record a verified directory claim. Does not activate the connection.
+platform("post", "/tenants/:id/auth-connections/:connectionId/connect", platformTenantAdmin(CONNECTIONS_ANY, { target: "id", change: "AUTH_CONNECTION_CONNECT_STARTED", section: "auth-connections" }), TenantController.startEntraConnect);
 router.post(
   "/tenants/:id/auth-connections/:connectionId/connect",
   requireTenant,
@@ -175,6 +200,7 @@ router.post(
   TenantController.startEntraConnect
 );
 
+platform("post", "/tenants/:id/auth-connections/:connectionId/connect/complete", platformTenantAdmin(CONNECTIONS_ANY, { target: "id", change: "AUTH_CONNECTION_CONNECTED", section: "auth-connections" }), TenantController.completeEntraConnect);
 router.post(
   "/tenants/:id/auth-connections/:connectionId/connect/complete",
   requireTenant,
@@ -185,6 +211,7 @@ router.post(
 
 // Test Connection (Stage 5c-2): configuration / connectivity health check of a connected Entra
 // directory and the shared CRM application. Records lastTestedAt / lastTestResult only.
+platform("post", "/tenants/:id/auth-connections/:connectionId/test", platformTenantAdmin(CONNECTIONS_ANY, { target: "id", change: "AUTH_CONNECTION_TESTED", section: "auth-connections" }), TenantController.testEntraConnection);
 router.post(
   "/tenants/:id/auth-connections/:connectionId/test",
   requireTenant,
@@ -195,6 +222,7 @@ router.post(
 
 // Disconnect Microsoft Entra (Stage 5c-3): connection inactive + its verified claim revoked, in one
 // transaction. Users, roles and the directory are untouched; reconnect via /connect.
+platform("post", "/tenants/:id/auth-connections/:connectionId/disconnect", platformTenantAdmin(CONNECTIONS_ANY, { target: "id", change: "AUTH_CONNECTION_DISCONNECTED", section: "auth-connections" }), TenantController.disconnectEntraConnection);
 router.post(
   "/tenants/:id/auth-connections/:connectionId/disconnect",
   requireTenant,
@@ -203,6 +231,7 @@ router.post(
   TenantController.disconnectEntraConnection
 );
 
+platform("get", "/tenants/:id/auth-connections/:connectionId/status", platformTenantAdmin(CONNECTIONS_ANY, { target: "id" }), TenantController.getEntraConnectionStatus);
 router.get(
   "/tenants/:id/auth-connections/:connectionId/status",
   requireTenant,
@@ -211,6 +240,7 @@ router.get(
   TenantController.getEntraConnectionStatus
 );
 
+platform("delete", "/tenants/:id/auth-connections/:connectionId", platformTenantAdmin(CONNECTIONS_ANY, { target: "id", change: "AUTH_CONNECTION_REMOVED", section: "auth-connections" }), TenantController.removeAuthenticationConnection);
 router.delete(
   "/tenants/:id/auth-connections/:connectionId",
   requireTenant,

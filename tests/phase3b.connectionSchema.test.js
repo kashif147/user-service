@@ -122,7 +122,9 @@ jest.mock("../services/platformAuthorizationService", () => ({
   REASONS: { NO_PLAT: "no_plat" },
   evaluatePlatformPermission: async ({ permission }) => (permission === "platform:tenant:create"
     ? { allowed: true, status: 200, reason: "allowed", pid: "6a0000000000000000000a07", tokenRev: 1, currentRev: 1, revMatch: true }
-    : { allowed: false, status: 403, reason: "permission_missing", pid: "6a0000000000000000000a07", tokenRev: 1, currentRev: 1, revMatch: true }),
+    // Z6: every other code answers as for a tenant actor (no platform claim), so the shared tenant routes
+    // dispatch to their unchanged tenant chain (middlewares/platformTenantAdmin.js; covered by tests/platformTenantAdmin.z6.test.js).
+    : { allowed: false, status: 403, reason: "no_plat", pid: null, tokenRev: null, currentRev: null, revMatch: null }),
 }));
 jest.mock("../services/platformAuditService", () => ({ auditAuthzDecision: () => {}, auditTenantCreated: () => {}, auditTenantCreateFailed: () => {}, auditClaimDecision: () => {} }));
 jest.mock("../middlewares/auth", () => {
