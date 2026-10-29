@@ -44,13 +44,17 @@ jest.mock("../models/user.model", () => ({
     mockStore.calls.push(`update:${JSON.stringify(q)}`);
     let r = mockStore.users.find((u) => mockMatches(u, q));
     const set = upd.$set || {};
+    // Phase B / Z7: a sign-in never writes ownership; an upsert takes tenantId from the filter (as MongoDB
+    // seeds an inserted document from the filter's equality fields).
+    if ("tenantId" in set) throw new Error("Z7: a sign-in write must never $set tenantId");
+    const seed = Object.fromEntries(Object.entries(q).filter(([k, v]) => !k.startsWith("$") && (v === null || typeof v !== "object")));
     if (!r && !opts.upsert) return null;
     if (!r) {
-      const t = String(set.tenantId);
+      const t = String(q.tenantId);
       if (mockStore.users.some((u) => String(u.tenantId) === t && (u.userEmail === set.userEmail || u.userMicrosoftId === set.userMicrosoftId))) {
         throw mockDup();
       }
-      r = { _id: `new-${mockStore.users.length + 1}`, roles: [], ...mockClone(upd.$setOnInsert || {}) };
+      r = { _id: `new-${mockStore.users.length + 1}`, roles: [], ...seed, ...mockClone(upd.$setOnInsert || {}) };
       mockStore.users.push(r);
       mockStore.calls.push(`insert:${t}`);
     }
@@ -138,7 +142,7 @@ describe("positive cases: same Entra directory, tenant chosen by the login conte
     const u = await login(EMAIL_A, OID_A, ctxA);
     expect(u._id).toBe("a1");
     expect(String(u.tenantId)).toBe(TENANT_A);
-    expect(mockStore.calls).toContain(`update:{"_id":"a1","isActive":{"$ne":false},"userType":"CRM","userMicrosoftId":"${OID_A}"}`);
+    expect(mockStore.calls).toContain(`update:{"_id":"a1","tenantId":"${TENANT_A}","isActive":{"$ne":false},"userType":"CRM","userMicrosoftId":"${OID_A}"}`);
   });
 
   test("S2 User B through DEVTENANTB, first login -> JIT user created ONLY in DEVTENANTB, keyed by oid", async () => {

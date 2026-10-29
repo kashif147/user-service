@@ -50,14 +50,18 @@ jest.mock("../models/user.model", () => ({
     }
     let r = mockStore.users.find((u) => mockMatches(u, q));
     const set = upd.$set || {};
+    // Phase B / Z7: a sign-in never writes ownership; an upsert takes tenantId from the filter (as MongoDB
+    // seeds an inserted document from the filter's equality fields).
+    if ("tenantId" in set) throw new Error("Z7: a sign-in write must never $set tenantId");
+    const seed = Object.fromEntries(Object.entries(q).filter(([k, v]) => !k.startsWith("$") && (v === null || typeof v !== "object")));
     if (!r && !opts.upsert) return null;
     if (!r) {
-      if (mockStore.users.some((u) => u.userEmail === set.userEmail && String(u.tenantId) === String(set.tenantId))) {
+      if (mockStore.users.some((u) => u.userEmail === set.userEmail && String(u.tenantId) === String(q.tenantId))) {
         const e = new Error("E11000 duplicate key error");
         e.code = 11000;
         throw e;
       }
-      r = { _id: `new-${set.userEmail}`, isActive: true, roles: [], ...(upd.$setOnInsert || {}) };
+      r = { _id: `new-${set.userEmail}`, isActive: true, roles: [], ...seed, ...(upd.$setOnInsert || {}) };
       mockStore.users.push(r);
       mockStore.calls.push("insert");
     }
@@ -191,7 +195,7 @@ describe("allowed logins (unchanged)", () => {
     expect(out.status).toBe(200);
     expect(out.body).toMatchObject({ success: true, accessToken: "signed.jwt.token", refreshToken: "rt", user: { id: "p1", userType: "PORTAL" } });
     expect(mockStore.calls).toEqual([
-      'update:{"_id":"p1","userType":{"$ne":"CRM"},"isActive":{"$ne":false},"userMicrosoftId":"oid-1"}:upsert=false',
+      `update:{"_id":"p1","tenantId":"${B2C_TENANT}","userType":{"$ne":"CRM"},"isActive":{"$ne":false},"userMicrosoftId":"oid-1"}:upsert=false`,
       "roleSync:m@x.com:new=false",
       "publishUpdated",
       `jwt:m@x.com:PORTAL:${B2C_TENANT}`,
@@ -214,20 +218,25 @@ describe("allowed logins (unchanged)", () => {
     expect(mockStore.users[0]).toMatchObject({ userType: "PORTAL", tenantId: B2C_TENANT, userMicrosoftId: "oid-new", roles: ["role-default"] });
   });
 
-  test("legacy PORTAL user whose tenantId is not a real Tenant is still migrated into the B2C tenant", async () => {
+  // Phase B / Z7: the legacy re-tenanting at sign-in is removed - no login moves a User. A user whose tenantId
+  // is not a real Tenant stays exactly where it is; the B2C tenant's automatic connection provisions a
+  // separate tenant-local user instead.
+  test("Z7: legacy PORTAL user whose tenantId is not a real Tenant is NOT moved; a separate B2C-tenant user is created", async () => {
     mockStore.users = [user({ id: "p4", email: "old@x.com", tenant: "legacy-directory-id", type: "PORTAL", oid: "oid-old" })];
     const out = await login("old@x.com", "oid-old");
     expect(out.status).toBe(200);
-    expect(byId("p4")).toMatchObject({ tenantId: B2C_TENANT, userType: "PORTAL" });
-    expect(mockStore.users).toHaveLength(1);
-    expect(mockStore.calls).toContain("roleSync:old@x.com:new=false");
+    expect(byId("p4")).toMatchObject({ tenantId: "legacy-directory-id", userType: "PORTAL" });
+    expect(mockStore.users).toHaveLength(2);
+    expect(mockStore.users[1]).toMatchObject({ tenantId: B2C_TENANT, userMicrosoftId: "oid-old", roles: ["role-default"] });
+    expect(mockStore.calls).toContain("roleSync:old@x.com:new=true");
   });
 
-  test("legacy PORTAL user with a 24-hex tenantId that is not an existing Tenant is migrated", async () => {
+  test("Z7: legacy PORTAL user with a 24-hex tenantId that is not an existing Tenant is NOT moved", async () => {
     mockStore.users = [user({ id: "p6", email: "hex@x.com", tenant: "cccccccccccccccccccccccc", type: "PORTAL" })];
     const out = await login("hex@x.com", "oid-6");
     expect(out.status).toBe(200);
-    expect(byId("p6").tenantId).toBe(B2C_TENANT);
+    expect(byId("p6").tenantId).toBe("cccccccccccccccccccccccc");
+    expect(mockStore.users.filter((u) => u.tenantId === B2C_TENANT)).toHaveLength(1);
   });
 });
 
@@ -241,11 +250,10 @@ describe("inactive users are denied before JWT issuance", () => {
     expect(warnLogs.some((l) => l.includes("INACTIVE_USER") && l.includes("p2"))).toBe(true);
   });
 
-  test("inactive legacy PORTAL user -> 403 and is NOT migrated", async () => {
+  test("inactive legacy PORTAL user is never matched or moved (Z7: a separate tenant-local user, it stays inactive)", async () => {
     mockStore.users = [user({ id: "p7", email: "old@x.com", tenant: "legacy-directory-id", type: "PORTAL", active: false })];
-    expectDenied(await login("old@x.com", "oid-7"));
-    noSideEffects();
-    expect(byId("p7").tenantId).toBe("legacy-directory-id");
+    await login("old@x.com", "oid-7");
+    expect(byId("p7")).toMatchObject({ tenantId: "legacy-directory-id", isActive: false, userLastLogin: OLD_LOGIN });
   });
 
   test("user deactivated between lookup and update -> 403, nothing inserted", async () => {
@@ -570,11 +578,12 @@ describe("Phase 2a: portal provisioning and access", () => {
     expect(mockStore.calls.filter((c) => /^(update|insert|roleSync|publish|jwt)/.test(c))).toEqual([]);
   });
 
-  test("P6 legacy (pre-tenant-mapping) portal user being migrated gets the connection's default role", async () => {
+  test("P6 (Z7) legacy (pre-tenant-mapping) portal user is NOT migrated; the new tenant-local user gets the connection's default role", async () => {
     mockStore.users = [user({ id: "l1", email: "leg@x.com", tenant: "legacy-directory-id", type: "PORTAL", oid: "oid-leg", roles: ["stale-role"] })];
     const out = await login("leg@x.com", "oid-leg");
     expect(out.status).toBe(200);
-    expect(byId("l1")).toMatchObject({ tenantId: B2C_TENANT, roles: ["role-default"] });
+    expect(byId("l1")).toMatchObject({ tenantId: "legacy-directory-id", roles: ["stale-role"] });
+    expect(mockStore.users.find((u) => u.tenantId === B2C_TENANT)).toMatchObject({ roles: ["role-default"] });
   });
 
   test("P7 Phase 2b: Automatic connection without a default role -> new identity refused, nothing written, no JWT", async () => {
@@ -690,11 +699,9 @@ describe("Microsoft identity binding (stored oid is never re-bound by email)", (
     expect(created).toMatchObject({ tenantId: B2C_TENANT, userMicrosoftId: "oid-B" });
   });
 
-  test("legacy (pre-tenant-mapping) user with a different oid -> 403, not migrated, oid unchanged", async () => {
+  test("legacy (pre-tenant-mapping) user with a different oid: never matched, moved or re-bound (oid unchanged)", async () => {
     mockStore.users = [user({ id: "m7", email: "x@x.com", tenant: "legacy-directory-id", type: "PORTAL", oid: "oid-A" })];
-    const out = await login("x@x.com", "oid-B");
-    expectDenied(out);
-    noSideEffects();
+    await login("x@x.com", "oid-B");
     expectUntouched("m7", { userMicrosoftId: "oid-A", tenantId: "legacy-directory-id" });
   });
 

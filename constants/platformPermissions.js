@@ -10,7 +10,10 @@
  * revised in Z2 (owner decision D1) so that tenant-targeting codes say "ANY tenant" - ordinary own-tenant
  * administration stays in the tenant permission domain (tenant:read, TENANT_ADMIN, ...):
  *  - platform:tenant:create                      POST /tenants
- *  - platform:tenant:read:any                    read any tenant (list-all, by id/code/domain, stats)
+ *  - platform:tenant:read:any                    read any tenant: list-all, by internal id, stats. NOT the
+ *                                                organisation locators /tenants/code/:code and /tenants/domain/:domain,
+ *                                                which stay tenant / login-locator scoped (owner decision, Z7): no
+ *                                                global organisation-code / domain enumeration path.
  *  - platform:tenant:update:any                  update any tenant (profile, branding, regional settings,
  *                                                status incl. suspend/reactivate until P2 - decision D2)
  *  - platform:tenant:delete:any                  delete / decommission any tenant
