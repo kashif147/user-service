@@ -2,9 +2,8 @@ const express = require("express");
 const router = express.Router();
 const contactTypeController = require("../controllers/contactType.controller");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter");
-const { freezeGlobalWrites } = require("../middlewares/globalDataFreeze");
-// Phase B / Z2: shadow-only platform authorization observers (never change the response; Z5 migrates).
-const { observePlatformPermission } = require("../middlewares/requirePlatformPermission");
+// Phase B / Z5: platform-owned writes are enforced platform authorization (route-enforce; global mode stays shadow).
+const { requirePlatformPermission } = require("../middlewares/requirePlatformPermission");
 
 /**
  * Contact Type API Routes
@@ -39,27 +38,21 @@ router.get(
 // (no tenantId) until Phase E - writes are frozen (423) until the cutover. Reads are unchanged.
 router.post(
   "/contact-types",
-  observePlatformPermission("platform:reference-data:manage"),
-  freezeGlobalWrites("contactType"),
-  defaultPolicyAdapter.middleware("contact", "write"),
+  requirePlatformPermission("platform:reference-data:manage", { mode: "route-enforce", freeze: "contactType" }), // Phase B / Z5: platform authority, then the A14 freeze
   contactTypeController.createContactType
 );
 
 // Update contact type
 router.put(
   "/contact-types/:id",
-  observePlatformPermission("platform:reference-data:manage"),
-  freezeGlobalWrites("contactType"),
-  defaultPolicyAdapter.middleware("contact", "write"),
+  requirePlatformPermission("platform:reference-data:manage", { mode: "route-enforce", freeze: "contactType" }), // Phase B / Z5: platform authority, then the A14 freeze
   contactTypeController.updateContactType
 );
 
 // Delete contact type
 router.delete(
   "/contact-types/:id",
-  observePlatformPermission("platform:reference-data:manage"),
-  freezeGlobalWrites("contactType"),
-  defaultPolicyAdapter.middleware("contact", "delete"),
+  requirePlatformPermission("platform:reference-data:manage", { mode: "route-enforce", freeze: "contactType" }), // Phase B / Z5: platform authority, then the A14 freeze
   contactTypeController.deleteContactType
 );
 

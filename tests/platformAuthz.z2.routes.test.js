@@ -1,5 +1,8 @@
 /**
- * Phase B / Z2 - shadow observers on the routes Z5 will migrate never change a response.
+ * Phase B / Z2 - shadow observers never change a response.
+ * Phase B / Z5: 32 of the 38 observed routes were MIGRATED to enforcing platform authorization (their matrix:
+ * tests/platformRoutes.z5.test.js). The 6 still observed (cross-tenant tenant read / delete - Z6) keep the
+ * Z2 guarantee: identical status and body with PLATFORM_AUTH_MODE off and shadow.
  *
  * Mounts the REAL tenant / cache / permission / lookup / lookuptype / country / contact / contactType
  * routers with the REAL requireTenant, requireTenantPathAccess, requireSuperUser, global-data freeze and
@@ -66,8 +69,10 @@ const PID = "6a0000000000000000000a03";
 const A = "68cbf7806080b4621d469d34";
 const USER = "6a00000000000000000000c1";
 const FILES = ["tenant.routes", "cache.routes", "permission.routes", "lookup.router", "lookuptype.router", "country.routes", "contact.routes", "contactType.routes"];
-const OBSERVED = {
-  "tenant.routes": 7, "cache.routes": 11, "permission.routes": 4, "lookup.router": 4,
+// Z5: still shadow-observed (Z6 cross-tenant tenant routes) vs migrated to enforcing platform authorization.
+const OBSERVED = { "tenant.routes": 6 };
+const ENFORCED = {
+  "tenant.routes": 1, "cache.routes": 11, "permission.routes": 4, "lookup.router": 4,
   "lookuptype.router": 3, "country.routes": 3, "contact.routes": 3, "contactType.routes": 3,
 };
 
@@ -87,7 +92,8 @@ beforeAll(async () => {
         // router.route(path).get().post()... shares one Route: take the first layer of THIS method.
         const first = l.route.stack.find((x) => x.method === m);
         const observed = first.name === "platformAuthzObserver";
-        routes.push({ file: f, method: m.toUpperCase(), path: `/api${l.route.path.replace(/:(\w+)/g, (_x, p) => (p === "id" ? A : `p-${p}`))}`, observed });
+        const enforced = first.name === "platformAuthzGuard";
+        routes.push({ file: f, method: m.toUpperCase(), path: `/api${l.route.path.replace(/:(\w+)/g, (_x, p) => (p === "id" ? A : `p-${p}`))}`, observed, enforced });
       }
     }
   }
@@ -138,20 +144,21 @@ const IDENTITIES = [
 const headersFor = ([, roles, perms, tok]) => ({ "x-test-tenant": A, "x-test-user": USER, "x-test-roles": JSON.stringify(roles), "x-test-perms": JSON.stringify(perms), authorization: `Bearer ${tok()}` });
 const decisions = () => logs.filter((l) => l.startsWith("[platform-authz]")).map((l) => JSON.parse(l.slice("[platform-authz] ".length)));
 
-test("the observed surface: 38 routes on the 8 routers, exactly as planned", () => {
-  const counts = {};
-  for (const r of routes.filter((x) => x.observed)) counts[r.file] = (counts[r.file] || 0) + 1;
-  expect(counts).toEqual(OBSERVED);
+test("the surface: 6 routes still shadow-observed (Z6), 32 migrated to enforcing platform authorization (Z5)", () => {
+  const count = (k) => { const c = {}; for (const r of routes.filter((x) => x[k])) c[r.file] = (c[r.file] || 0) + 1; return c; };
+  expect(count("observed")).toEqual(OBSERVED);
+  expect(count("enforced")).toEqual(ENFORCED);
   const tenantObserved = routes.filter((r) => r.file === "tenant.routes" && r.observed).map((r) => `${r.method} ${r.path}`).sort();
   expect(tenantObserved).toEqual([
     `DELETE /api/tenants/${A}`, "GET /api/tenants", `GET /api/tenants/${A}`, `GET /api/tenants/${A}/stats`,
-    "GET /api/tenants/code/p-code", "GET /api/tenants/domain/p-domain", "POST /api/tenants",
+    "GET /api/tenants/code/p-code", "GET /api/tenants/domain/p-domain",
   ].sort());
+  expect(routes.filter((r) => r.file === "tenant.routes" && r.enforced).map((r) => `${r.method} ${r.path}`)).toEqual(["POST /api/tenants"]);
 });
 
-test.each(IDENTITIES.map((i) => [i[0], i]))("%s: every route's status and body are identical with mode off and shadow", async (_n, ident) => {
+test.each(IDENTITIES.map((i) => [i[0], i]))("%s: every NOT-migrated route's status and body are identical with mode off and shadow", async (_n, ident) => {
   const h = headersFor(ident);
-  for (const r of routes) {
+  for (const r of routes.filter((x) => !x.enforced)) {
     process.env.PLATFORM_AUTH_MODE = "off";
     const before = await request(r.method, r.path, h);
     logs.length = 0;
@@ -163,29 +170,14 @@ test.each(IDENTITIES.map((i) => [i[0], i]))("%s: every route's status and body a
   }
 });
 
-test("shadow decisions: no_plat for SU '*' / ASU / MO / no roles on every observed route; never allowed", async () => {
+test("shadow decisions on the still-observed routes: no_plat for SU '*' / ASU / MO / no roles; never allowed", async () => {
   for (const ident of IDENTITIES.slice(0, 4)) {
     logs.length = 0;
     process.env.PLATFORM_AUTH_MODE = "shadow";
     for (const r of routes.filter((x) => x.observed)) await request(r.method, r.path, headersFor(ident));
     const d = decisions();
-    expect(d).toHaveLength(38);
+    expect(d).toHaveLength(6);
     expect(new Set(d.map((x) => `${x.effective}:${x.reason}:${x.allowed}`))).toEqual(new Set(["shadow:no_plat:false"]));
   }
   expect(PlatformPrincipal.findById).not.toHaveBeenCalled();
-});
-
-test("frozen writes stay 423 and SU-only guards stay 403 for a non-SU platform principal (shadow grants nothing)", async () => {
-  process.env.PLATFORM_AUTH_MODE = "shadow";
-  const h = headersFor(IDENTITIES[4]);
-  expect((await request("POST", "/api/permissions", h)).status).toBe(423);
-  expect((await request("POST", "/api/lookup", h)).status).toBe(423);
-  expect((await request("POST", "/api/countries", h)).status).toBe(423);
-  expect((await request("POST", "/api/tenants", h)).status).toBe(403); // requireSuperUser
-  expect((await request("POST", "/api/cache/clear", h)).status).toBe(403);
-  const d = decisions();
-  // The principal holds platform:tenant:create and platform:cache:admin: the observer records "allowed",
-  // the legacy guard still decides.
-  expect(d.filter((x) => x.allowed).map((x) => x.permission).sort()).toEqual(["platform:cache:admin", "platform:tenant:create"]);
-  expect(d.filter((x) => !x.allowed).map((x) => x.reason)).toEqual(["permission_missing", "permission_missing", "permission_missing"]);
 });

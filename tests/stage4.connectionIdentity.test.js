@@ -110,6 +110,17 @@ jest.mock("../services/roleHierarchyService", () => ({
   getHighestRoleLevel: () => 1, hasMinimumRole: () => false,
 }));
 jest.mock("../helpers/policyAdapter.js", () => ({ defaultPolicyAdapter: { middleware: () => (req, res, next) => next() } }));
+// Phase B / Z5: POST /tenants is platform-authorized (platform:tenant:create, route-enforce). These suites
+// test connection handling BEHIND that guard, so the platform evaluator is stubbed to allow exactly that code
+// (the guard itself is covered by tests/platformRoutes.z5.test.js).
+process.env.PLATFORM_AUTH_MODE = "shadow";
+jest.mock("../services/platformAuthorizationService", () => ({
+  REASONS: { NO_PLAT: "no_plat" },
+  evaluatePlatformPermission: async ({ permission }) => (permission === "platform:tenant:create"
+    ? { allowed: true, status: 200, reason: "allowed", pid: "6a0000000000000000000a07", tokenRev: 1, currentRev: 1, revMatch: true }
+    : { allowed: false, status: 403, reason: "permission_missing", pid: "6a0000000000000000000a07", tokenRev: 1, currentRev: 1, revMatch: true }),
+}));
+jest.mock("../services/platformAuditService", () => ({ auditAuthzDecision: () => {}, auditTenantCreated: () => {}, auditTenantCreateFailed: () => {}, auditClaimDecision: () => {} }));
 jest.mock("../middlewares/auth", () => {
   const actual = jest.requireActual("../middlewares/auth");
   return {

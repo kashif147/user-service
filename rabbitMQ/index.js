@@ -50,9 +50,14 @@ async function initEventSystem() {
       "pricing.created.v1": "product.events",
       "pricing.updated.v1": "product.events",
       "pricing.deleted.v1": "product.events",
-      // Phase B / Z4: platform-auth audit events (services/platformAuditService.js -> audit.platform.events)
+      // Phase B / Z4-Z5: platform / system audit events (services/platformAuditService.js -> audit-service
+      // audit.platform.events -> platform_audit_logs) + the tenant lifecycle copy (-> audit.tenant.events)
       "platform.claim.decision.v1": "user.events",
       "platform.authz.decision.v1": "user.events",
+      "platform.tenant.created.v1": "user.events",
+      "platform.tenant.create.failed.v1": "user.events",
+      "platform.principal.changed.v1": "user.events",
+      "tenant.lifecycle.created.v1": "user.events",
     });
     
     isInitialized = true;
@@ -263,6 +268,10 @@ const EVENT_TYPES = {
   PRICING_DELETED: "pricing.deleted.v1",
   PLATFORM_CLAIM_DECISION: "platform.claim.decision.v1",
   PLATFORM_AUTHZ_DECISION: "platform.authz.decision.v1",
+  PLATFORM_TENANT_CREATED: "platform.tenant.created.v1",
+  PLATFORM_TENANT_CREATE_FAILED: "platform.tenant.create.failed.v1",
+  PLATFORM_PRINCIPAL_CHANGED: "platform.principal.changed.v1",
+  TENANT_LIFECYCLE_CREATED: "tenant.lifecycle.created.v1",
 };
 
 module.exports = {

@@ -17,14 +17,18 @@
  *                               enforce = deny unless allowed.
  *   requirePlatformPermission(code, { mode: "route-enforce" }) - always enforces; off = deny without any
  *                               lookup (platform authorization switched off means nobody holds platform authority).
+ *                               Z5: every migrated platform route uses this (the global mode stays shadow).
+ *   requirePlatformPermission(code, { mode: "route-enforce", freeze: "<resource>" }) - Z5, the A14 frozen
+ *                               surfaces: authorize first, then the freeze (layering in globalDataFreeze.js).
  * On an enforced allow it sets req.platform = { pid, permission } (frozen, non-enumerable); handlers use that,
  * never the token. Shadow never sets it.
  *
  * Public responses never say why: 401 is the usual unauthenticated body; every platform-authority failure
  * is the same 403 PLATFORM_AUTHORITY_REQUIRED body. The reason goes to the log line only.
  *
- * Audit (Phase B / Z4): enforced allow / 403 decisions are also published as platform.authz.decision.v1
- * (services/platformAuditService.js); shadow evaluations and 401s are not.
+ * Audit (Phase B / Z4-Z5): enforced allow / deny decisions are also published as platform.authz.decision.v1
+ * (services/platformAuditService.js -> audit-service platform_audit_logs), with the status the route answered;
+ * shadow evaluations and 401s are not.
  *
  * Log: one `[platform-authz]` line per evaluation - mode, effective, allowed, reason, permission, masked pid,
  * token / current revision, caller tenant, masked user, method + route pattern, correlation id. Never the
@@ -33,7 +37,8 @@
 const { verifyProjectShellToken } = require("./auth");
 const { isPlatformPermission } = require("../constants/platformPermissions");
 const { platformAuthMode } = require("../services/platformClaimService");
-const { evaluatePlatformPermission } = require("../services/platformAuthorizationService");
+const { evaluatePlatformPermission, REASONS } = require("../services/platformAuthorizationService");
+const { isGlobalDataFrozen, refuseFrozenWrite } = require("./globalDataFreeze");
 const { auditAuthzDecision } = require("../services/platformAuditService");
 
 const PLATFORM_AUTHORITY_REQUIRED = "PLATFORM_AUTHORITY_REQUIRED";
@@ -99,9 +104,12 @@ function observePlatformPermission(code) {
   };
 }
 
-function requirePlatformPermission(code, { mode: routeMode } = {}) {
+function requirePlatformPermission(code, { mode: routeMode, freeze } = {}) {
   assertCode(code);
   if (routeMode !== undefined && routeMode !== "route-enforce") throw new Error(`platform authorization: unknown route mode "${routeMode}"`);
+  if (freeze !== undefined && (routeMode !== "route-enforce" || typeof freeze !== "string" || !freeze)) {
+    throw new Error("platform authorization: freeze needs route-enforce and a resource name");
+  }
   const observer = observePlatformPermission(code);
   return async function platformAuthzGuard(req, res, next) {
     const mode = platformAuthMode();
@@ -118,10 +126,20 @@ function requirePlatformPermission(code, { mode: routeMode } = {}) {
       d = { allowed: false, status: 403, reason: "lookup_error", pid: null, tokenRev: null, currentRev: null, revMatch: null };
     }
     logDecision(req, code, mode, "enforce", d);
-    // Phase B / Z4: an ENFORCED allow / 403 deny is a durable audit event (401 = unauthenticated, log only;
-    // shadow observers stay log only). Fire-and-forget: never changes the response.
-    if (d.allowed || d.status !== 401) auditAuthzDecision({ req, permission: code, mode, decision: d });
-    if (!d.allowed) return d.status === 401 ? unauthorized(res) : forbidden(res);
+    if (!d.allowed && d.status === 401) return unauthorized(res); // unauthenticated: log only, no audit event
+
+    // Phase B / Z5 freeze layering (A14 surfaces, see middlewares/globalDataFreeze.js): authorization ran
+    // first; the freeze applies only afterwards. A tenant actor (no platform claim at all) keeps the 423 it
+    // always got while the freeze is on; GLOBAL_DATA_WRITES=open never lets it through (403).
+    const frozen = freeze !== undefined && isGlobalDataFrozen();
+    const tenantActor = !d.allowed && d.reason === REASONS.NO_PLAT;
+    const status = d.allowed ? (frozen ? 423 : 200) : (tenantActor && frozen ? 423 : 403);
+
+    // Phase B / Z4-Z5: an ENFORCED allow / deny is a durable platform audit event (platform_audit_logs).
+    // Shadow observers and 401s stay log only. Fire-and-forget: never changes the response.
+    auditAuthzDecision({ req, permission: code, mode, decision: d, status });
+    if (status === 423) return refuseFrozenWrite(req, res, freeze);
+    if (!d.allowed) return forbidden(res);
     Object.defineProperty(req, "platform", { value: Object.freeze({ pid: d.pid, permission: code }), enumerable: false, configurable: true });
     return next();
   };

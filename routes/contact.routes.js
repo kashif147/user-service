@@ -2,9 +2,8 @@ const express = require("express");
 const router = express.Router();
 const contactController = require("../controllers/contact.controller");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter");
-const { freezeGlobalWrites } = require("../middlewares/globalDataFreeze");
-// Phase B / Z2: shadow-only platform authorization observers (never change the response; Z5 migrates).
-const { observePlatformPermission } = require("../middlewares/requirePlatformPermission");
+// Phase B / Z5: platform-owned writes are enforced platform authorization (route-enforce; global mode stays shadow).
+const { requirePlatformPermission } = require("../middlewares/requirePlatformPermission");
 
 /**
  * Contact API Routes
@@ -39,27 +38,21 @@ router.get(
 // writes are frozen (423) until their tenancy migration. Reads are unchanged.
 router.post(
   "/contacts",
-  observePlatformPermission("platform:reference-data:manage"),
-  freezeGlobalWrites("contact"),
-  defaultPolicyAdapter.middleware("contact", "write"),
+  requirePlatformPermission("platform:reference-data:manage", { mode: "route-enforce", freeze: "contact" }), // Phase B / Z5: platform authority, then the A14 freeze
   contactController.createContact
 );
 
 // Update contact
 router.put(
   "/contacts/:id",
-  observePlatformPermission("platform:reference-data:manage"),
-  freezeGlobalWrites("contact"),
-  defaultPolicyAdapter.middleware("contact", "write"),
+  requirePlatformPermission("platform:reference-data:manage", { mode: "route-enforce", freeze: "contact" }), // Phase B / Z5: platform authority, then the A14 freeze
   contactController.updateContact
 );
 
 // Delete contact
 router.delete(
   "/contacts/:id",
-  observePlatformPermission("platform:reference-data:manage"),
-  freezeGlobalWrites("contact"),
-  defaultPolicyAdapter.middleware("contact", "delete"),
+  requirePlatformPermission("platform:reference-data:manage", { mode: "route-enforce", freeze: "contact" }), // Phase B / Z5: platform authority, then the A14 freeze
   contactController.deleteContact
 );
 

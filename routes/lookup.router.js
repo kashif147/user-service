@@ -8,9 +8,8 @@ const {
 } = require("../middlewares/auth");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter.js");
 const { requireTrustedTenant } = require("../middlewares/requireTrustedTenant");
-const { freezeGlobalWrites } = require("../middlewares/globalDataFreeze");
-// Phase B / Z2: shadow-only platform authorization observers (never change the response; Z5 migrates).
-const { observePlatformPermission } = require("../middlewares/requirePlatformPermission");
+// Phase B / Z5: platform-owned writes are enforced platform authorization (route-enforce; global mode stays shadow).
+const { requirePlatformPermission } = require("../middlewares/requirePlatformPermission");
 
 // Apply authentication to all routes (validates gateway headers)
 router.use(authenticate, tenantContextWarn);
@@ -23,21 +22,15 @@ router
     lookupController.getAllLookup
   )
   .post(
-    observePlatformPermission("platform:reference-data:manage"),
-    freezeGlobalWrites("lookup"),
-    defaultPolicyAdapter.middleware("lookup", "write"),
+    requirePlatformPermission("platform:reference-data:manage", { mode: "route-enforce", freeze: "lookup" }), // Phase B / Z5: platform authority, then the A14 freeze
     lookupController.createNewLookup
   )
   .put(
-    observePlatformPermission("platform:reference-data:manage"),
-    freezeGlobalWrites("lookup"),
-    defaultPolicyAdapter.middleware("lookup", "write"),
+    requirePlatformPermission("platform:reference-data:manage", { mode: "route-enforce", freeze: "lookup" }), // Phase B / Z5: platform authority, then the A14 freeze
     lookupController.updateLookup
   )
   .delete(
-    observePlatformPermission("platform:reference-data:manage"),
-    freezeGlobalWrites("lookup"),
-    defaultPolicyAdapter.middleware("lookup", "delete"),
+    requirePlatformPermission("platform:reference-data:manage", { mode: "route-enforce", freeze: "lookup" }), // Phase B / Z5: platform authority, then the A14 freeze
     lookupController.deleteLookup
   );
 
@@ -45,9 +38,7 @@ router
 // global lookup writes (officer repair happens only in Phase D).
 router.patch(
   "/lookups/officer",
-  observePlatformPermission("platform:reference-data:manage"),
-  freezeGlobalWrites("lookup"),
-  defaultPolicyAdapter.middleware("lookup", "write"),
+  requirePlatformPermission("platform:reference-data:manage", { mode: "route-enforce", freeze: "lookup" }), // Phase B / Z5: platform authority, then the A14 freeze
   lookupController.bulkUpdateOfficer
 );
 

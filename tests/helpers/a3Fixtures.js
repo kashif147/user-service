@@ -181,6 +181,10 @@ const resetState = () => {
 };
 
 // ---- auth stub: trusted tenant from x-test-tenant only (stands in for the verified gateway context) ----
+// Phase B / Z5: the platform guard on the shared-data writes re-verifies the request's own ProjectShell
+// bearer, so call() also sends one for the SAME identity (a legacy SU token with "*" by default, or a
+// platform principal's token with { plat }), as the gateway forwards it in production.
+const FIXTURE_USER = "6a00000000000000000000c1";
 const authMock = () => {
   const actual = jest.requireActual("../../middlewares/auth");
   return {
@@ -189,8 +193,8 @@ const authMock = () => {
     authenticate: (req, res, next) => {
       const t = req.headers["x-test-tenant"];
       if (t) {
-        req.ctx = { tenantId: t, userId: "u1", roles: ["SU"], permissions: [] };
-        req.user = { id: "u1", tenantId: t, userType: req.headers["x-test-user-type"] || "CRM" };
+        req.ctx = { tenantId: t, userId: FIXTURE_USER, roles: ["SU"], permissions: [] };
+        req.user = { id: FIXTURE_USER, tenantId: t, userType: req.headers["x-test-user-type"] || "CRM" };
         req.tenantId = t;
       }
       next();
@@ -218,10 +222,19 @@ const startApp = async () => {
   return server;
 };
 
-const call = (server, method, path, { tenant, userType, headers = {}, body } = {}) =>
+const call = (server, method, path, { tenant, userType, headers = {}, body, plat, bearerToken = true } = {}) =>
   new Promise((resolve) => {
     const h = { "content-type": "application/json", ...headers };
     if (tenant) h["x-test-tenant"] = tenant;
+    if (tenant && bearerToken && !h.authorization) {
+      const actor = require("./platformActor");
+      actor.useTestSecret();
+      h.authorization = actor.bearer({ userId: FIXTURE_USER, tenantId: tenant, roles: plat ? [] : ["SU"], plat });
+    }
+    // Explicit length: the Node client sends a DELETE body unframed otherwise, and now that the platform guard
+    // answers asynchronously the server would parse those bytes as a second (400) request first.
+    const payload = body ? JSON.stringify(body) : null;
+    if (payload) h["content-length"] = Buffer.byteLength(payload);
     if (userType) h["x-test-user-type"] = userType;
     const rq = http.request({ port: server.address().port, path, method, headers: h, timeout: 3000 }, (res) => {
       let b = "";
@@ -233,12 +246,12 @@ const call = (server, method, path, { tenant, userType, headers = {}, body } = {
       });
     });
     rq.on("timeout", () => { rq.destroy(); resolve({ status: "NO_RESPONSE" }); });
-    if (body) rq.write(JSON.stringify(body));
+    if (payload) rq.write(payload);
     rq.end();
   });
 
 module.exports = {
   A, B, D, id, TYPES, LOOKUPS, PRODUCT_TYPES, PRODUCTS,
   LookupType, Lookup, ProductType, Product, FakePolicyCache,
-  cacheStore, cacheOps, calls, resetState, authMock, startApp, call,
+  cacheStore, cacheOps, calls, resetState, authMock, startApp, call, FIXTURE_USER,
 };

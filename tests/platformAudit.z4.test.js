@@ -1,5 +1,8 @@
 /**
  * Phase B / Z4 - durable platform-auth audit events (services/platformAuditService.js).
+ * Phase B / Z5: these events now go to audit-service platform_audit_logs, which has NO tenant owner, so they
+ * are published WITHOUT an envelope tenant (the sign-in tenant is context only: auditContext.loginTenantId);
+ * a tenant actor denied a platform action is recorded as a tenant actor with no target.
  *
  *  - CRM sign-in that resolves to a REAL principal (issued / disabled / identity_mismatch) -> one
  *    platform.claim.decision.v1; an ordinary sign-in (not_principal) and mode off -> none.
@@ -44,6 +47,7 @@ const USER = "6a00000000000000000000c4";
 const SECRET = "unit-test-only-secret-z4";
 const flush = () => new Promise((r) => setImmediate(r));
 const PLATFORM_CTX = { actorScope: "platform", actorTenantId: null, targetTenantId: null, loginTenantId: A };
+const TENANT_ACTOR_CTX = { actorScope: "tenant", actorTenantId: A, targetTenantId: null };
 
 const principal = (o = {}) => ({ _id: PID, issuer: ISSUER, oid: OID, tid: DIR, status: "active", revision: 2, permissions: ["platform:cache:admin"], ...o });
 const crmUser = (o = {}) => ({ _id: USER, tenantId: A, userEmail: "platform@example.org", userType: "CRM", userMicrosoftId: OID, userIssuer: ISSUER, isActive: true, ...o });
@@ -76,7 +80,7 @@ describe("claim decisions at CRM sign-in", () => {
     return resolvePlatformClaim({ verifiedIdentity: { issuer: ISSUER, oid: OID, tid: DIR, amr: ["pwd", "mfa"] }, user });
   };
 
-  test("issued -> one platform.claim.decision.v1 with platform context owned by the sign-in tenant", async () => {
+  test("issued -> one platform.claim.decision.v1, platform context, NOT owned by the sign-in tenant (Z5)", async () => {
     process.env.PLATFORM_AUTH_MODE = "shadow";
     const out = await signIn(principal());
     await flush();
@@ -84,7 +88,7 @@ describe("claim decisions at CRM sign-in", () => {
     expect(mockPublished).toHaveLength(1);
     const [type, data, meta] = mockPublished[0];
     expect(type).toBe(EVENTS.PLATFORM_CLAIM_DECISION);
-    expect(meta.tenantId).toBe(A);
+    expect(meta.tenantId).toBeUndefined();
     expect(meta.auditContext).toEqual(PLATFORM_CTX);
     expect(data).toEqual({ decision: "issued", mode: "shadow", principalId: PID, actorUserId: USER, currentRev: 2, permissionCount: 1, mfa: "yes" });
     noSecrets(mockPublished);
@@ -106,11 +110,13 @@ describe("claim decisions at CRM sign-in", () => {
     await flush();
     expect(mockPublished).toHaveLength(0);
   });
-  test("a user without a valid internal tenant -> skipped, never a fabricated tenant", async () => {
+  test("a user without a valid internal tenant -> still a platform record, login context null, never a fabricated tenant", async () => {
     process.env.PLATFORM_AUTH_MODE = "shadow";
     await signIn(principal(), crmUser({ tenantId: "unknown" }));
     await flush();
-    expect(mockPublished).toHaveLength(0);
+    expect(mockPublished).toHaveLength(1);
+    expect(mockPublished[0][2]).toEqual({ auditContext: { ...PLATFORM_CTX, loginTenantId: null } });
+    expect(JSON.stringify(mockPublished)).not.toContain("unknown");
   });
   test("a publish failure never changes the sign-in result", async () => {
     process.env.PLATFORM_AUTH_MODE = "shadow";
@@ -141,7 +147,8 @@ describe("enforced platform authorization (route-enforce guard)", () => {
     expect(mockPublished).toHaveLength(1);
     const [type, data, meta] = mockPublished[0];
     expect(type).toBe(EVENTS.PLATFORM_AUTHZ_DECISION);
-    expect(meta).toMatchObject({ tenantId: A, auditContext: PLATFORM_CTX });
+    expect(meta.tenantId).toBeUndefined();
+    expect(meta.auditContext).toEqual(PLATFORM_CTX);
     expect(data).toMatchObject({ allowed: true, reason: "allowed", permission: "platform:cache:admin", principalId: PID, actorUserId: USER, tokenRev: 2, currentRev: 2, route: "GET /api/platform/authz-probe/:permission" });
     noSecrets(mockPublished);
   });
@@ -151,7 +158,7 @@ describe("enforced platform authorization (route-enforce guard)", () => {
     expect(res.statusCode).toBe(403);
     expect(mockPublished.map((x) => [x[1].allowed, x[1].reason])).toEqual([[false, "permission_missing"]]);
   });
-  test("a caller without a usable claim (legacy SU with '*') -> 403 audited as a TENANT actor on its own tenant", async () => {
+  test("a caller without a usable claim (legacy SU with '*') -> 403 audited truthfully as a TENANT actor (no target)", async () => {
     process.env.PLATFORM_AUTH_MODE = "shadow";
     const { res } = await run(requirePlatformPermission("platform:cache:admin", { mode: "route-enforce" }), {
       token: sign({ plat: undefined, roles: [{ code: "SU" }], permissions: ["*"] }),
@@ -159,7 +166,8 @@ describe("enforced platform authorization (route-enforce guard)", () => {
     expect(res.statusCode).toBe(403);
     expect(mockPublished).toHaveLength(1);
     expect(mockPublished[0][1]).toMatchObject({ allowed: false, reason: "no_plat", principalId: null });
-    expect(mockPublished[0][2]).toMatchObject({ tenantId: A, auditContext: { actorScope: "tenant", actorTenantId: A, targetTenantId: A } });
+    expect(mockPublished[0][2].tenantId).toBeUndefined();
+    expect(mockPublished[0][2].auditContext).toEqual(TENANT_ACTOR_CTX);
   });
   test("401 (no / invalid token) -> not audited", async () => {
     process.env.PLATFORM_AUTH_MODE = "shadow";
@@ -173,7 +181,7 @@ describe("enforced platform authorization (route-enforce guard)", () => {
       extraHeaders: { "x-tenant-id": B, "x-target-tenant-id": B }, query: { tenantId: B, targetTenantId: B }, body: { tenantId: B, auditContext: { actorScope: "tenant", targetTenantId: B } },
     });
     expect(mockPublished).toHaveLength(1);
-    expect(mockPublished[0][2]).toMatchObject({ tenantId: A, auditContext: PLATFORM_CTX });
+    expect(mockPublished[0][2]).toEqual({ auditContext: PLATFORM_CTX });
     expect(JSON.stringify(mockPublished)).not.toContain(B);
   });
   test("shadow observers never publish (log-only by design)", async () => {

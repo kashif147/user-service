@@ -7,6 +7,10 @@
  * REAL lookup router/controllers/lookupCacheService over HTTP; PolicyCache is an in-memory fake with a
  * fake Redis (tests/helpers/a3Fixtures.js) that records every key read and written.
  */
+// Phase B / Z5: shared-data writes are platform-authorized first (real guard + evaluator), then frozen.
+// DEV runs PLATFORM_AUTH_MODE=shadow globally; the migrated routes enforce regardless (route-enforce).
+process.env.PLATFORM_AUTH_MODE = "shadow";
+jest.mock("../rabbitMQ", () => ({ publishDomainEvent: async () => true }));
 jest.mock("../models/lookup.model", () => require("./helpers/a3Fixtures").Lookup);
 jest.mock("../models/lookupType.model", () => require("./helpers/a3Fixtures").LookupType);
 jest.mock("../models/productType.model", () => require("./helpers/a3Fixtures").ProductType);
@@ -167,8 +171,13 @@ test("B-12: bulk officer update clears the by-type hierarchy cache for every ten
   for (const t of [A, B]) await call(server, "GET", byCode("WORKLOC"), { tenant: t });
   await call(server, "GET", `/api/lookup/${fx.id(22)}`, { tenant: A });
   expect(keysFor(A)).toContain(`lookuptype-hierarchy:v2:${A}:type:${WL}`);
-  const r = await call(server, "PATCH", "/api/lookups/officer", { tenant: A, body: { ids: [fx.id(22)], officer: null } });
+  // Phase B / Z5: with the freeze opened, only a platform principal holding platform:reference-data:manage
+  // reaches the write (a legacy SU is refused 403 - the switch is never a tenant bypass).
+  expect((await call(server, "PATCH", "/api/lookups/officer", { tenant: A, body: { ids: [fx.id(22)], officer: null } })).status).toBe(403);
+  require("./helpers/platformActor").installPrincipal({ permissions: ["platform:reference-data:manage"], userId: fx.FIXTURE_USER, tenantId: A });
+  const r = await call(server, "PATCH", "/api/lookups/officer", { tenant: A, plat: require("./helpers/platformActor").platClaim(), body: { ids: [fx.id(22)], officer: null } });
   expect(r.status).toBe(200);
+  jest.restoreAllMocks();
   const left = [...cacheStore.keys()];
   expect(left.filter((k) => k.startsWith("lookuptype-hierarchy:") || k.startsWith("hierarchy:") || k.startsWith("lookup:"))).toEqual([]);
   delete process.env.GLOBAL_DATA_WRITES;

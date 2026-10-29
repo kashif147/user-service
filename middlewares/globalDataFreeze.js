@@ -14,14 +14,23 @@ const bizLogger = require("../config/bizLogger.js");
  *
  * Mount per write route BEFORE the policy check, so a frozen write never reaches the PDP, the
  * controller, the database or a cache invalidation.
+ *
+ * Phase B / Z5: the platform-owned surfaces (lookups, lookup types, countries, contact types, contacts, the
+ * permission catalogue) no longer mount freezeGlobalWrites directly: requirePlatformPermission(code,
+ * { mode: "route-enforce", freeze: resource }) authorizes FIRST and applies this freeze only afterwards:
+ *   tenant actor (no platform claim)   -> 423 while frozen (unchanged), 403 PLATFORM_AUTHORITY_REQUIRED if
+ *                                         GLOBAL_DATA_WRITES=open (the switch is never a tenant-access bypass)
+ *   platform actor without permission  -> 403 PLATFORM_AUTHORITY_REQUIRED
+ *   platform actor with the permission -> 423 while frozen; the controller only when GLOBAL_DATA_WRITES=open
+ * GLOBAL_DATA_WRITES=open therefore only lifts the freeze after platform authorization has succeeded.
  */
 const GLOBAL_DATA_FROZEN = "GLOBAL_DATA_FROZEN";
 const GLOBAL_DATA_FROZEN_MESSAGE = "Shared metadata is temporarily read-only during tenant migration";
 
 const isGlobalDataFrozen = () => process.env.GLOBAL_DATA_WRITES !== "open";
 
-const freezeGlobalWrites = (resource) => function globalDataFreeze(req, res, next) {
-  if (!isGlobalDataFrozen()) return next();
+/** The 423 refusal itself (log line + body). Also used by the Z5 platform guard (requirePlatformPermission). */
+function refuseFrozenWrite(req, res, resource) {
   const correlationId = req.correlationId || req.headers["x-correlation-id"];
   bizLogger.business("Global data write refused (frozen)", {
     eventType: "global_data.write_frozen",
@@ -36,6 +45,11 @@ const freezeGlobalWrites = (resource) => function globalDataFreeze(req, res, nex
     error: { message: GLOBAL_DATA_FROZEN_MESSAGE, code: GLOBAL_DATA_FROZEN, status: 423, resource },
     ...(correlationId ? { correlationId } : {}),
   });
+}
+
+const freezeGlobalWrites = (resource) => function globalDataFreeze(req, res, next) {
+  if (!isGlobalDataFrozen()) return next();
+  return refuseFrozenWrite(req, res, resource);
 };
 
 module.exports = {
@@ -43,4 +57,5 @@ module.exports = {
   GLOBAL_DATA_FROZEN_MESSAGE,
   isGlobalDataFrozen,
   freezeGlobalWrites,
+  refuseFrozenWrite,
 };

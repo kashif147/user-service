@@ -6,6 +6,10 @@
  * database or any cache invalidation runs - for an SU actor of every DEV tenant (every tenant has SU).
  * Reads are unchanged. Only GLOBAL_DATA_WRITES=open (exact) reopens writes; nothing on the request can.
  */
+// Phase B / Z5: shared-data writes are platform-authorized first (real guard + evaluator), then frozen.
+// DEV runs PLATFORM_AUTH_MODE=shadow globally; the migrated routes enforce regardless (route-enforce).
+process.env.PLATFORM_AUTH_MODE = "shadow";
+jest.mock("../rabbitMQ", () => ({ publishDomainEvent: async () => true }));
 const mockHits = { controller: [], pdp: [] };
 const handler = (name) => (req, res) => {
   mockHits.controller.push(name);
@@ -130,8 +134,34 @@ test("ops rollback switch: only GLOBAL_DATA_WRITES=open (exact) reopens; anythin
     expect((await call(server, "POST", "/api/lookup", { tenant: A, body: {} })).status).toBe(423);
   }
   process.env.GLOBAL_DATA_WRITES = "open";
-  const r = await call(server, "POST", "/api/lookup", { tenant: A, body: {} });
+  // Phase B / Z5: the switch only lifts the freeze AFTER platform authorization - a legacy SU gets 403 ...
+  const su = await call(server, "POST", "/api/lookup", { tenant: A, body: {} });
+  expect([su.status, su.body.error.code]).toEqual([403, "PLATFORM_AUTHORITY_REQUIRED"]);
+  // ... and a platform principal with platform:reference-data:manage reaches the controller (no tenant PDP).
+  const actor = require("./helpers/platformActor");
+  actor.installPrincipal({ permissions: ["platform:reference-data:manage"], userId: fx.FIXTURE_USER, tenantId: A });
+  const r = await call(server, "POST", "/api/lookup", { tenant: A, plat: actor.platClaim(), body: {} });
   expect(r.status).toBe(200);
   expect(mockHits.controller).toEqual(["lookup.createNewLookup"]);
-  expect(mockHits.pdp).toEqual(["lookup:write"]);
+  expect(mockHits.pdp).toEqual([]);
+  jest.restoreAllMocks();
+});
+
+test("Z5 layering while frozen: platform actor without the permission -> 403; with it -> still 423 (nothing reached)", async () => {
+  const actor = require("./helpers/platformActor");
+  actor.installPrincipal({ permissions: ["platform:cache:admin", "platform:tenant:create", "platform:permission-catalogue:manage"], userId: fx.FIXTURE_USER, tenantId: A });
+  for (const [method, path] of WRITES) {
+    const r = await call(server, method, path, { tenant: A, plat: actor.platClaim(), body: { id: "x" } });
+    expect([method, path, r.status, r.body.error.code]).toEqual([method, path, 403, "PLATFORM_AUTHORITY_REQUIRED"]);
+  }
+  jest.restoreAllMocks();
+  actor.installPrincipal({ permissions: ["platform:reference-data:manage"], userId: fx.FIXTURE_USER, tenantId: A });
+  for (const [method, path, resource] of WRITES) {
+    const r = await call(server, method, path, { tenant: A, plat: actor.platClaim(), body: { id: "x" } });
+    expect([method, path, r.status]).toEqual([method, path, 423]);
+    expect(r.body.error).toEqual(FROZEN(resource));
+  }
+  jest.restoreAllMocks();
+  expect(mockHits.controller).toEqual([]);
+  expect(mockHits.pdp).toEqual([]);
 });

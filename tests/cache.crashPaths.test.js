@@ -6,12 +6,15 @@
  * Node 22 process. They now return a generic 500 via res.sendInternalError (the Redis/service error
  * is only logged); the unreachable "Role code is required" branch uses res.sendBadRequest.
  *
- * Mounts the REAL routes/cache.routes.js + cache.controller + response.mw with the REAL requireTenant
- * and requireSuperUser over HTTP. authenticate is a stub (x-test-* headers -> req.ctx); the policy
+ * Mounts the REAL routes/cache.routes.js + cache.controller + response.mw with the REAL platform guard
+ * (Phase B / Z5: platform:cache:admin, route-enforce - the caller is a live principal; legacy SU is denied)
+ * over HTTP. authenticate is a stub (x-test-* headers -> req.ctx); the policy
  * adapter is a pass-through; the four cache services are recording stubs (no Redis).
  */
+process.env.PLATFORM_AUTH_MODE = "shadow";
 const http = require("http");
 const express = require("express");
+const { useTestSecret, bearer, platClaim, installPrincipal } = require("./helpers/platformActor");
 
 const A = "68cbf7806080b4621d469d34";
 const mockState = { fail: null, calls: [] };
@@ -68,7 +71,7 @@ jest.mock("../middlewares/auth", () => {
     authenticate: (req, res, next) => {
       const t = req.headers["x-test-tenant"];
       if (t || req.headers["x-test-roles"]) {
-        req.ctx = { tenantId: t, userId: "u1", roles: JSON.parse(req.headers["x-test-roles"] || "[]") };
+        req.ctx = { tenantId: t, userId: "6a00000000000000000000c1", roles: JSON.parse(req.headers["x-test-roles"] || "[]") };
       }
       next();
     },
@@ -99,6 +102,10 @@ beforeEach(() => {
   unhandled.length = 0;
   jest.spyOn(console, "error").mockImplementation(() => {});
   jest.spyOn(console, "log").mockImplementation(() => {});
+  jest.spyOn(console, "info").mockImplementation(() => {});
+  jest.spyOn(console, "warn").mockImplementation(() => {});
+  useTestSecret();
+  installPrincipal({ permissions: ["platform:cache:admin"], userId: "6a00000000000000000000c1", tenantId: A });
 });
 afterEach(async () => {
   await new Promise((r) => setTimeout(r, 20));
@@ -106,11 +113,13 @@ afterEach(async () => {
   jest.restoreAllMocks();
 });
 
-function call(method, path, { roles = ["SU"], tenant = A } = {}) {
+// Default caller: the platform principal (bearer with plat, no tenant roles). `roles` = a tenant actor's token.
+function call(method, path, { roles = null, tenant = A, auth = true } = {}) {
   return new Promise((resolve) => {
     const h = { "content-type": "application/json" };
-    if (roles) h["x-test-roles"] = JSON.stringify(roles);
+    h["x-test-roles"] = JSON.stringify(roles || []);
     if (tenant) h["x-test-tenant"] = tenant;
+    if (auth) h.authorization = bearer({ userId: "6a00000000000000000000c1", tenantId: A, roles: roles || [], plat: roles ? undefined : platClaim() });
     const rq = http.request({ port, path, method, headers: h, timeout: 3000 }, (res) => {
       let b = "";
       res.on("data", (c) => (b += c));
@@ -142,7 +151,7 @@ const OPS = [
 ];
 
 describe.each(OPS)("%s", (_name, method, path, failOp, failMsg, successMutations) => {
-  test("SU success unchanged (200 {status:'success', data})", async () => {
+  test("platform principal with platform:cache:admin: success unchanged (200 {status:'success', data})", async () => {
     const r = await call(method, path);
     expect(r.status).toBe(200);
     expect(r.body.status).toBe("success");
@@ -158,8 +167,8 @@ describe.each(OPS)("%s", (_name, method, path, failOp, failMsg, successMutations
     expect(r.raw).not.toMatch(/secret-host|ECONNREFUSED|redis:\/\//);
   });
 
-  test("non-SU (ASU, GS) -> 403 before the controller; no service call", async () => {
-    for (const roles of [["ASU"], ["GS"]]) {
+  test("legacy SU with '*', ASU, GS (no platform claim) -> 403 before the controller; no service call", async () => {
+    for (const roles of [["SU"], ["ASU"], ["GS"]]) {
       const r = await call(method, path, { roles });
       expect(r.status).toBe(403);
     }
@@ -167,8 +176,8 @@ describe.each(OPS)("%s", (_name, method, path, failOp, failMsg, successMutations
   });
 
   test("unauthenticated / no tenant -> rejected before the controller; no service call", async () => {
-    expect((await call(method, path, { roles: null, tenant: null })).status).toBe(400);
-    expect((await call(method, path, { tenant: null })).status).toBe(400);
+    expect((await call(method, path, { auth: false })).status).toBe(401);
+    expect((await call(method, path, { tenant: null })).status).toBe(401); // no trusted ctx = not this token's request
     expect(mockState.calls).toEqual([]);
   });
 });
@@ -180,25 +189,20 @@ test("clearAllCaches failing midway keeps its existing sequential semantics (ear
   expect(mutations()).toEqual(["mut:rh.clearCache", "mut:perm.clearCache"]); // lookup clear never reached
 });
 
-test("route chains unchanged: every cache route is requireTenant > requireSuperUser > policy > handler", () => {
+test("route chains: every cache route is the enforcing platform guard > handler (no SU / admin:* policy)", () => {
   const router = require("../routes/cache.routes");
   const ctl = require("../controllers/cache.controller");
   const name = (fn) => Object.keys(ctl).find((k) => ctl[k] === fn) || fn.name;
   const wide = router.stack.filter((l) => !l.route).map((l) => l.name);
   expect(wide).toHaveLength(2); // authenticate, tenantContextWarn
   expect(wide[0]).toBe("authenticate");
-  // Phase B / Z2: each route starts with its shadow platform observer (never changes the response).
-  const rows = router.stack.filter((l) => l.route).map((l) => {
-    const r = l.route.stack.map((x) => name(x.handle));
-    expect(r[0]).toBe("platformAuthzObserver");
-    return r.slice(1);
-  });
+  const rows = router.stack.filter((l) => l.route).map((l) => l.route.stack.map((x) => name(x.handle)));
   expect(rows).toHaveLength(11);
   for (const r of rows) {
-    expect(r.slice(0, 2)).toEqual(["requireTenant", "requireSuperUser"]);
-    expect(r[2]).toMatch(/^policy:admin:(read|write)$/);
+    expect(r).toHaveLength(2);
+    expect(r[0]).toBe("platformAuthzGuard");
   }
-  expect(rows.map((r) => r[3]).sort()).toEqual(OPS.map((o) => o[0]).sort());
+  expect(rows.map((r) => r[1]).sort()).toEqual(OPS.map((o) => o[0]).sort());
 });
 
 test("cache.controller.js has no executable res.fail()", () => {

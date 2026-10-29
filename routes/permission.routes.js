@@ -3,28 +3,22 @@ const router = express.Router();
 const PermissionController = require("../controllers/permission.controller");
 const {
   authenticate,
-  requireTenant,
-  requireSuperUser,
   tenantContextWarn,
 } = require("../middlewares/auth");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter.js");
-const { freezeGlobalWrites } = require("../middlewares/globalDataFreeze");
-// Phase B / Z2: shadow-only platform authorization observers (never change the response; Z5 migrates).
-const { observePlatformPermission } = require("../middlewares/requirePlatformPermission");
+// Phase B / Z5: platform-owned writes are enforced platform authorization (route-enforce; global mode stays shadow).
+const { requirePlatformPermission } = require("../middlewares/requirePlatformPermission");
 
 // Apply authentication to all routes
 router.use(authenticate, tenantContextWarn);
 
-// Permission CRUD operations (Super User only for create/update/delete)
-// Phase A / A-5 review: the permission catalogue is platform-owned. requireSuperUser accepts the SU of ANY
-// tenant (every tenant has one), so catalogue writes are frozen (423) and stay deployment/script controlled.
+// Permission catalogue writes (create/update/delete/initialize).
+// Phase A / A-5 review: the permission catalogue is platform-owned; writes are frozen (423) and stay
+// deployment/script controlled. Phase B / Z5: platform:permission-catalogue:manage is required FIRST (legacy
+// SU / "*" no longer count), then the A14 freeze (layering in middlewares/globalDataFreeze.js).
 router.post(
   "/permissions",
-  observePlatformPermission("platform:permission-catalogue:manage"),
-  freezeGlobalWrites("permission"),
-  requireTenant,
-  requireSuperUser, // Phase 1C-2D: platform-level write (SU only, trusted req.ctx roles)
-  defaultPolicyAdapter.middleware("permission", "admin"),
+  requirePlatformPermission("platform:permission-catalogue:manage", { mode: "route-enforce", freeze: "permission" }), // Phase B / Z5: platform authority, then the A14 freeze
   PermissionController.createPermission
 );
 
@@ -67,31 +61,19 @@ router.get(
 
 router.put(
   "/permissions/:id",
-  observePlatformPermission("platform:permission-catalogue:manage"),
-  freezeGlobalWrites("permission"),
-  requireTenant,
-  requireSuperUser, // Phase 1C-2D: platform-level write (SU only, trusted req.ctx roles)
-  defaultPolicyAdapter.middleware("permission", "admin"),
+  requirePlatformPermission("platform:permission-catalogue:manage", { mode: "route-enforce", freeze: "permission" }), // Phase B / Z5: platform authority, then the A14 freeze
   PermissionController.updatePermission
 );
 
 router.delete(
   "/permissions/:id",
-  observePlatformPermission("platform:permission-catalogue:manage"),
-  freezeGlobalWrites("permission"),
-  requireTenant,
-  requireSuperUser, // Phase 1C-2D: platform-level write (SU only, trusted req.ctx roles)
-  defaultPolicyAdapter.middleware("permission", "admin"),
+  requirePlatformPermission("platform:permission-catalogue:manage", { mode: "route-enforce", freeze: "permission" }), // Phase B / Z5: platform authority, then the A14 freeze
   PermissionController.deletePermission
 );
 
 router.post(
   "/permissions/initialize",
-  observePlatformPermission("platform:permission-catalogue:manage"),
-  freezeGlobalWrites("permission"),
-  requireTenant,
-  requireSuperUser, // Phase 1C-2D: platform-level write (SU only, trusted req.ctx roles)
-  defaultPolicyAdapter.middleware("permission", "admin"),
+  requirePlatformPermission("platform:permission-catalogue:manage", { mode: "route-enforce", freeze: "permission" }), // Phase B / Z5: platform authority, then the A14 freeze
   PermissionController.initializeDefaultPermissions
 );
 

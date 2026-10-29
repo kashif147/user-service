@@ -7,6 +7,10 @@
  * REAL lookup router/controllers over HTTP (tests/helpers/a3Fixtures.js); route stacks for the
  * lookuptype and country routers.
  */
+// Phase B / Z5: shared-data writes are platform-authorized first (real guard + evaluator), then frozen.
+// DEV runs PLATFORM_AUTH_MODE=shadow globally; the migrated routes enforce regardless (route-enforce).
+process.env.PLATFORM_AUTH_MODE = "shadow";
+jest.mock("../rabbitMQ", () => ({ publishDomainEvent: async () => true }));
 jest.mock("../models/lookup.model", () => require("./helpers/a3Fixtures").Lookup);
 jest.mock("../models/lookupType.model", () => require("./helpers/a3Fixtures").LookupType);
 jest.mock("../models/productType.model", () => require("./helpers/a3Fixtures").ProductType);

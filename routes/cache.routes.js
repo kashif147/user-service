@@ -3,117 +3,81 @@ const router = express.Router();
 const CacheController = require("../controllers/cache.controller");
 const {
   authenticate,
-  requireTenant,
-  requireSuperUser,
   tenantContextWarn,
 } = require("../middlewares/auth");
-const { defaultPolicyAdapter } = require("../helpers/policyAdapter.js");
-// Phase B / Z2: shadow-only platform authorization observers (never change the response; Z5 migrates).
-const { observePlatformPermission } = require("../middlewares/requirePlatformPermission");
+// Phase B / Z5: platform-owned writes are enforced platform authorization (route-enforce; global mode stays shadow).
+const { requirePlatformPermission } = require("../middlewares/requirePlatformPermission");
 
 // Apply authentication to all routes
 router.use(authenticate, tenantContextWarn);
 
-// Cache management routes (Super User only)
+// Cache management routes: platform operations (Phase B / Z5: platform:cache:admin only - legacy SU and admin:* grants no longer pass)
 router.post(
   "/cache/clear",
-  observePlatformPermission("platform:cache:admin"),
-  requireTenant,
-  requireSuperUser, // Phase 1C-2D: platform-level write (SU only, trusted req.ctx roles)
-  defaultPolicyAdapter.middleware("admin", "write"),
+  requirePlatformPermission("platform:cache:admin", { mode: "route-enforce" }), // Phase B / Z5: platform authority only (no SU / admin:*)
   CacheController.clearAllCaches
 );
 
 router.post(
   "/cache/refresh/role-hierarchy",
-  observePlatformPermission("platform:cache:admin"),
-  requireTenant,
-  requireSuperUser, // Phase 1C-2D: platform-level write (SU only, trusted req.ctx roles)
-  defaultPolicyAdapter.middleware("admin", "write"),
+  requirePlatformPermission("platform:cache:admin", { mode: "route-enforce" }), // Phase B / Z5: platform authority only (no SU / admin:*)
   CacheController.refreshRoleHierarchyCache
 );
 
 router.post(
   "/cache/refresh/permissions",
-  observePlatformPermission("platform:cache:admin"),
-  requireTenant,
-  requireSuperUser, // Phase 1C-2D: platform-level write (SU only, trusted req.ctx roles)
-  defaultPolicyAdapter.middleware("admin", "write"),
+  requirePlatformPermission("platform:cache:admin", { mode: "route-enforce" }), // Phase B / Z5: platform authority only (no SU / admin:*)
   CacheController.refreshPermissionsCache
 );
 
 router.get(
   "/cache/stats",
-  observePlatformPermission("platform:cache:admin"),
-  requireTenant,
-  requireSuperUser, // Phase 1C-2H: platform-level read (SU only, trusted req.ctx roles)
-  defaultPolicyAdapter.middleware("admin", "read"),
+  requirePlatformPermission("platform:cache:admin", { mode: "route-enforce" }), // Phase B / Z5: platform authority only (no SU / admin:*)
   CacheController.getCacheStats
 );
 
 router.get(
   "/cache/performance/test",
-  observePlatformPermission("platform:cache:admin"),
-  requireTenant,
-  requireSuperUser, // Phase 1C-2H: platform-level read (SU only, trusted req.ctx roles)
-  defaultPolicyAdapter.middleware("admin", "read"),
+  requirePlatformPermission("platform:cache:admin", { mode: "route-enforce" }), // Phase B / Z5: platform authority only (no SU / admin:*)
   CacheController.testCachePerformance
 );
 
 // Data access routes (Super User only)
 router.get(
   "/role-hierarchy",
-  observePlatformPermission("platform:cache:admin"),
-  requireTenant,
-  requireSuperUser, // Phase 1C-2H: platform-level read (SU only, trusted req.ctx roles)
-  defaultPolicyAdapter.middleware("admin", "read"),
+  requirePlatformPermission("platform:cache:admin", { mode: "route-enforce" }), // Phase B / Z5: platform authority only (no SU / admin:*)
   CacheController.getRoleHierarchy
 );
 
 router.get(
   "/permissions-map",
-  observePlatformPermission("platform:cache:admin"),
-  requireTenant,
-  requireSuperUser, // Phase 1C-2H: platform-level read (SU only, trusted req.ctx roles)
-  defaultPolicyAdapter.middleware("admin", "read"),
+  requirePlatformPermission("platform:cache:admin", { mode: "route-enforce" }), // Phase B / Z5: platform authority only (no SU / admin:*)
   CacheController.getPermissionsMap
 );
 
 router.get(
   "/role-permissions/:roleCode",
-  observePlatformPermission("platform:cache:admin"),
-  requireTenant,
-  requireSuperUser, // Phase 1C-2H: platform-level read (SU only, trusted req.ctx roles)
-  defaultPolicyAdapter.middleware("admin", "read"),
+  requirePlatformPermission("platform:cache:admin", { mode: "route-enforce" }), // Phase B / Z5: platform authority only (no SU / admin:*)
   CacheController.getRolePermissions
 );
 
 // Lookup cache management routes
 router.post(
   "/lookup/clear",
-  observePlatformPermission("platform:cache:admin"),
-  requireTenant,
-  requireSuperUser, // Phase 1C-2D: platform-level write (SU only, trusted req.ctx roles)
-  defaultPolicyAdapter.middleware("admin", "write"),
+  requirePlatformPermission("platform:cache:admin", { mode: "route-enforce" }), // Phase B / Z5: platform authority only (no SU / admin:*)
   CacheController.clearLookupCaches
 );
 
 router.get(
   "/lookup/stats",
-  observePlatformPermission("platform:cache:admin"),
-  requireTenant,
-  requireSuperUser, // Phase 1C-2H: platform-level read (SU only, trusted req.ctx roles)
-  defaultPolicyAdapter.middleware("admin", "read"),
+  requirePlatformPermission("platform:cache:admin", { mode: "route-enforce" }), // Phase B / Z5: platform authority only (no SU / admin:*)
   CacheController.getLookupCacheStats
 );
 
 // Country cache management routes
 router.post(
   "/country/clear",
-  observePlatformPermission("platform:cache:admin"),
-  requireTenant,
-  requireSuperUser, // Phase 1C-2D: platform-level write (SU only, trusted req.ctx roles)
-  defaultPolicyAdapter.middleware("admin", "write"),
+  requirePlatformPermission("platform:cache:admin", { mode: "route-enforce" }), // Phase B / Z5: platform authority only (no SU / admin:*)
   CacheController.clearCountryCaches
 );
 

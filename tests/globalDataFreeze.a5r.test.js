@@ -7,6 +7,10 @@
  * answers 423 GLOBAL_DATA_FROZEN before requireSuperUser, the policy check, the controller or the database,
  * for an SU of every DEV tenant. Reads are unchanged.
  */
+// Phase B / Z5: shared-data writes are platform-authorized first (real guard + evaluator), then frozen.
+// DEV runs PLATFORM_AUTH_MODE=shadow globally; the migrated routes enforce regardless (route-enforce).
+process.env.PLATFORM_AUTH_MODE = "shadow";
+jest.mock("../rabbitMQ", () => ({ publishDomainEvent: async () => true }));
 const mockHits = { controller: [], pdp: [] };
 const recorder = (prefix) =>
   new Proxy({}, {
@@ -113,10 +117,20 @@ test("reads are unchanged", async () => {
   expect(mockHits.controller.length).toBe(7);
 });
 
-test("only GLOBAL_DATA_WRITES=open (exact) reopens (the SU-only catalogue rule behind it: platformAdmin.suGuard.test.js)", async () => {
+test("only GLOBAL_DATA_WRITES=open (exact) reopens - and only AFTER platform authorization (Z5)", async () => {
+  const actor = require("./helpers/platformActor");
   process.env.GLOBAL_DATA_WRITES = "OPEN";
   expect((await call(server, "POST", "/api/permissions", { tenant: A, body: {} })).status).toBe(423);
   process.env.GLOBAL_DATA_WRITES = "open";
-  expect((await call(server, "POST", "/api/countries", { tenant: A, body: {} })).status).toBe(200);
+  // a tenant actor (legacy SU "*") is not let through by the switch
+  const su = await call(server, "POST", "/api/countries", { tenant: A, body: {} });
+  expect([su.status, su.body.error.code]).toEqual([403, "PLATFORM_AUTHORITY_REQUIRED"]);
+  // a platform principal with the exact permission reaches the controller (no tenant PDP)
+  actor.installPrincipal({ permissions: ["platform:reference-data:manage"], userId: fx.FIXTURE_USER, tenantId: A });
+  expect((await call(server, "POST", "/api/countries", { tenant: A, plat: actor.platClaim(), body: {} })).status).toBe(200);
+  // ...but not the catalogue, which needs a different platform permission
+  expect((await call(server, "POST", "/api/permissions", { tenant: A, plat: actor.platClaim(), body: {} })).status).toBe(403);
   expect(mockHits.controller).toEqual(["country.createCountry"]);
+  expect(mockHits.pdp).toEqual([]);
+  jest.restoreAllMocks();
 });

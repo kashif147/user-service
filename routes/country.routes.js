@@ -2,9 +2,8 @@ const express = require("express");
 const router = express.Router();
 const countryController = require("../controllers/country.controller");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter");
-const { freezeGlobalWrites } = require("../middlewares/globalDataFreeze");
-// Phase B / Z2: shadow-only platform authorization observers (never change the response; Z5 migrates).
-const { observePlatformPermission } = require("../middlewares/requirePlatformPermission");
+// Phase B / Z5: platform-owned writes are enforced platform authorization (route-enforce; global mode stays shadow).
+const { requirePlatformPermission } = require("../middlewares/requirePlatformPermission");
 const { requireTrustedTenant } = require("../middlewares/requireTrustedTenant");
 
 /**
@@ -51,27 +50,21 @@ router.get(
 // (no tenantId) until Phase E - every write would change all tenants' data, so writes are frozen (423).
 router.post(
   "/countries",
-  observePlatformPermission("platform:reference-data:manage"),
-  freezeGlobalWrites("country"),
-  defaultPolicyAdapter.middleware("lookup", "write"),
+  requirePlatformPermission("platform:reference-data:manage", { mode: "route-enforce", freeze: "country" }), // Phase B / Z5: platform authority, then the A14 freeze
   countryController.createCountry
 );
 
 // Update country (requires write permission)
 router.put(
   "/countries/:id",
-  observePlatformPermission("platform:reference-data:manage"),
-  freezeGlobalWrites("country"),
-  defaultPolicyAdapter.middleware("lookup", "write"),
+  requirePlatformPermission("platform:reference-data:manage", { mode: "route-enforce", freeze: "country" }), // Phase B / Z5: platform authority, then the A14 freeze
   countryController.updateCountry
 );
 
 // Delete country (requires delete permission)
 router.delete(
   "/countries/:id",
-  observePlatformPermission("platform:reference-data:manage"),
-  freezeGlobalWrites("country"),
-  defaultPolicyAdapter.middleware("lookup", "delete"),
+  requirePlatformPermission("platform:reference-data:manage", { mode: "route-enforce", freeze: "country" }), // Phase B / Z5: platform authority, then the A14 freeze
   countryController.deleteCountry
 );
 

@@ -3,9 +3,8 @@ const router = express.Router();
 const lookuptypeController = require("../controllers/lookuptype.ontroller.js");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter.js");
 const { requireTrustedTenant } = require("../middlewares/requireTrustedTenant");
-const { freezeGlobalWrites } = require("../middlewares/globalDataFreeze");
-// Phase B / Z2: shadow-only platform authorization observers (never change the response; Z5 migrates).
-const { observePlatformPermission } = require("../middlewares/requirePlatformPermission");
+// Phase B / Z5: platform-owned writes are enforced platform authorization (route-enforce; global mode stays shadow).
+const { requirePlatformPermission } = require("../middlewares/requirePlatformPermission");
 
 router
   .route("/lookuptype")
@@ -15,21 +14,15 @@ router
     lookuptypeController.getAllLookupType
   )
   .post(
-    observePlatformPermission("platform:reference-data:manage"),
-    freezeGlobalWrites("lookupType"),
-    defaultPolicyAdapter.middleware("lookupType", "write"),
+    requirePlatformPermission("platform:reference-data:manage", { mode: "route-enforce", freeze: "lookupType" }), // Phase B / Z5: platform authority, then the A14 freeze
     lookuptypeController.createNewLookupType
   )
   .put(
-    observePlatformPermission("platform:reference-data:manage"),
-    freezeGlobalWrites("lookupType"),
-    defaultPolicyAdapter.middleware("lookupType", "write"),
+    requirePlatformPermission("platform:reference-data:manage", { mode: "route-enforce", freeze: "lookupType" }), // Phase B / Z5: platform authority, then the A14 freeze
     lookuptypeController.updateLookupType
   )
   .delete(
-    observePlatformPermission("platform:reference-data:manage"),
-    freezeGlobalWrites("lookupType"),
-    defaultPolicyAdapter.middleware("lookupType", "delete"),
+    requirePlatformPermission("platform:reference-data:manage", { mode: "route-enforce", freeze: "lookupType" }), // Phase B / Z5: platform authority, then the A14 freeze
     lookuptypeController.deleteLookupType
   );
 

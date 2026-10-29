@@ -7,12 +7,12 @@ const {
   authenticate,
   requireTenant,
   requireTenantPathAccess,
-  requireSuperUser,
   tenantContextWarn,
 } = require("../middlewares/auth");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter.js");
-// Phase B / Z2: shadow-only platform authorization observers (never change the response; Z5 migrates).
-const { observePlatformPermission } = require("../middlewares/requirePlatformPermission");
+// Phase B: POST /tenants is enforced platform authorization (Z5). The other observers stay shadow-only (never
+// change the response): cross-tenant tenant read/update/delete is the Z6 target-tenant model, not Z5.
+const { observePlatformPermission, requirePlatformPermission } = require("../middlewares/requirePlatformPermission");
 
 // Apply authentication to all routes
 router.use(authenticate, tenantContextWarn);
@@ -20,10 +20,9 @@ router.use(authenticate, tenantContextWarn);
 // Tenant CRUD operations (Super User only for create/update/delete)
 router.post(
   "/tenants",
-  observePlatformPermission("platform:tenant:create"),
-  requireTenant,
-  requireSuperUser, // Phase 1C-2B: creating a tenant is a platform (SU-only) action
-  defaultPolicyAdapter.middleware("tenant", "create"),
+  // Phase B / Z5: creating a tenant is a PLATFORM action - platform authority only (legacy SU / "*" / ASU no
+  // longer pass; the tenant PDP is not consulted).
+  requirePlatformPermission("platform:tenant:create", { mode: "route-enforce" }),
   TenantController.createTenant
 );
 

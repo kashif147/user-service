@@ -14,6 +14,10 @@ const express = require("express");
 
 const mockCalls = [];
 
+// Phase B / Z5: POST /tenants is platform-authorized (real guard + evaluator; principal lookups stubbed).
+process.env.PLATFORM_AUTH_MODE = "shadow";
+const { useTestSecret, bearer, platClaim, installPrincipal } = require("./helpers/platformActor");
+jest.mock("../rabbitMQ", () => ({ publishDomainEvent: async () => true }));
 jest.mock("@membership/policy-middleware", () => ({
   gatewaySecurity: { validateGatewayRequest: () => ({ valid: true }) },
   tenantContextMiddleware: () => (req, res, next) => next(),
@@ -32,7 +36,7 @@ jest.mock("../middlewares/auth", () => {
     authenticate: (req, res, next) => {
       mockCalls.push("authenticate");
       const t = req.headers["x-test-tenant"];
-      if (t) req.ctx = { tenantId: t, userId: "u1", roles: JSON.parse(req.headers["x-test-roles"] || "[]") };
+      if (t) req.ctx = { tenantId: t, userId: "6a00000000000000000000c1", roles: JSON.parse(req.headers["x-test-roles"] || "[]") };
       next();
     },
     tenantContextWarn: (req, res, next) => (mockCalls.push("tenantContextWarn"), next()),
@@ -110,10 +114,11 @@ beforeEach(() => {
 });
 afterEach(() => warnSpy.mockRestore());
 
-function call(method, url, { tenant = A, roles = ["ASU"], body } = {}) {
+function call(method, url, { tenant = A, roles = ["ASU"], body, withBearer = false, plat } = {}) {
   return new Promise((resolve, reject) => {
     const data = body ? JSON.stringify(body) : undefined;
     const headers = { "content-type": "application/json", "x-test-tenant": tenant, "x-test-roles": JSON.stringify(roles) };
+    if (withBearer) headers.authorization = bearer({ userId: "6a00000000000000000000c1", tenantId: tenant || A, roles, plat });
     if (!tenant) delete headers["x-test-tenant"];
     if (data) headers["content-length"] = Buffer.byteLength(data);
     const req = http.request(`${base}${url}`, { method, headers }, (res) => {
@@ -346,19 +351,41 @@ describe("A16 SU closure: per-tenant SU is tenant-scoped on every /tenants/:id(*
   });
 });
 
-describe("POST /tenants is SU-only (trusted roles)", () => {
-  test("SU can create: guard -> policy -> handler", async () => {
-    const res = await call("POST", "/api/tenants", { roles: ["SU"], body: { name: "New", code: "NEW" } });
+describe("POST /tenants is a platform operation (Z5): platform:tenant:create only", () => {
+  beforeEach(() => { useTestSecret(); jest.spyOn(console, "info").mockImplementation(() => {}); });
+  afterEach(() => jest.restoreAllMocks());
+
+  test("a live principal holding platform:tenant:create can create: guard -> controller -> handler (no tenant PDP)", async () => {
+    installPrincipal({ permissions: ["platform:tenant:create"], userId: "6a00000000000000000000c1", tenantId: A });
+    const res = await call("POST", "/api/tenants", { roles: [], withBearer: true, plat: platClaim(), body: { name: "New", code: "NEW" } });
     expect(res.status).toBe(201);
-    expect(mockCalls).toEqual(["authenticate", "tenantContextWarn", "policy:tenant:create"]);
+    expect(mockCalls).toEqual(["authenticate", "tenantContextWarn"]);
     expect(mockTenantHandlerCalls.map((c) => c.name)).toEqual(["createTenant"]);
   });
 
-  test.each([[["ASU"]], [["GS"]], [[]]])("non-SU %p gets 403; policy/controller/handler not called", async (roles) => {
-    const res = await call("POST", "/api/tenants", { roles, body: { name: "New", code: "NEW", roles: ["SU"] } });
+  test.each([[["SU"]], [["ASU"]], [["GS"]], [[]]])("tenant actor %p (with '*') gets 403 PLATFORM_AUTHORITY_REQUIRED; policy/controller/handler not called", async (roles) => {
+    const res = await call("POST", "/api/tenants", { roles, withBearer: true, body: { name: "New", code: "NEW", roles: ["SU"], plat: platClaim() } });
     expect(res.status).toBe(403);
-    expect(res.body.error.superUserRequired).toBe(true);
+    expect(res.body.error.code).toBe("PLATFORM_AUTHORITY_REQUIRED");
     expect(hasPolicy()).toBe(false);
     expect(mockTenantHandlerCalls).toHaveLength(0);
   });
+
+  test("a principal WITHOUT platform:tenant:create (other platform codes) is denied", async () => {
+    installPrincipal({ permissions: ["platform:cache:admin", "platform:reference-data:manage", "platform:permission-catalogue:manage", "platform:tenant:read:any"], userId: "6a00000000000000000000c1", tenantId: A });
+    const res = await call("POST", "/api/tenants", { roles: ["SU"], withBearer: true, plat: platClaim(), body: { name: "New", code: "NEW" } });
+    expect(res.status).toBe(403);
+    expect(mockTenantHandlerCalls).toHaveLength(0);
+  });
+
+  test("disabled or stale-revision principal is denied; no bearer -> 401", async () => {
+    installPrincipal({ permissions: ["platform:tenant:create"], status: "disabled", userId: "6a00000000000000000000c1", tenantId: A });
+    expect((await call("POST", "/api/tenants", { roles: [], withBearer: true, plat: platClaim(), body: { code: "NEW" } })).status).toBe(403);
+    jest.restoreAllMocks(); jest.spyOn(console, "info").mockImplementation(() => {});
+    installPrincipal({ permissions: ["platform:tenant:create"], revision: 2, userId: "6a00000000000000000000c1", tenantId: A });
+    expect((await call("POST", "/api/tenants", { roles: [], withBearer: true, plat: platClaim(1), body: { code: "NEW" } })).status).toBe(403);
+    expect((await call("POST", "/api/tenants", { roles: ["SU"], body: { code: "NEW" } })).status).toBe(401);
+    expect(mockTenantHandlerCalls).toHaveLength(0);
+  });
 });
+

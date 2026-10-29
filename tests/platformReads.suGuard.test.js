@@ -1,5 +1,8 @@
 /**
- * Phase 1C-2H — platform-wide role/permission/cache READS are SU-only.
+ * Phase 1C-2H — platform-wide role/permission/cache READS were SU-only.
+ * Phase B / Z5: they are PLATFORM operations now - platform:cache:admin (route-enforce); legacy SU with "*",
+ * ASU and ordinary users get 403 PLATFORM_AUTHORITY_REQUIRED and no global data; admin:* tenant grants no
+ * longer count (left in data for Z9 cleanup).
  *
  * routes/cache.routes.js GETs expose global, tenant-derived or platform-operational data:
  *   /role-hierarchy            code -> level map built from EVERY tenant's roles (order-dependent)
@@ -12,8 +15,10 @@
  * Mounts the REAL cache.routes.js with the REAL requireTenant / requireSuperUser; authenticate,
  * the policy adapter and the controller are recording stubs. No DB / Redis / network.
  */
+process.env.PLATFORM_AUTH_MODE = "shadow"; // global mode; cache routes enforce regardless (route-enforce)
 const http = require("http");
 const express = require("express");
+const { useTestSecret, bearer, platClaim, installPrincipal } = require("./helpers/platformActor");
 
 const mockCalls = [];
 
@@ -35,7 +40,7 @@ jest.mock("../middlewares/auth", () => {
     authenticate: (req, res, next) => {
       mockCalls.push("authenticate");
       const t = req.headers["x-test-tenant"];
-      if (t) req.ctx = { tenantId: t, userId: "u1", roles: JSON.parse(req.headers["x-test-roles"] || "[]") };
+      if (t) req.ctx = { tenantId: t, userId: "6a00000000000000000000c1", roles: JSON.parse(req.headers["x-test-roles"] || "[]") };
       next();
     },
     tenantContextWarn: (req, res, next) => (mockCalls.push("tenantContextWarn"), next()),
@@ -70,16 +75,17 @@ beforeAll(async () => {
   base = `http://127.0.0.1:${server.address().port}`;
 });
 afterAll(() => new Promise((r) => server.close(r)));
-let warnSpy;
 beforeEach(() => {
   mockCalls.length = 0;
-  warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+  useTestSecret();
+  for (const m of ["warn", "info"]) jest.spyOn(console, m).mockImplementation(() => {});
 });
-afterEach(() => warnSpy.mockRestore());
+afterEach(() => jest.restoreAllMocks());
 
-function get(url, { tenant = A, roles = ["SU"], headers = {} } = {}) {
+function get(url, { tenant = A, roles = ["SU"], headers = {}, plat, auth = true } = {}) {
   return new Promise((resolve, reject) => {
     const h = { "x-test-roles": JSON.stringify(roles), ...headers };
+    if (auth) h.authorization = bearer({ userId: "6a00000000000000000000c1", tenantId: tenant || A, roles, plat });
     if (tenant) h["x-test-tenant"] = tenant;
     http
       .get(`${base}${url}`, { headers: h }, (res) => {
@@ -101,11 +107,13 @@ const READS = [
   ["/api/lookup/stats", "controller:getLookupCacheStats"],
 ];
 
-describe("platform reads are SU-only", () => {
-  test.each(READS)("A %s — SU: requireSuperUser -> existing admin:read policy -> controller", async (url, ctl) => {
+describe("platform reads require platform:cache:admin (Z5)", () => {
+  test.each(READS)("A %s — legacy SU with '*': 403, no admin:read policy, no controller", async (url) => {
     const res = await get(url, { roles: ["SU"] });
-    expect(res.status).toBe(299);
-    expect(mockCalls).toEqual(["authenticate", "tenantContextWarn", "requireSuperUser", "policy:admin:read", ctl]);
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatchObject({ code: "PLATFORM_AUTHORITY_REQUIRED" });
+    expect(reached("policy:")).toBe(false);
+    expect(reached("controller:")).toBe(false);
   });
 
   test.each(READS)("B %s — ASU / GS / ordinary: 403 before policy and controller (no global data)", async (url) => {
@@ -113,14 +121,14 @@ describe("platform reads are SU-only", () => {
       mockCalls.length = 0;
       const res = await get(url, { roles });
       expect(res.status).toBe(403);
-      expect(res.body.error).toMatchObject({ code: "FORBIDDEN", superUserRequired: true });
+      expect(res.body.error).toMatchObject({ code: "PLATFORM_AUTHORITY_REQUIRED" });
       expect(res.body).not.toHaveProperty("hierarchy");
       expect(reached("policy:")).toBe(false);
       expect(reached("controller:")).toBe(false);
     }
   });
 
-  test.each(READS)("D %s — query/header SU or tenant hints cannot widen a non-SU caller's scope", async (url) => {
+  test.each(READS)("D %s — query/header SU or tenant hints cannot widen a caller's scope", async (url) => {
     const sep = url.includes("?") ? "&" : "?";
     const res = await get(`${url}${sep}role=SU&tenantId=${B}`, {
       roles: ["ASU"],
@@ -130,21 +138,34 @@ describe("platform reads are SU-only", () => {
     expect(reached("controller:")).toBe(false);
   });
 
-  test.each(READS)("%s — no trusted tenant context fails closed", async (url) => {
-    const res = await get(url, { tenant: null, roles: ["SU"] });
-    expect([400, 403]).toContain(res.status); // requireTenant (400) runs first
+  test.each(READS)("%s — no bearer token fails closed (401)", async (url) => {
+    const res = await get(url, { auth: false, roles: ["SU"] });
+    expect(res.status).toBe(401);
+    expect(reached("controller:")).toBe(false);
+  });
+
+  test.each(READS)("P %s — a live principal holding platform:cache:admin reaches the controller directly", async (url, ctl) => {
+    installPrincipal({ permissions: ["platform:cache:admin"], userId: "6a00000000000000000000c1", tenantId: A });
+    const res = await get(url, { roles: [], plat: platClaim() });
+    expect(res.status).toBe(299);
+    expect(mockCalls).toEqual(["authenticate", "tenantContextWarn", ctl]);
+  });
+
+  test.each(READS)("Q %s — a principal without platform:cache:admin (other platform codes only) is denied", async (url) => {
+    installPrincipal({ permissions: ["platform:tenant:create", "platform:permission-catalogue:manage", "platform:reference-data:manage"], userId: "6a00000000000000000000c1", tenantId: A });
+    const res = await get(url, { roles: ["SU"], plat: platClaim() });
+    expect(res.status).toBe(403);
     expect(reached("controller:")).toBe(false);
   });
 });
 
-test("E every route in cache.routes.js (reads and writes) is now SU-guarded", () => {
+test("E every route in cache.routes.js (reads and writes) is guarded by enforcing platform:cache:admin only", () => {
   const router = require("../routes/cache.routes");
   const routes = router.stack.filter((x) => x.route);
   expect(routes.length).toBe(11);
   for (const l of routes) {
     const names = l.route.stack.map((s) => s.name);
-    // Phase B / Z2: a shadow platform observer first (never changes the response), then the same guards.
-    expect(names.slice(0, 3)).toEqual(["platformAuthzObserver", "requireTenant", "requireSuperUser"]);
+    expect(names).toEqual(["platformAuthzGuard", expect.any(String)]);
   }
 });
 

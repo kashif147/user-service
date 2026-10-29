@@ -11,6 +11,7 @@ const { ConnectionValidationError, ConnectionDisconnectedError } = require("../h
 const disconnectedError = (e) => new AppError(e.message, e.status, e.code);
 // Every response carrying a tenant or its authentication connections goes through this allow-list.
 const { toTenantView, toConnectionView } = require("../helpers/authConnectionView");
+const { auditTenantCreated, auditTenantCreateFailed } = require("../services/platformAuditService");
 
 // Phase 1C-2B: lookups are confined to the caller's trusted tenant (req.ctx), never a caller-supplied
 // value. Phase A / A16 SU closure (TEMPORARY until Phase B): the legacy per-tenant SU is confined too -
@@ -18,14 +19,25 @@ const { toTenantView, toConnectionView } = require("../helpers/authConnectionVie
 const ownTenantScope = (req) => ({ ownTenantId: String(req.ctx?.tenantId || "") || "__none__" });
 
 // Create tenant
+// Phase B / Z5: reached only through requirePlatformPermission("platform:tenant:create") (req.platform set).
+// Success -> authoritative platform record (target = the new tenant) + the new tenant's lifecycle copy;
+// failure -> platform record only (no tenant exists). Responses are unchanged.
 module.exports.createTenant = async (req, res, next) => {
   try {
     const createdBy = req.ctx?.userId || "system";
     const tenant = await TenantHandler.createTenant(req.body, createdBy);
+    auditTenantCreated({ req, tenantId: String(tenant._id) });
     res.status(201).json({ status: "success", data: toTenantView(tenant) });
   } catch (error) {
-    if (error instanceof ConnectionDisconnectedError) return next(disconnectedError(error));
-    if (error instanceof ConnectionValidationError) return next(AppError.badRequest(error.message));
+    if (error instanceof ConnectionDisconnectedError) {
+      auditTenantCreateFailed({ req, reason: "connection_disconnected", status: Number(error.status) || null });
+      return next(disconnectedError(error));
+    }
+    if (error instanceof ConnectionValidationError) {
+      auditTenantCreateFailed({ req, reason: "validation", status: 400 });
+      return next(AppError.badRequest(error.message));
+    }
+    auditTenantCreateFailed({ req, reason: /already exists/.test(String(error && error.message)) ? "conflict" : "error", status: 500 });
     return next(AppError.internalServerError("Failed to create tenant"));
   }
 };

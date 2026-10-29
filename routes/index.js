@@ -22,6 +22,8 @@ router.use("/api", require("./b2cConnector.routes"));
 router.use("/api", require("./tenantLifecycle.routes"));
 router.use("/api", require("./internalRoleAccess.routes"));
 router.use("/api", require("./internalMsTokenVerification.routes"));
+// Phase B / Z5 (D4): central platform-auth check - outside /api on purpose (not proxied by the gateway).
+router.use("/internal", require("./internalPlatformAuth.routes"));
 
 // Phase B / Z2: DEV-only platform authorization probe (PLATFORM_AUTHZ_PROBE=on at boot; absent otherwise).
 // Its middleware is per-route, so it changes nothing for any other request.
