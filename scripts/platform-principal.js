@@ -163,6 +163,9 @@ if (require.main === module) {
         await require("../rabbitMQ").shutdownEventSystem?.().catch(() => {});
       }
       await mongoose.disconnect();
+      // The RabbitMQ client keeps timers / sockets alive after shutdown: a one-shot operator command must
+      // still end (seen on DEV: the process hung after a completed, audited write).
+      process.exit(process.exitCode || 0);
     });
 }
 
