@@ -10,8 +10,9 @@ const {
   tenantContextWarn,
 } = require("../middlewares/auth");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter.js");
-// Phase B: POST /tenants is enforced platform authorization (Z5). Code / domain lookups keep a shadow observer
-// only (not a Z6 target: they are not addressed by tenant id).
+// Phase B: POST /tenants is enforced platform authorization (Z5). Code / domain lookups are organisation
+// locators and stay tenant / login-locator scoped (owner decision, Z7): they keep a shadow observer only and
+// never grant platform:tenant:read:any access.
 const { observePlatformPermission, requirePlatformPermission } = require("../middlewares/requirePlatformPermission");
 // Phase B / Z6: cross-tenant tenant administration by a platform principal. Each shared route below is
 // registered twice: `platform(...)` first (platform principal: exact platform permission, explicit :id target),
