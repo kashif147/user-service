@@ -56,13 +56,17 @@ jest.mock("../models/user.model", () => ({
     mockStore.calls.push(`update:${JSON.stringify(q)}`);
     let r = mockStore.users.find((u) => mockMatches(u, q));
     const set = upd.$set || {};
+    // Phase B / Z7: a sign-in never writes ownership; an upsert takes tenantId from the filter (as MongoDB
+    // seeds an inserted document from the filter's equality fields).
+    if ("tenantId" in set) throw new Error("Z7: a sign-in write must never $set tenantId");
+    const seed = Object.fromEntries(Object.entries(q).filter(([k, v]) => !k.startsWith("$") && (v === null || typeof v !== "object")));
     if (!r && !opts.upsert) return null;
     if (!r) {
-      const t = String(set.tenantId);
+      const t = String(q.tenantId);
       if (mockStore.users.some((u) => String(u.tenantId) === t && (u.userEmail === set.userEmail || u.userMicrosoftId === set.userMicrosoftId))) {
         throw Object.assign(new Error("E11000 duplicate key error"), { code: 11000 });
       }
-      r = { _id: `new-${mockStore.users.length + 1}`, roles: [], ...mockClone(upd.$setOnInsert || {}) };
+      r = { _id: `new-${mockStore.users.length + 1}`, roles: [], ...seed, ...mockClone(upd.$setOnInsert || {}) };
       mockStore.users.push(r);
       mockStore.calls.push(`insert:${t}`);
     }
@@ -156,7 +160,7 @@ describe.each([
     const u = await login(OID_1);
     expect(u._id).toBe("u1");
     expect(byId("u1").userMicrosoftId).toBe(OID_1);
-    expect(mockStore.calls).toContain(`update:{"_id":"u1","isActive":{"$ne":false},"userType":"CRM","userMicrosoftId":"${OID_1}"}`);
+    expect(mockStore.calls).toContain(`update:{"_id":"u1","tenantId":"${TENANT_A}","isActive":{"$ne":false},"userType":"CRM","userMicrosoftId":"${OID_1}"}`);
     expect(mockStore.users).toHaveLength(1);
   });
 

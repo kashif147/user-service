@@ -41,13 +41,17 @@ jest.mock("../models/user.model", () => ({
     mockStore.calls.push(`update:${JSON.stringify(q)}`);
     let r = mockStore.users.find((u) => mockMatches(u, q));
     const set = upd.$set || {};
+    // Phase B / Z7: a sign-in never writes ownership; an upsert takes tenantId from the filter (as MongoDB
+    // seeds an inserted document from the filter's equality fields).
+    if ("tenantId" in set) throw new Error("Z7: a sign-in write must never $set tenantId");
+    const seed = Object.fromEntries(Object.entries(q).filter(([k, v]) => !k.startsWith("$") && (v === null || typeof v !== "object")));
     if (!r && !opts.upsert) return null;
     if (!r) {
-      const t = String(set.tenantId);
+      const t = String(q.tenantId);
       if (mockStore.users.some((u) => String(u.tenantId) === t && (u.userEmail === set.userEmail || u.userMicrosoftId === set.userMicrosoftId))) {
         throw mockDup();
       }
-      r = { _id: `new-${mockStore.users.length + 1}`, roles: [], ...mockClone(upd.$setOnInsert || {}) };
+      r = { _id: `new-${mockStore.users.length + 1}`, roles: [], ...seed, ...mockClone(upd.$setOnInsert || {}) };
       mockStore.users.push(r);
       mockStore.calls.push(`insert:${t}`);
     }
