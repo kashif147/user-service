@@ -1,4 +1,10 @@
 const mongoose = require("mongoose");
+const { tenantOwnershipPlugin } = require("./plugins/tenantOwnership.plugin");
+
+// Phase B / Z7: a User belongs to exactly ONE internal ProjectShell tenant (a Tenant _id, 24 hex), set at
+// creation from trusted server-side context and never changed. The same real person in two tenants is two
+// tenant-local User rows (identity uniqueness below is tenant-qualified), never one row moved between them.
+const INTERNAL_TENANT_ID = /^[0-9a-f]{24}$/;
 
 const UserSchema = new mongoose.Schema({
   // Tenant isolation - mandatory field
@@ -6,6 +12,12 @@ const UserSchema = new mongoose.Schema({
     type: String,
     required: true,
     index: true,
+    // Phase B / Z7: creation needs a real internal tenant id - never null / "default" / "unknown" / an org
+    // code / an Entra tid. Immutability (every write path) is the A15 plugin at the end of this file.
+    validate: {
+      validator: (v) => typeof v === "string" && INTERNAL_TENANT_ID.test(v),
+      message: "tenantId must be an internal ProjectShell tenant id",
+    },
   },
 
   userEmail: { type: String, default: null }, // `emails[0]` ADB2C
@@ -111,5 +123,35 @@ UserSchema.pre("findOneAndUpdate", function (next) {
 
   next();
 });
+
+// Phase B / Z7: tenant ownership immutability (Phase A / A15 guard, as ProductType): save, updateOne,
+// updateMany, findOneAndUpdate / findByIdAndUpdate, replaceOne, findOneAndReplace, bulkWrite and pipeline
+// updates can never change, unset, null or placeholder User.tenantId -> 409 TENANT_IMMUTABLE (the write is
+// rejected, not silently restored). No runtime bypass.
+UserSchema.plugin(tenantOwnershipPlugin, { modelName: "User" });
+// Assigning a DIFFERENT tenantId to an existing (loaded) User marks the document; its next save() is then
+// REJECTED with 409 TENANT_IMMUTABLE (mongoose's immutable setter alone would silently keep the old value and
+// save the rest). Same value = no change. Mongoose runs setters last-added first, so this sees the requested
+// value; query casting has no Document `this` and is covered by the plugin's query / bulk guards.
+const { AppError } = require("../errors/AppError");
+const tenantViolation = (op) => {
+  console.warn(JSON.stringify({ level: "warn", message: "TenantOwnershipViolation", eventType: "tenant.ownership_violation", model: "User", op, reason: "tenant_change" }));
+  return new AppError("Tenant ownership cannot be changed", 409, "TENANT_IMMUTABLE", { model: "User", op, reason: "tenant_change" });
+};
+UserSchema.path("tenantId").set(function flagTenantReassignment(value) {
+  if (this instanceof mongoose.Document && !this.isNew) {
+    const current = this.get("tenantId");
+    if (current != null && (value == null || String(value) !== String(current))) {
+      this.$locals.tenantReassignmentAttempted = true;
+      tenantViolation("assign");
+    }
+  }
+  return value;
+});
+function rejectTenantReassignment() {
+  if (this.$locals && this.$locals.tenantReassignmentAttempted) throw tenantViolation("save");
+}
+UserSchema.pre("validate", rejectTenantReassignment);
+UserSchema.pre("save", rejectTenantReassignment); // also when saved with validateBeforeSave: false
 
 module.exports = mongoose.model("User", UserSchema);

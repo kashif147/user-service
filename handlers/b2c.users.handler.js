@@ -1,7 +1,6 @@
 const axios = require("axios");
 const { jwtVerify, createRemoteJWKSet } = require("jose");
 const B2CUser = require("../models/user.model");
-const Tenant = require("../models/tenant.model");
 const { AppError } = require("../errors/AppError");
 const {
   resolveApplicationTenant,
@@ -102,23 +101,10 @@ async function assertPortalUserHasAccess(user, tenantId) {
   }
 }
 
-// Legacy migration: a PORTAL user whose tenantId predates Tenant mapping (not an existing Tenant).
-// Returns it only when exactly one such user exists for the email; never a user in a real tenant.
-async function findLegacyPortalUser(email, tenantId) {
-  const candidates = await B2CUser.find({
-    userEmail: email,
-    tenantId: { $ne: tenantId },
-  }).lean();
-  const legacy = [];
-  for (const candidate of candidates) {
-    if (candidate.userType && candidate.userType !== "PORTAL") continue;
-    const tid = String(candidate.tenantId || "");
-    const isRealTenant =
-      /^[0-9a-f]{24}$/i.test(tid) && (await Tenant.exists({ _id: tid }));
-    if (!isRealTenant) legacy.push(candidate);
-  }
-  return legacy.length === 1 ? legacy[0] : null;
-}
+// Phase B / Z7: the former "legacy migration" (a PORTAL user whose tenantId was not a real Tenant was moved
+// to the resolved tenant at sign-in) is removed - no login may change a User's tenant. DEV inventory before
+// removal: 0 users with a non-internal / non-existing tenantId. Such a user would now simply not be matched,
+// and the resolved tenant's automatic connection (if any) provisions a separate tenant-local user.
 
 class B2CUsersHandler {
   static async exchangeCodeForTokens(code, codeVerifier, policyName) {
@@ -283,32 +269,24 @@ class B2CUsersHandler {
         throw err;
       }
       tenantId = resolution.tenantId;
-      updateData.tenantId = tenantId;
-      let existingUser = resolution.existingUser;
-
-      // If not found, look for a legacy PORTAL user created before tenant mapping (its tenantId is
-      // not a real Tenant). Only that user is migrated to the resolved tenantId: a user in another
-      // real tenant, or a CRM user, is never moved - a new PORTAL user is created instead.
-      let migratingLegacyUser = false;
-      if (!existingUser) {
-        existingUser = await findLegacyPortalUser(email, tenantId);
-        migratingLegacyUser = !!existingUser;
-      }
+      // Phase B / Z7: ownership is never written at sign-in: an existing user is updated only inside the
+      // resolved tenant (tenantId in the write filter), a new user is created owned by it (the upsert
+      // filter's tenantId). updateData carries no tenantId.
+      const existingUser = resolution.existingUser;
 
       if (existingUser) {
         assertPortalSignInAllowed(existingUser);
         assertMicrosoftIdBinding(existingUser, profile.userMicrosoftId);
-        // A legacy user's roles belong to its pre-mapping tenant; it is provisioned below instead.
-        if (!migratingLegacyUser) await assertPortalUserHasAccess(existingUser, tenantId);
+        await assertPortalUserHasAccess(existingUser, tenantId);
       }
 
       const isNewUser = !existingUser;
 
-      // New (or legacy-migrated) users only arrive here through the single automatic connection
+      // New users only arrive here through the single automatic connection
       // (resolveApplicationTenant); they get its default role in the same atomic write, so a
       // role-less portal user is never created.
       let jitRoleId = null;
-      if (isNewUser || migratingLegacyUser) {
+      if (isNewUser) {
         if (!isAutomatic(resolution.connection)) {
           console.warn("B2C login denied:", { reason: "NOT_PROVISIONED", tenantId });
           throw AppError.forbidden(PORTAL_SIGN_IN_DENIED);
@@ -342,6 +320,7 @@ class B2CUsersHandler {
         existingUser
           ? {
               _id: existingUser._id,
+              tenantId,
               userType: { $ne: "CRM" },
               isActive: { $ne: false },
               userMicrosoftId: microsoftIdUnchanged(existingUser),
@@ -352,7 +331,7 @@ class B2CUsersHandler {
               userMicrosoftId: { $in: [null, "", profile.userMicrosoftId] },
             },
         {
-          $set: migratingLegacyUser ? { ...updateData, roles: [jitRoleId] } : updateData, // includes tenantId (Tenant._id)
+          $set: updateData, // never tenantId (Z7): the owner comes from the filter
           $setOnInsert: {
             createdAt: new Date(),
             ...(isNewUser && jitRoleId ? { roles: [jitRoleId] } : {}),

@@ -324,6 +324,7 @@ class AzureADHandler {
     const email = profile.userEmail;
     // Set only by the tenant resolution below; any tenantId on the profile is ignored.
     let tenantId = null;
+    let identityProfile = {}; // the profile without any tenant field (also used by the E11000 retry)
     try {
       // decodeIdToken validated the trusted Entra directory; the APPLICATION tenant is resolved
       // below from the login context or the ProjectShell user record
@@ -337,7 +338,7 @@ class AzureADHandler {
 
       if (!email) throw new Error("Email not found in Azure AD token");
 
-      const identityProfile = { ...profile };
+      identityProfile = { ...profile };
       delete identityProfile.tenantId;
       const updateData = {
         ...identityProfile,
@@ -384,7 +385,9 @@ class AzureADHandler {
         throw err;
       }
       tenantId = resolution.tenantId;
-      updateData.tenantId = tenantId;
+      // Phase B / Z7: ownership is never written at sign-in. An existing user is updated only inside the
+      // resolved tenant (tenantId in the write filter); a new user is created owned by it (the upsert
+      // filter's tenantId). updateData carries no tenantId, so no login can move a user between tenants.
       const existingUser = resolution.existingUser;
 
       // Access checks for an existing user, before any write, role processing or token:
@@ -427,10 +430,10 @@ class AzureADHandler {
       // (re-checked atomically, never upserted); a new user is inserted keyed by the Entra oid.
       const user = await User.findOneAndUpdate(
         existingUser
-          ? { _id: existingUser._id, isActive: { $ne: false }, ...crmIdentityUnchanged(existingUser) }
+          ? { _id: existingUser._id, tenantId, isActive: { $ne: false }, ...crmIdentityUnchanged(existingUser) }
           : { tenantId, userMicrosoftId: profile.userMicrosoftId },
         {
-          $set: updateData, // This includes the new tenantId (Tenant._id)
+          $set: updateData, // never tenantId (Z7): the owner comes from the filter
           $setOnInsert: {
             createdAt: new Date(),
             ...(jitRoleId ? { roles: [jitRoleId] } : {}),
@@ -486,11 +489,10 @@ class AzureADHandler {
           await assertCrmSignInAllowed(user, tenantId);
           // Update the user with latest data
           Object.assign(user, {
-            ...profile,
+            ...identityProfile, // never a tenantId (Z7: ownership is not written at sign-in)
             userAuthProvider: "azure-ad",
             userType: "CRM",
             userLastLogin: new Date(),
-            tenantId: tenantId,
             tokens: buildUserTokensSubdocument(null), // no Microsoft OAuth credentials (see above)
           });
           await user.save();
