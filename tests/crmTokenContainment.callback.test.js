@@ -58,10 +58,10 @@ const storedUser = () => ({
   userLastLogin: new Date(),
   tokens: { id_token: MS.id, refresh_token: MS.refresh, id_token_expires_in: 3600, refresh_token_expires_in: null },
 });
-async function callback(user = storedUser()) {
+async function callback(user = storedUser(), extra = {}) {
   takeLoginTransaction.mockReturnValue({ nonce: "n1", loginContext: { tenantId: TENANT_A, connectionId: "connA" } });
   // The handler also hands back the raw Microsoft token response; it must never reach the body.
-  AzureADHandler.handleAzureADAuth.mockResolvedValue({ user, tokens: { id_token: MS.id, access_token: MS.access, refresh_token: MS.refresh } });
+  AzureADHandler.handleAzureADAuth.mockResolvedValue({ user, tokens: { id_token: MS.id, access_token: MS.access, refresh_token: MS.refresh }, ...extra });
   const res = { status: jest.fn().mockReturnThis(), json: jest.fn().mockReturnThis() };
   const next = jest.fn();
   await handleAzureADCallback({ body: { code: "c", codeVerifier: "v", state: "s1" }, query: {}, headers: {} }, res, next);
@@ -94,6 +94,19 @@ describe("CRM callback response", () => {
   test("no Microsoft token VALUE (ID, access, refresh), oid, issuer or directory anywhere in the body", async () => {
     const json = JSON.stringify((await callback()).body);
     for (const v of [MS.id, MS.access, MS.refresh, OID, DIR, "sub-1", "login.microsoftonline.com"]) expect(json).not.toContain(v);
+  });
+
+  test("logoutHint: the ID token's login_hint is returned when present, and nothing else changes", async () => {
+    const { body } = await callback(storedUser(), { loginHint: "opaque-login-hint_123" });
+    expect(Object.keys(body).sort()).toEqual(["accessToken", "logoutHint", "message", "organisation", "success", "user"]);
+    expect(body.logoutHint).toBe("opaque-login-hint_123");
+    const json = JSON.stringify(body);
+    for (const v of [MS.id, MS.access, MS.refresh]) expect(json).not.toContain(v);
+  });
+
+  test("logoutHint is omitted when the handler has none", async () => {
+    const { body } = await callback(storedUser(), { loginHint: null });
+    expect(body).not.toHaveProperty("logoutHint");
   });
 
   test("ProjectShell JWT unchanged: generateToken gets the same user object", async () => {

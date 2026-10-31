@@ -74,7 +74,7 @@ module.exports.handleAzureADCallback = async (req, res, next) => {
     }
 
     console.log("Processing Azure AD authentication...");
-    const { user, verifiedIdentity } = await AzureADHandler.handleAzureADAuth(
+    const { user, verifiedIdentity, loginHint } = await AzureADHandler.handleAzureADAuth(
       code,
       codeVerifier,
       expectedNonce,
@@ -112,6 +112,10 @@ module.exports.handleAzureADCallback = async (req, res, next) => {
       user: userResponse,
       accessToken: tokenData.token,
       ...(organisation ? { organisation } : {}),
+      // Opaque Microsoft `login_hint`, handed back to GET /pkce/logout-urls?logoutHint= so
+      // sign-out ends this account's Microsoft session without showing the account picker.
+      // Not a credential. Omitted when the app registration doesn't emit the claim.
+      ...(loginHint ? { logoutHint: loginHint } : {}),
     });
   } catch (error) {
     // Deliberate refusals from the handler (e.g. identity not provisioned in any tenant that

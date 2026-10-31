@@ -92,4 +92,35 @@ describe("getLogoutUrls", () => {
       expectedB2CRedirect,
     );
   });
+
+  test("no logoutHint: the Azure AD logout URL carries no logout_hint (unchanged behaviour)", async () => {
+    const res = mockRes();
+    await getLogoutUrls(mockReq(), res, jest.fn());
+    const url = new URL(res.json.mock.calls[0][0].azureADLogoutUrl);
+    expect(url.searchParams.has("logout_hint")).toBe(false);
+  });
+
+  test("a valid logoutHint is forwarded as Microsoft's logout_hint (Azure AD URL only)", async () => {
+    const hint = "O.aX-yz_12+ab/cd==";
+    const res = mockRes();
+    await getLogoutUrls(mockReq({ logoutHint: hint }), res, jest.fn());
+    const body = res.json.mock.calls[0][0];
+    const url = new URL(body.azureADLogoutUrl);
+    expect(url.searchParams.get("logout_hint")).toBe(hint);
+    expect(url.searchParams.get("post_logout_redirect_uri")).toBeTruthy();
+    expect(new URL(body.b2cLogoutUrl).searchParams.has("logout_hint")).toBe(false);
+  });
+
+  test.each([
+    ["a value with URL-structural characters", "abc&post_logout_redirect_uri=https://evil.example"],
+    ["an over-long value", "a".repeat(2049)],
+    ["an empty string", ""],
+    ["a repeated query parameter (array)", ["a", "b"]],
+  ])("drops %s rather than forwarding it", async (_label, logoutHint) => {
+    const res = mockRes();
+    await getLogoutUrls(mockReq({ logoutHint }), res, jest.fn());
+    const url = new URL(res.json.mock.calls[0][0].azureADLogoutUrl);
+    expect(url.searchParams.has("logout_hint")).toBe(false);
+    expect([...url.searchParams.getAll("post_logout_redirect_uri")]).toHaveLength(1);
+  });
 });
