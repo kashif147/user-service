@@ -28,7 +28,7 @@ jest.mock("../services/roleHierarchyService", () => ({
   clearCache: mockOp("rh.clearCache", undefined, true),
   refreshCache: mockOp("rh.refreshCache", { SU: 100, GS: 90 }, true),
   getRoleHierarchy: mockOp("rh.getRoleHierarchy", { SU: 100, GS: 90 }),
-  isSuperUser: (r) => !!r && r.includes("SU"),
+  isTenantAdmin: (r) => !!r && r.includes("ASU"),
   isAssistantSuperUser: () => false,
   isSystemAdmin: () => false,
   getHighestRoleLevel: () => 1,

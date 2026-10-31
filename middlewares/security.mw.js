@@ -50,10 +50,9 @@ const authRateLimit = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skip: (req) => {
-    // Skip rate limiting for super users or in development
-    return (
-      req.ctx?.roles?.includes("SU") || process.env.NODE_ENV === "development"
-    );
+    // Skip rate limiting in development only (Phase B / Z9: no role - the retired SU or ASU - is exempt
+    // from this security control).
+    return process.env.NODE_ENV === "development";
   },
 });
 
@@ -74,10 +73,9 @@ const meRateLimit = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skip: (req) => {
-    // Skip rate limiting for super users or in development
-    return (
-      req.ctx?.roles?.includes("SU") || process.env.NODE_ENV === "development"
-    );
+    // Skip rate limiting in development only (Phase B / Z9: no role - the retired SU or ASU - is exempt
+    // from this security control).
+    return process.env.NODE_ENV === "development";
   },
 });
 
@@ -98,10 +96,9 @@ const apiRateLimit = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skip: (req) => {
-    // Skip rate limiting for super users or in development
-    return (
-      req.ctx?.roles?.includes("SU") || process.env.NODE_ENV === "development"
-    );
+    // Skip rate limiting in development only (Phase B / Z9: no role - the retired SU or ASU - is exempt
+    // from this security control).
+    return process.env.NODE_ENV === "development";
   },
 });
 
@@ -111,11 +108,8 @@ const apiRateLimit = rateLimit({
  */
 const validateRolesFromDatabase = async (req, res, next) => {
   try {
-    // Skip validation for super users or in development mode
-    if (
-      req.ctx?.roles?.includes("SU") ||
-      process.env.NODE_ENV === "development"
-    ) {
+    // Skip validation in development mode only (Phase B / Z9: no role is exempt from it)
+    if (process.env.NODE_ENV === "development") {
       return next();
     }
 

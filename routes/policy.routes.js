@@ -7,8 +7,8 @@ const {
   authenticate,
   tenantContextWarn,
   requireTenant,
-  requireSuperUser,
 } = require("../middlewares/auth");
+const { requirePlatformPermission } = require("../middlewares/requirePlatformPermission");
 
 /**
  * Centralized RBAC Policy Evaluation Endpoints
@@ -528,11 +528,11 @@ router.post("/ui/initialize", async (req, res, next) => {
  */
 router.get(
   "/cache/stats",
-  // Phase 1C-2J: internal operator read (exposes Redis INFO / error text) — trusted SU only
+  // Phase B / Z9: a global (all-tenant) policy cache operation - platform authority only (was legacy SU).
   authenticate,
   tenantContextWarn,
   requireTenant,
-  requireSuperUser,
+  requirePlatformPermission("platform:cache:admin", { mode: "route-enforce" }),
   async (req, res, next) => {
   try {
     const stats = await policyService.cache.getStats();
@@ -552,11 +552,11 @@ router.get(
  */
 router.delete(
   "/cache",
-  // Phase 1C-2I: internal operator action — trusted SU only (was unauthenticated)
+  // Phase B / Z9: a global (all-tenant) policy cache operation - platform authority only (was legacy SU).
   authenticate,
   tenantContextWarn,
   requireTenant,
-  requireSuperUser,
+  requirePlatformPermission("platform:cache:admin", { mode: "route-enforce" }),
   async (req, res, next) => {
   try {
     await policyService.cache.clear();
@@ -576,11 +576,11 @@ router.delete(
  */
 router.delete(
   "/cache/:key",
-  // Phase 1C-2I: internal operator action — trusted SU only (was unauthenticated)
+  // Phase B / Z9: a global (all-tenant) policy cache operation - platform authority only (was legacy SU).
   authenticate,
   tenantContextWarn,
   requireTenant,
-  requireSuperUser,
+  requirePlatformPermission("platform:cache:admin", { mode: "route-enforce" }),
   async (req, res, next) => {
   try {
     const { key } = req.params;

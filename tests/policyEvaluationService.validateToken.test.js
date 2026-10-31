@@ -20,7 +20,7 @@
  * controllable in-memory mock (real get/set + the real generateKey algorithm)
  * so the security tests exercise the true production ordering rather than
  * bypassing it. The SU paths short-circuit before any DB-backed lookup
- * (isSuperUser is a pure role-code check), keeping evaluation deterministic.
+ * (isTenantAdmin - ASU, Phase B / Z9 - is a pure role-code check), keeping evaluation deterministic.
  */
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
@@ -95,7 +95,7 @@ const signHS = (payload, secret = SECRET, opts = {}) =>
 // circuits to PERMIT before any DB-backed policy lookup, so these evaluations
 // are deterministic and network-free.
 const suToken = (sub, tenantId = TENANT) =>
-  signHS(basePayload({ sub, tenantId, roles: ["SU"] }));
+  signHS(basePayload({ sub, tenantId, roles: ["ASU"] }));
 
 beforeEach(() => {
   process.env.JWT_SECRET = SECRET; // some tests mutate it
@@ -127,7 +127,7 @@ describe("validateToken — HS256 cryptographic verification (Phase 1B)", () => 
 
   test("3 forged SU payload with invalid signature → rejected", async () => {
     const forged = signHS(
-      basePayload({ roles: ["SU"], permissions: ["*"] }),
+      basePayload({ roles: ["ASU"], permissions: ["*"] }),
       "attacker-secret"
     );
     const r = await validateToken(forged);
@@ -190,7 +190,7 @@ describe("validateToken — HS256 cryptographic verification (Phase 1B)", () => 
 });
 
 describe("PDP decisions via evaluatePolicy (token branch) — security proofs", () => {
-  test("10 valid SU token → PERMIT (legitimate decision unchanged; pure isSuperUser)", async () => {
+  test("10 valid ASU token, own tenant → PERMIT (Phase B / Z9 tenant-admin rule; pure role-code check)", async () => {
     const res = await evaluatePolicy({
       token: suToken("su-user"),
       resource: "role",
@@ -198,6 +198,17 @@ describe("PDP decisions via evaluatePolicy (token branch) — security proofs", 
       context: {},
     });
     expect(res.decision).toBe("PERMIT");
+  });
+
+  test("10b a valid token still carrying the retired SU role → DENY RETIRED_ROLE_REAUTH_REQUIRED (Phase B / Z9)", async () => {
+    const res = await evaluatePolicy({
+      token: signHS(basePayload({ sub: "stale-su", roles: ["SU"], permissions: ["*"] })),
+      resource: "role",
+      action: "read",
+      context: {},
+    });
+    expect(res.decision).toBe("DENY");
+    expect(res.reason).toBe("RETIRED_ROLE_REAUTH_REQUIRED");
   });
 
   test("11 valid token but caller context.tenantId mismatch → DENY (TENANT_MISMATCH)", async () => {
@@ -240,7 +251,7 @@ describe("PDP cache ordering & identity binding (Phase 1B invariant)", () => {
     // but signed with the wrong secret. Under the OLD ordering this would have
     // hit the cached PERMIT via the constant "eyJhbGci" token prefix.
     const forged = signHS(
-      basePayload({ sub: "su-a", tenantId: TENANT, roles: ["SU"], permissions: ["*"] }),
+      basePayload({ sub: "su-a", tenantId: TENANT, roles: ["ASU"], permissions: ["*"] }),
       "attacker-secret"
     );
     mockCacheGet.mockClear();
@@ -345,7 +356,7 @@ describe("PDP cache-key includes every decision-relevant verified attribute (Pha
   // SU short-circuits to PERMIT regardless of userType/extra roles, so these
   // evaluations stay DB-free while differing only in the digested attribute.
   const suWith = (over) =>
-    signHS(basePayload({ sub: "su-a", tenantId: TENANT, roles: ["SU"], ...over }));
+    signHS(basePayload({ sub: "su-a", tenantId: TENANT, roles: ["ASU"], ...over }));
 
   test("G same id/tenant/roles/permissions but different userType → different cache key", async () => {
     await evaluatePolicy({
@@ -367,13 +378,13 @@ describe("PDP cache-key includes every decision-relevant verified attribute (Pha
 
   test("H same id/tenant but different verified roles → different cache key", async () => {
     await evaluatePolicy({
-      token: suWith({ roles: ["SU"] }),
+      token: suWith({ roles: ["ASU"] }),
       resource: "role",
       action: "read",
       context: {},
     });
     await evaluatePolicy({
-      token: suWith({ roles: ["SU", "GS"] }),
+      token: suWith({ roles: ["ASU", "GS"] }),
       resource: "role",
       action: "read",
       context: {},
@@ -391,7 +402,7 @@ describe("PDP cache-key includes every decision-relevant verified attribute (Pha
       sub: "su-a",
       tenantId: TENANT,
       userType: "CRM",
-      roles: ["SU"],
+      roles: ["ASU"],
       permissions: ["profile:read"],
     };
     const tokenA = signHS({ ...claims, jti: "token-a" });

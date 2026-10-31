@@ -20,7 +20,7 @@ const defaultPayload = {
   tenantId: "test-tenant",
   email: "bypass@example.com",
   userType: "CRM",
-  roles: [{ code: "SU" }],
+  roles: [{ code: "ASU" }], // Phase B / Z9: SU retired (an SU token is refused)
   permissions: ["*"],
   iat: Math.floor(Date.now() / 1000),
 };
@@ -31,7 +31,7 @@ const customOptions = {
   tenantId: "test-tenant",
   email: "bypass@example.com",
   userType: "CRM",
-  roles: ["SU"],
+  roles: ["ASU"], // Phase B / Z9: SU retired
   permissions: ["*"],
 };
 
@@ -66,7 +66,7 @@ function generateRandomToken() {
     tenantId: `tenant-${randomTenant}`,
     email: `bypass-${randomId}@example.com`,
     userType: "CRM",
-    roles: [{ code: "SU" }],
+    roles: [{ code: "ASU" }], // Phase B / Z9: SU retired (an SU token is refused)
     permissions: ["*"],
     iat: Math.floor(Date.now() / 1000),
   };

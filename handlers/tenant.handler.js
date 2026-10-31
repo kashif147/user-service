@@ -610,8 +610,10 @@ const initializeTenantRoles = async (tenantId) => {
     // If no roles exist, copy roles from the main tenant
     const mainTenant = await Tenant.findOne({ code: "MAIN" });
     if (mainTenant) {
+      // Phase B / Z9: the legacy tenant SU is retired and never cloned - ASU is the highest tenant role.
       const mainTenantRoles = await Role.find({
         tenantId: mainTenant._id.toString(),
+        code: { $ne: "SU" },
       });
 
       if (mainTenantRoles.length > 0) {

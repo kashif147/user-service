@@ -13,7 +13,7 @@ const mockHasAny = jest.fn(async () => true); // worst case: a same-code role el
 const mockLevelSpy = jest.fn(async () => mockLevel.value);
 
 jest.mock("../services/roleHierarchyService", () => ({
-  isSuperUser: (roles) => !!roles && roles.includes("SU"),
+  isTenantAdmin: (roles) => !!roles && roles.includes("ASU"),
   isAssistantSuperUser: (roles) => !!roles && roles.includes("ASU"),
   getHighestRoleLevel: (...a) => mockLevelSpy(...a),
 }));
@@ -93,24 +93,26 @@ describe("C shared role code in another tenant cannot affect the result", () => 
   });
 });
 
-describe("D/E SU and ASU", () => {
-  test("SU bypasses the permission rules by code - inside its own tenant only (Phase A / A16 SU closure)", async () => {
-    expect(await decide({ roles: ["SU"], permissions: [] })).toBe("PERMIT");
-    // legacy per-tenant SU never bypasses the tenant boundary or a missing tenant context
-    expect(await decide({ roles: ["SU"], permissions: [], tenantId: null })).toBe("DENY");
-    expect(await decide({ roles: ["SU"], permissions: ["*"], tenantId: TB, userTenantId: TA })).toBe("DENY");
+describe("D/E ASU (tenant admin) and the retired SU", () => {
+  test("ASU is the own-tenant administrator by role code - inside its own tenant only (Phase B / Z9)", async () => {
+    expect(await decide({ roles: ["ASU"], permissions: [] })).toBe("PERMIT");
+    // never across the tenant boundary, never without a trusted tenant context
+    expect(await decide({ roles: ["ASU"], permissions: [], tenantId: null })).toBe("DENY");
+    expect(await decide({ roles: ["ASU"], permissions: ["*"], tenantId: TB, userTenantId: TA })).toBe("DENY");
   });
-  test("ASU on the tenant resource: needs tenant:read; own tenant permitted", async () => {
-    expect(await decide({ roles: ["ASU"], resource: "tenant", action: "read", permissions: ["tenant:read"] })).toBe("PERMIT");
-    expect(await decide({ roles: ["ASU"], resource: "tenant", action: "read", permissions: [] })).toBe("DENY");
+  test("the retired SU role grants nothing (a stale SU token is refused even in its own tenant)", async () => {
+    expect(await decide({ roles: ["SU"], permissions: [] })).toBe("DENY");
+    expect(await decide({ roles: ["SU"], permissions: ["*"] })).toBe("DENY");
   });
-  test("ASU gets no implicit permissions from its role code", async () => {
-    expect(await decide({ roles: ["ASU"], permissions: [] })).toBe("DENY");
+  test("an ordinary role gets no implicit permissions from its role code", async () => {
+    expect(await decide({ roles: ["MANAGER"], permissions: [] })).toBe("DENY");
+    expect(await decide({ roles: ["MANAGER"], resource: "tenant", action: "read", permissions: ["tenant:read"] })).toBe("PERMIT");
+    expect(await decide({ roles: ["MANAGER"], resource: "tenant", action: "read", permissions: [] })).toBe("DENY");
   });
 });
 
 describe("F/G other existing semantics", () => {
-  test("missing tenant context still denied for non-SU", async () => {
+  test("missing tenant context still denied for an ordinary role", async () => {
     const d = await applyPolicyRules(ctx({ tenantId: null, permissions: ["lookup:delete"] }));
     expect(d).toMatchObject({ decision: "DENY", reason: "MISSING_TENANT_CONTEXT" });
   });

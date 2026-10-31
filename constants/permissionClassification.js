@@ -13,10 +13,11 @@
  * platform evaluator (services/platformAuthorizationService.js, exact match, never "*").
  *
  * Classes (classifyPermission):
- *   PLATFORM  - platform namespace. Never tenant-grantable (no actor, SU included), never satisfied by
+ *   PLATFORM  - platform namespace. Never tenant-grantable (no actor, ASU included), never satisfied by
  *               "*", never evaluated by the tenant PDP.
  *   RESERVED  - "*" and the legacy reserved tenant codes (global admin / catalogue / tenant creation /
- *               super_admin / shared-metadata writes). Only a legacy SU may grant them (role.handler).
+ *               super_admin / shared-metadata writes). No tenant actor may grant them - not even ASU (Phase B
+ *               / Z9: the legacy SU that could is retired; role.handler).
  *   TENANT    - everything else: ordinary tenant permissions.
  *
  * Enforced by: models/role.model.js and models/permission.model.js (write guards),

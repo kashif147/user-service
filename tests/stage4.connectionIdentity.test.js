@@ -106,7 +106,7 @@ jest.mock("@membership/policy-middleware", () => ({
   tenantContextMiddleware: () => (req, res, next) => next(),
 }));
 jest.mock("../services/roleHierarchyService", () => ({
-  isSuperUser: (r) => !!r && r.includes("SU"), isAssistantSuperUser: () => false, isSystemAdmin: () => false,
+  isTenantAdmin: (r) => !!r && r.includes("ASU"), isAssistantSuperUser: () => false, isSystemAdmin: () => false,
   getHighestRoleLevel: () => 1, hasMinimumRole: () => false,
 }));
 jest.mock("../helpers/policyAdapter.js", () => ({ defaultPolicyAdapter: { middleware: () => (req, res, next) => next() } }));
