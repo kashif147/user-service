@@ -131,8 +131,10 @@ UserSchema.pre("findOneAndUpdate", function (next) {
 UserSchema.plugin(tenantOwnershipPlugin, { modelName: "User" });
 // Assigning a DIFFERENT tenantId to an existing (loaded) User marks the document; its next save() is then
 // REJECTED with 409 TENANT_IMMUTABLE (mongoose's immutable setter alone would silently keep the old value and
-// save the rest). Same value = no change. Mongoose runs setters last-added first, so this sees the requested
-// value; query casting has no Document `this` and is covered by the plugin's query / bulk guards.
+// save the rest). Same value = no change. Phase B / Z8: "different" includes filling a missing / null / empty
+// tenantId on an existing User (the retired legacy-repair shape `if (!user.tenantId) user.tenantId = X`) -
+// ownership is set once, at creation, never afterwards. Mongoose runs setters last-added first, so this sees
+// the requested value; query casting has no Document `this` and is covered by the plugin's query / bulk guards.
 const { AppError } = require("../errors/AppError");
 const tenantViolation = (op) => {
   console.warn(JSON.stringify({ level: "warn", message: "TenantOwnershipViolation", eventType: "tenant.ownership_violation", model: "User", op, reason: "tenant_change" }));
@@ -141,7 +143,7 @@ const tenantViolation = (op) => {
 UserSchema.path("tenantId").set(function flagTenantReassignment(value) {
   if (this instanceof mongoose.Document && !this.isNew) {
     const current = this.get("tenantId");
-    if (current != null && (value == null || String(value) !== String(current))) {
+    if (String(value ?? "") !== String(current ?? "")) {
       this.$locals.tenantReassignmentAttempted = true;
       tenantViolation("assign");
     }

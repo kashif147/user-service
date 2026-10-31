@@ -48,6 +48,13 @@ active and its `directoryId` equals the token `tid`, finds the user ONLY in that
 creates the user in that tenant keyed by `{tenantId, userMicrosoftId}` only when the connection has
 `autoProvisionUsers: true`. Users in other tenants are never read, moved or created.
 
+**User ownership is set once (Phase B Z7/Z8):** `User.tenantId` comes from the trusted context at
+creation and never changes - no login, JIT, API, event, platform permission or maintenance script
+moves, fills, repairs or re-tenants a User (409 `TENANT_IMMUTABLE`). The same person in another
+tenant is a separate tenant-local User. The legacy re-tenanting scripts (`assign-tenant-to-users.js`,
+`migrate-tenant-isolation.js`) and `helpers/microsoftAuthHelper.js` were deleted
+(`tests/userOwnershipRetirement.z8.test.js` guards against reintroduction).
+
 **CRM without `?tenant` / B2C portal (fallback):** `resolveApplicationTenant` finds the user (oid,
 then email) among the tenants that trust the directory and uses that user's own `tenantId`, never
 rewriting it. The CRM no-code path is existing-users-only (`allowProvisioning: false`; to be retired
@@ -171,8 +178,7 @@ the redirect URI is always the app registration's.
 - **Automatic provisioning requires an explicit configured `defaultRoleId`. There is no legacy
   REO/NON-MEMBER fallback** (removed in Phase 2b): at sign-in a missing default role
   (`NOT_CONFIGURED`) or one that `checkDefaultRole` rejects refuses JIT with a 403, before any user
-  write, event or token - for new users and for a legacy portal user being moved into the
-  organisation. Existing users never depend on `defaultRoleId`. Before deploying this to an
+  write, event or token. Existing users never depend on `defaultRoleId`. Before deploying this to an
   environment, a read-only check must show every active automatic connection there has a valid role
   (an automatic connection saved before Phase 2a may have none).
 - Existing users: `isActive: false` -> 403 (CRM and portal); zero ACTIVE roles of the organisation ->

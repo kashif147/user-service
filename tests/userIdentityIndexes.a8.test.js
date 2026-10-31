@@ -25,8 +25,11 @@ test("email uniqueness per tenant is unchanged (non-partial)", () => {
   assert.ok(hit && hit[1].unique === true && !hit[1].partialFilterExpression);
 });
 
-test("the tenant-isolation script never recreates the non-partial identity indexes", () => {
-  const src = fs.readFileSync(path.join(__dirname, "..", "scripts", "migrate-tenant-isolation.js"), "utf8");
-  assert.match(src, /name: "tenantId_1_userMicrosoftId_1_partial", partialFilterExpression: \{ userMicrosoftId: \{ \$gt: "" \} \}/);
-  assert.match(src, /name: "tenantId_1_userSubject_1_partial", partialFilterExpression: \{ userSubject: \{ \$gt: "" \} \}/);
+// Phase B / Z8: scripts/migrate-tenant-isolation.js (which also re-tenanted users) was deleted; the only
+// script that builds the identity indexes is the partial-index migration, and it builds the partial form.
+test("no script recreates the non-partial identity indexes", () => {
+  assert.strictEqual(fs.existsSync(path.join(__dirname, "..", "scripts", "migrate-tenant-isolation.js")), false);
+  const src = fs.readFileSync(path.join(__dirname, "..", "scripts", "migrate-user-identity-partial-indexes.js"), "utf8");
+  assert.match(src, /const newName = \(f\) => `tenantId_1_\$\{f\}_1_partial`/);
+  assert.match(src, /createIndex\(\{ tenantId: 1, \[f\]: 1 \}, \{ unique: true, name: newName\(f\), partialFilterExpression: filterOf\(f\) \}\)/);
 });

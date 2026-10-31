@@ -86,7 +86,6 @@ The user service has been stripped down to contain **ONLY** the files required t
 
 - ✅ `errors/AppError.js` - Custom error handling
 - ✅ `helpers/jwt.js` - JWT utilities
-- ✅ `helpers/microsoftAuthHelper.js` - Microsoft auth utilities
 - ✅ `helpers/roleAssignment.js` - Role assignment utilities
 - ✅ `validation/crm.general.schema.js` - Input validation
 

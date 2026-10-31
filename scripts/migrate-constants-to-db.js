@@ -494,15 +494,12 @@ async function assignRolesToExistingUsers(roles, tenants) {
 
   for (const user of users) {
     try {
-      // If user doesn't have a tenantId, assign to main tenant
+      // Phase B / Z8: tenant ownership is never assigned after creation. A user without a tenant
+      // cannot exist (User.tenantId is required and immutable); if one is found it is skipped and
+      // reported, never moved or repaired.
       if (!user.tenantId) {
-        const mainTenant = tenants.find((t) => t.code === "MAIN");
-        if (mainTenant) {
-          user.tenantId = mainTenant._id.toString();
-          console.log(
-            `    ✓ Assigned user ${user.userEmail || user._id} to main tenant`
-          );
-        }
+        console.warn(`    ! Skipped user ${user._id}: no tenant (not assigned - ownership is immutable)`);
+        continue;
       }
 
       // If user doesn't have roles assigned, assign default role based on userType
