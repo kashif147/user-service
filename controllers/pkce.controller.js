@@ -288,13 +288,25 @@ module.exports.generatePKCE = async (req, res, next) => {
  * the redirect-back doesn't happen, that's the first thing to check (the session-clearing
  * part still succeeds either way; only the redirect-back is affected).
  */
+// login_hint is opaque but in practice base64url/base64 text; bound its length and charset so
+// the value can't smuggle anything else into the Microsoft URL.
+const LOGOUT_HINT_PATTERN = /^[A-Za-z0-9._~+\/=-]{1,2048}$/;
+function sanitizeLogoutHint(value) {
+  return typeof value === "string" && LOGOUT_HINT_PATTERN.test(value) ? value : null;
+}
+
 module.exports.getLogoutUrls = async (req, res, next) => {
   try {
     // Logout carries no organisation, so the legacy (home-directory) Entra configuration is used.
     const entra = legacyEntraConfigOrNull();
+    // Optional `logoutHint` (what the CRM callback returned, i.e. the ID token's `login_hint`
+    // claim), forwarded as Microsoft's `logout_hint` so the user isn't asked to pick the account
+    // to sign out of. Anything malformed is dropped - logout still works, just with the picker.
+    const logoutHint = sanitizeLogoutHint(req.query?.logoutHint);
     const azureADLogoutUrl = entra
       ? `${entra.logoutEndpoint}?` +
-        `post_logout_redirect_uri=${encodeURIComponent(entra.redirectUri)}`
+        `post_logout_redirect_uri=${encodeURIComponent(entra.redirectUri)}` +
+        (logoutHint ? `&logout_hint=${encodeURIComponent(logoutHint)}` : "")
       : null;
 
     const b2c = b2cConfiguredOrNull();

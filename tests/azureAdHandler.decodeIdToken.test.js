@@ -69,6 +69,24 @@ describe("AzureADHandler.decodeIdToken", () => {
     expect(Tenant.findOne).not.toHaveBeenCalled();
   });
 
+  test("login_hint claim is exposed as a non-enumerable loginHint (never spread into the user record)", async () => {
+    const token = await signTestJwt(privateKey, baseClaims({ nonce: expectedNonce, login_hint: "opaque-hint" }));
+
+    const profile = await AzureADHandler.decodeIdToken(token, expectedNonce, entraConfig());
+
+    expect(profile.loginHint).toBe("opaque-hint");
+    expect(Object.keys(profile)).not.toContain("loginHint");
+    expect({ ...profile }).not.toHaveProperty("loginHint");
+  });
+
+  test("no login_hint claim (optional claim not configured): loginHint is null", async () => {
+    const token = await signTestJwt(privateKey, baseClaims({ nonce: expectedNonce }));
+
+    const profile = await AzureADHandler.decodeIdToken(token, expectedNonce, entraConfig());
+
+    expect(profile.loginHint).toBeNull();
+  });
+
   test("missing expectedNonce is rejected before any verification is attempted", async () => {
     const token = await signTestJwt(privateKey, baseClaims());
 

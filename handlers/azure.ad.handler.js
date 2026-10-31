@@ -284,6 +284,14 @@ class AzureADHandler {
       enumerable: false,
     });
 
+    // Optional `login_hint` claim (enabled under the app registration's token configuration).
+    // Opaque; only used to build Microsoft's `logout_hint` so sign-out skips the account picker.
+    // Non-enumerable for the same reason as above: never persisted on the user record.
+    Object.defineProperty(profile, "loginHint", {
+      value: typeof payload.login_hint === "string" ? payload.login_hint : null,
+      enumerable: false,
+    });
+
     return profile;
   }
 
@@ -577,7 +585,7 @@ class AzureADHandler {
       console.log(`CRM sign-in complete: user ${user._id}, tenant ${user.tenantId}`);
 
       console.log("=== Azure AD Handler: Authentication Completed ===");
-      return { user, tokens, verifiedIdentity: baseProfile.verifiedIdentity || null };
+      return { user, tokens, verifiedIdentity: baseProfile.verifiedIdentity || null, loginHint: baseProfile.loginHint || null };
     } catch (error) {
       console.error("=== Azure AD Handler Error ===");
       if (isMicrosoftTokenError(error)) {
