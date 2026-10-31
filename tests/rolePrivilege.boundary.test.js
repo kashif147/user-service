@@ -54,8 +54,8 @@ const RoleHandler = require("../handlers/role.handler");
 const RoleController = require("../controllers/role.controller");
 const TenantScopedController = require("../controllers/tenantScoped.controller");
 
-const ASU = { roles: ["ASU"] };
-const SU = { roles: ["SU"] };
+const NON_ADMIN = { roles: ["GS"] };
+const TENANT_ADMIN = { roles: ["ASU"] };
 
 beforeEach(() => {
   mockWrites.length = 0;
@@ -64,29 +64,29 @@ beforeEach(() => {
 
 const rejects = (p) => expect(p).rejects.toBeInstanceOf(RoleHandler.RolePrivilegeError);
 
-describe("non-SU cannot cross the boundary (updateRole)", () => {
+describe("non-ASU cannot cross the boundary (updateRole)", () => {
   test.each(["SU", "ASU", " su ", "asu"])("cannot rename a role to reserved code %p", async (code) => {
-    await rejects(RoleHandler.updateRole("rCustom", { code }, A, "u1", ASU));
+    await rejects(RoleHandler.updateRole("rCustom", { code }, A, "u1", NON_ADMIN));
     expect(mockWrites).toHaveLength(0);
   });
 
   test.each(["rAsu", "rSu", "rSys"])("cannot modify protected role %s (ASU/SU code or isSystemRole)", async (id) => {
-    await rejects(RoleHandler.updateRole(id, { description: "x" }, A, "u1", ASU));
+    await rejects(RoleHandler.updateRole(id, { description: "x" }, A, "u1", NON_ADMIN));
     expect(mockWrites).toHaveLength(0);
   });
 
   test.each([95, 100, "100"])("cannot set platform-tier level %p", async (level) => {
-    await rejects(RoleHandler.updateRole("rCustom", { level }, A, "u1", ASU));
+    await rejects(RoleHandler.updateRole("rCustom", { level }, A, "u1", NON_ADMIN));
   });
 
   test("cannot set category SYSTEM", async () => {
-    await rejects(RoleHandler.updateRole("rCustom", { category: "system" }, A, "u1", ASU));
+    await rejects(RoleHandler.updateRole("rCustom", { category: "system" }, A, "u1", NON_ADMIN));
   });
 
   test.each([["*"], ["PERMISSION_ADMIN"], ["permission:create"], ["admin:write"], ["role:super_admin"], [OID_TENANT_CREATE]])(
     "cannot add reserved permission %p",
     async (perm) => {
-      await rejects(RoleHandler.updateRole("rPlain", { permissions: ["role:read", perm] }, A, "u1", ASU));
+      await rejects(RoleHandler.updateRole("rPlain", { permissions: ["role:read", perm] }, A, "u1", NON_ADMIN));
       expect(mockWrites).toHaveLength(0);
     }
   );
@@ -96,9 +96,9 @@ describe("non-SU cannot cross the boundary (updateRole)", () => {
   });
 });
 
-describe("legitimate tenant-level editing still works (non-SU)", () => {
+describe("legitimate tenant-level editing still works (ordinary actor)", () => {
   test("re-submitting a reserved permission the role already has (any form) is not a new grant", async () => {
-    await RoleHandler.updateRole("rCustom", { permissions: ["role:read", OID_TENANT_CREATE] }, A, "u1", ASU);
+    await RoleHandler.updateRole("rCustom", { permissions: ["role:read", OID_TENANT_CREATE] }, A, "u1", NON_ADMIN);
     expect(mockWrites).toHaveLength(1);
   });
 
@@ -118,7 +118,7 @@ describe("legitimate tenant-level editing still works (non-SU)", () => {
       },
       A,
       "u1",
-      ASU
+      NON_ADMIN
     );
     expect(mockWrites).toHaveLength(1);
     expect(mockWrites[0].sel).toEqual({ _id: "rCustom", tenantId: A });
@@ -127,17 +127,28 @@ describe("legitimate tenant-level editing still works (non-SU)", () => {
   });
 
   test("a role in another tenant is not found (tenant-scoped persisted read)", async () => {
-    await expect(RoleHandler.updateRole("rCustom", { name: "x" }, "aaaaaaaaaaaaaaaaaaaaaaaa", "u1", ASU)).rejects.toThrow(/Role not found/);
+    await expect(RoleHandler.updateRole("rCustom", { name: "x" }, "aaaaaaaaaaaaaaaaaaaaaaaa", "u1", NON_ADMIN)).rejects.toThrow(/Role not found/);
   });
 });
 
-describe("SU retains platform-admin behaviour", () => {
-  test("SU can rename to ASU, modify the ASU/system role, set level 100 and grant *", async () => {
-    await RoleHandler.updateRole("rCustom", { code: "ASU", level: 100, permissions: ["*"] }, A, "u1", SU);
-    await RoleHandler.updateRole("rAsu", { description: "x" }, A, "u1", SU);
-    await RoleHandler.updateRole("rSys", { category: "SYSTEM" }, A, "u1", SU);
+describe("ASU (tenant admin) retains the former SU own-tenant role administration", () => {
+  test("ASU can modify the ASU / system role, set level 100 and category SYSTEM in its own tenant", async () => {
+    await RoleHandler.updateRole("rCustom", { level: 100 }, A, "u1", TENANT_ADMIN);
+    await RoleHandler.updateRole("rAsu", { description: "x" }, A, "u1", TENANT_ADMIN);
+    await RoleHandler.updateRole("rSys", { category: "SYSTEM" }, A, "u1", TENANT_ADMIN);
     expect(mockWrites).toHaveLength(3);
     expect(mockWrites.every((w) => w.update.$set.tenantId === undefined)).toBe(true);
+  });
+
+  // Phase B / Z9: stronger than tenant administration - binds ASU too (the legacy SU could do these).
+  test.each([
+    ["rename to ASU (no second ASU)", { code: "ASU" }],
+    ["rename to SU (SU is retired)", { code: "SU" }],
+    ["grant the tenant wildcard *", { permissions: ["*"] }],
+    ["grant a :super_admin action", { permissions: ["role:super_admin"] }],
+  ])("ASU cannot %s", async (_n, change) => {
+    await rejects(RoleHandler.updateRole("rCustom", change, A, "u1", TENANT_ADMIN));
+    expect(mockWrites).toHaveLength(0);
   });
 });
 
@@ -147,25 +158,28 @@ describe("createRole and updateRolePermissions share the boundary", () => {
     [{ code: "OK", name: "x", isSystemRole: true }],
     [{ code: "OK", name: "x", level: 99 }],
     [{ code: "OK", name: "x", permissions: ["*"] }],
-  ])("non-SU createRole %p is rejected", async (body) => {
-    await rejects(RoleHandler.createRole(body, A, "u1", ASU));
+  ])("non-ASU createRole %p is rejected", async (body) => {
+    await rejects(RoleHandler.createRole(body, A, "u1", NON_ADMIN));
     expect(mockSaved).toHaveLength(0);
   });
 
-  test("non-SU createRole of an ordinary role works; SU may create reserved", async () => {
-    await RoleHandler.createRole({ code: "BRO", name: "x", level: 40, permissions: ["lookup:read"] }, A, "u1", ASU);
-    await RoleHandler.createRole({ code: "ASU", name: "x", isSystemRole: true }, A, "u1", SU);
+  test("non-ASU createRole of an ordinary role works; ASU may create a system role; nobody may create SU / a second ASU", async () => {
+    await RoleHandler.createRole({ code: "BRO", name: "x", level: 40, permissions: ["lookup:read"] }, A, "u1", NON_ADMIN);
+    await RoleHandler.createRole({ code: "OPS", name: "x", isSystemRole: true }, A, "u1", TENANT_ADMIN);
+    expect(mockSaved).toHaveLength(2);
+    await rejects(RoleHandler.createRole({ code: "ASU", name: "y", isSystemRole: true }, A, "u1", TENANT_ADMIN));
+    await rejects(RoleHandler.createRole({ code: "SU", name: "z" }, A, "u1", TENANT_ADMIN));
     expect(mockSaved).toHaveLength(2);
   });
 
-  test("updateRolePermissions: non-SU cannot add *, cannot touch protected roles; ordinary change ok", async () => {
+  test("updateRolePermissions: non-ASU cannot add *, cannot touch protected roles; ordinary change ok", async () => {
     const id = "aaaaaaaaaaaaaaaaaaaaaaab";
     mockRoles[id] = { _id: id, code: "CUSTOM", isSystemRole: false, permissions: ["role:read"] };
     const asu = "aaaaaaaaaaaaaaaaaaaaaaac";
     mockRoles[asu] = { _id: asu, code: "ASU", isSystemRole: true, permissions: [] };
-    await rejects(RoleHandler.updateRolePermissions(id, ["role:read", "*"], A, "u1", ASU));
-    await rejects(RoleHandler.updateRolePermissions(asu, ["role:read"], A, "u1", ASU));
-    await RoleHandler.updateRolePermissions(id, ["role:read", "lookup:read"], A, "u1", ASU);
+    await rejects(RoleHandler.updateRolePermissions(id, ["role:read", "*"], A, "u1", NON_ADMIN));
+    await rejects(RoleHandler.updateRolePermissions(asu, ["role:read"], A, "u1", NON_ADMIN));
+    await RoleHandler.updateRolePermissions(id, ["role:read", "lookup:read"], A, "u1", NON_ADMIN);
     expect(mockWrites).toHaveLength(1);
     expect(mockWrites[0].sel).toEqual({ _id: id, tenantId: A });
   });
@@ -175,26 +189,26 @@ describe("Phase A / A14: shared-metadata write permissions are reserved during t
   const RESERVED_FORMS = [["lookup:write"], ["LOOKUP_WRITE"], ["lookupType:write"], ["LOOKUPTYPE_WRITE"], [OID_LOOKUP_WRITE]];
 
   test.each(RESERVED_FORMS)("ASU cannot grant %p through updateRole", async (perm) => {
-    await rejects(RoleHandler.updateRole("rPlain", { permissions: ["role:read", perm] }, A, "u1", ASU));
+    await rejects(RoleHandler.updateRole("rPlain", { permissions: ["role:read", perm] }, A, "u1", NON_ADMIN));
     expect(mockWrites).toHaveLength(0);
   });
 
   test.each(RESERVED_FORMS)("ASU cannot grant %p through createRole", async (perm) => {
-    await rejects(RoleHandler.createRole({ code: "LKW", name: "x", level: 40, permissions: [perm] }, A, "u1", ASU));
+    await rejects(RoleHandler.createRole({ code: "LKW", name: "x", level: 40, permissions: [perm] }, A, "u1", NON_ADMIN));
     expect(mockSaved).toHaveLength(0);
   });
 
   test.each(RESERVED_FORMS)("ASU cannot grant %p through updateRolePermissions (incl. to its own role)", async (perm) => {
     const id = "aaaaaaaaaaaaaaaaaaaaaaad";
     mockRoles[id] = { _id: id, code: "TENANT_ADMIN", isSystemRole: false, permissions: ["role:read"] };
-    await rejects(RoleHandler.updateRolePermissions(id, ["role:read", perm], A, "u1", ASU));
+    await rejects(RoleHandler.updateRolePermissions(id, ["role:read", perm], A, "u1", NON_ADMIN));
     expect(mockWrites).toHaveLength(0);
   });
 
   test("a role that already holds lookup:write keeps it on an unrelated edit (no destructive rewrite)", async () => {
     const id = "aaaaaaaaaaaaaaaaaaaaaaae";
     mockRoles[id] = { _id: id, code: "MO", isSystemRole: false, permissions: ["role:read", "LOOKUP_WRITE"] };
-    await RoleHandler.updateRolePermissions(id, ["role:read", "LOOKUP_WRITE", "profile:read"], A, "u1", ASU);
+    await RoleHandler.updateRolePermissions(id, ["role:read", "LOOKUP_WRITE", "profile:read"], A, "u1", NON_ADMIN);
     expect(mockWrites).toHaveLength(1);
   });
 
@@ -221,9 +235,9 @@ describe("controllers map violations to 403 using trusted req.ctx roles", () => 
 
   test("role.controller update/create/permissions: ASU -> next(403); body roles cannot claim SU", async () => {
     const cases = [
-      ["updateRole", ctxReq(["ASU"], { params: { id: "rCustom" }, body: { code: "SU", roles: ["SU"] } })],
-      ["createRole", ctxReq(["ASU"], { body: { code: "ASU", name: "x" } })],
-      ["updateRolePermissions", ctxReq(["ASU"], { params: { id: "aaaaaaaaaaaaaaaaaaaaaaab" }, body: { permissions: ["*"] } })],
+      ["updateRole", ctxReq(["GS"], { params: { id: "rCustom" }, body: { code: "SU", roles: ["ASU"] } })],
+      ["createRole", ctxReq(["GS"], { body: { code: "ASU", name: "x" } })],
+      ["updateRolePermissions", ctxReq(["GS"], { params: { id: "aaaaaaaaaaaaaaaaaaaaaaab" }, body: { permissions: ["*"] } })],
     ];
     for (const [fn, req] of cases) {
       const next = jest.fn();
@@ -238,7 +252,7 @@ describe("controllers map violations to 403 using trusted req.ctx roles", () => 
   test("tenantScoped assignPermissionsToRoleInTenant: ASU adding * -> 403, no write", async () => {
     const res = mkRes();
     await TenantScopedController.assignPermissionsToRoleInTenant(
-      ctxReq(["ASU"], { params: { id: "aaaaaaaaaaaaaaaaaaaaaaab" }, body: { permissions: ["role:read", "*"] } }),
+      ctxReq(["GS"], { params: { id: "aaaaaaaaaaaaaaaaaaaaaaab" }, body: { permissions: ["role:read", "*"] } }),
       res
     );
     expect(res.statusCode).toBe(403);
@@ -249,7 +263,7 @@ describe("controllers map violations to 403 using trusted req.ctx roles", () => 
   test("role.controller updateRole: SU succeeds", async () => {
     const res = mkRes();
     const next = jest.fn();
-    await RoleController.updateRole(ctxReq(["SU"], { params: { id: "rAsu" }, body: { description: "x" } }), res, next);
+    await RoleController.updateRole(ctxReq(["ASU"], { params: { id: "rAsu" }, body: { description: "x" } }), res, next);
     expect(next).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(200);
   });

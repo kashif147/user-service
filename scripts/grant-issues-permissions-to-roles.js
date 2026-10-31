@@ -173,7 +173,7 @@ const PERMISSIONS = [
 const TEAM_ROLE_CODES = {
   // Per explicit user decision (no dedicated "Complaints" role exists in the seeded
   // catalog, so these caseworker/officer roles were designated instead).
-  complaints: ["IRO", "IO", "MO", "AMO", "SU"],
+  complaints: ["IRO", "IO", "MO", "AMO", "ASU"], // Phase B / Z9: SU retired -> ASU
   // Per explicit user decision (no dedicated "Fitness to Practice" role exists in the
   // seeded catalog, so these IR-titled roles were designated instead).
   ftp: ["IRO", "IRE", "DIR", "ADIR"],

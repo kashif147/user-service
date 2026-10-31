@@ -2,14 +2,15 @@
  * Phase 1C-2I — internal /policy/* hardening.
  *
  *  - DELETE /policy/cache and DELETE /policy/cache/:key (documented operator actions, previously
- *    UNAUTHENTICATED) now require: authenticate -> tenantContextWarn -> requireTenant -> requireSuperUser.
+ *    UNAUTHENTICATED) now require: authenticate -> tenantContextWarn -> requireTenant -> (Phase B / Z9)
+ *    requirePlatformPermission("platform:cache:admin") - platform authority, never a tenant role (was SU).
  *  - The GET /policy/permissions/roles handler (global role hierarchy) was removed: it was unreachable
  *    because GET /permissions/:resource is declared first. Requests to that path keep their existing
  *    behaviour (served by /permissions/:resource with resource "roles").
  *  - Phase 1C-2K: the shadowed GET /permissions/system (global permission catalogue) and
  *    GET /permissions/routes (static route map) handlers were removed the same way (not reordered).
  *
- * Mounts the REAL routes/policy.routes.js at /policy with the REAL requireTenant / requireSuperUser.
+ * Mounts the REAL routes/policy.routes.js at /policy with the REAL requireTenant / requirePlatformPermission.
  * authenticate is a stub reading x-test-* headers; the PDP service and role hierarchy are spies.
  */
 const http = require("http");
@@ -20,7 +21,7 @@ const mockCacheDelete = jest.fn(async () => {});
 const mockCacheStats = jest.fn(async () => ({ enabled: true, redisConnected: false, localCacheSize: 0, ttl: 300 }));
 const mockEffective = jest.fn(async () => ({ success: true, permissions: [], roles: [], userType: "CRM", tenantId: "t" }));
 const mockEffectiveWithHeaders = jest.fn(async () => ({ success: true, permissions: [], roles: [], userType: "CRM", tenantId: "t" }));
-const mockGetRoleHierarchy = jest.fn(async () => ({ SU: 100 }));
+const mockGetRoleHierarchy = jest.fn(async () => ({ ASU: 95 }));
 const mockGetAllPermissions = jest.fn(async () => [{ code: "GLOBAL_CATALOGUE_ENTRY", resource: "x", action: "read" }]);
 const mockValidateToken = jest.fn(async () => ({ valid: true, user: { id: "u1" } }));
 
@@ -29,7 +30,7 @@ jest.mock("@membership/policy-middleware", () => ({
   tenantContextMiddleware: () => (req, res, next) => next(),
 }));
 jest.mock("../services/roleHierarchyService", () => ({
-  isSuperUser: () => false,
+  isTenantAdmin: () => false,
   isAssistantSuperUser: () => false,
   isSystemAdmin: () => false,
   getHighestRoleLevel: () => 1,
@@ -108,87 +109,62 @@ const DELETES = [
   ["/policy/cache/some-key", () => mockCacheDelete],
 ];
 
-describe("DELETE /policy/cache* — SU-only operator actions", () => {
-  test.each(DELETES)("SU: %s clears the cache", async (url, spy) => {
-    const res = await call("DELETE", url, { roles: ["SU"] });
-    expect(res.status).toBe(200);
-    expect(spy()).toHaveBeenCalledTimes(1);
-  });
+// Phase B / Z9: the policy cache is global (every tenant's decisions) - a platform operation. The legacy SU
+// guard is gone; these routes require the exact platform permission platform:cache:admin from a verified
+// PlatformPrincipal (requirePlatformPermission route-enforce). No tenant role - SU, ASU or anything else -
+// reaches the handler; claims in body / query / headers never help.
+const ALL_TENANT_ROLES = [["SU"], ["ASU"], ["GS"], ["MEMBER"], [{ code: "ASU" }], [{ code: "SU" }], []];
 
-  test.each(DELETES)("ASU / GS / ordinary / no roles: %s -> 403, cache untouched", async (url) => {
-    for (const roles of [["ASU"], ["GS"], ["MEMBER"], [{ code: "ASU" }], []]) {
+describe("DELETE /policy/cache* — platform authority only (Phase B / Z9)", () => {
+  test.each(DELETES)("no tenant role (SU / ASU / GS / ordinary / none): %s -> 403, cache untouched", async (url) => {
+    for (const roles of ALL_TENANT_ROLES) {
       const res = await call("DELETE", url, { roles });
       expect(res.status).toBe(403);
-      expect(res.body.error).toMatchObject({ code: "FORBIDDEN", superUserRequired: true });
     }
     expect(mockCacheClear).not.toHaveBeenCalled();
     expect(mockCacheDelete).not.toHaveBeenCalled();
   });
 
-  test.each(DELETES)("unauthenticated (previous behaviour: allowed): %s -> rejected, cache untouched", async (url) => {
-    const res = await call("DELETE", url, {});
-    expect(res.status).toBe(401);
-    expect(mockCacheClear).not.toHaveBeenCalled();
-    expect(mockCacheDelete).not.toHaveBeenCalled();
-  });
-
-  test.each(DELETES)("SU claimed in body/query/headers does not help a non-SU caller: %s", async (url) => {
-    const res = await call("DELETE", `${url}?role=SU`, {
+  test.each(DELETES)("SU / platform claims in body/query/headers do not help: %s", async (url) => {
+    const res = await call("DELETE", `${url}?role=SU&plat=1`, {
       roles: ["ASU"],
-      headers: { "x-user-roles": '["SU"]', "x-role": "SU", "x-internal-request": "true" },
-      body: { roles: ["SU"] },
+      headers: { "x-user-roles": '["SU"]', "x-role": "SU", "x-internal-request": "true", "x-platform-permissions": '["platform:cache:admin"]' },
+      body: { roles: ["SU"], plat: { pid: "x", rev: 1 } },
     });
     expect(res.status).toBe(403);
     expect(mockCacheClear).not.toHaveBeenCalled();
     expect(mockCacheDelete).not.toHaveBeenCalled();
   });
 
-  test.each(DELETES)("no trusted tenant fails closed: %s", async (url) => {
-    const res = await call("DELETE", url, { tenant: null, roles: ["SU"] });
-    expect([400, 403]).toContain(res.status);
-    expect(mockCacheClear).not.toHaveBeenCalled();
-    expect(mockCacheDelete).not.toHaveBeenCalled();
+  test.each(DELETES)("unauthenticated %s -> 401", async (url) => {
+    const res = await call("DELETE", url);
+    expect(res.status).toBe(401);
   });
 });
 
-describe("GET /policy/cache/stats — SU-only operator read (Phase 1C-2J)", () => {
-  test("1 unauthenticated request cannot reach the handler", async () => {
-    const res = await call("GET", "/policy/cache/stats", {});
+describe("GET /policy/cache/stats — platform authority only (Phase B / Z9)", () => {
+  test("1 unauthenticated -> 401", async () => {
+    const res = await call("GET", "/policy/cache/stats");
     expect(res.status).toBe(401);
     expect(mockCacheStats).not.toHaveBeenCalled();
   });
 
-  test("2 authenticated non-SU (ASU / GS / ordinary / role object / no roles) -> 403, handler not reached", async () => {
-    for (const roles of [["ASU"], ["GS"], ["MEMBER"], [{ code: "ASU" }], []]) {
+  test("2 any tenant role (SU / ASU / GS / ordinary / role object / none) -> 403, handler not reached", async () => {
+    for (const roles of ALL_TENANT_ROLES) {
       const res = await call("GET", "/policy/cache/stats", { roles });
       expect(res.status).toBe(403);
-      expect(res.body.error).toMatchObject({ code: "FORBIDDEN", superUserRequired: true });
-      expect(res.body).not.toHaveProperty("stats");
     }
     expect(mockCacheStats).not.toHaveBeenCalled();
   });
 
-  test("3 missing trusted tenant fails closed", async () => {
-    const res = await call("GET", "/policy/cache/stats", { tenant: null, roles: ["SU"] });
-    expect([400, 403]).toContain(res.status);
-    expect(mockCacheStats).not.toHaveBeenCalled();
-  });
-
-  test("4 SU claims in query / headers / body cannot fake SU", async () => {
+  test("3 SU / platform claims in query / headers / body cannot fake platform authority", async () => {
     const res = await call("GET", "/policy/cache/stats?role=SU&roles=SU", {
       roles: ["ASU"],
-      headers: { "x-user-roles": '["SU"]', "x-role": "SU", "x-internal-request": "true" },
+      headers: { "x-user-roles": '["SU"]', "x-role": "SU", "x-internal-request": "true", "x-platform-permissions": '["platform:cache:admin"]' },
       body: { roles: ["SU"] },
     });
     expect(res.status).toBe(403);
     expect(mockCacheStats).not.toHaveBeenCalled();
-  });
-
-  test("5 valid SU reaches the handler", async () => {
-    const res = await call("GET", "/policy/cache/stats", { roles: ["SU"] });
-    expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ success: true, stats: { localCacheSize: 0 } });
-    expect(mockCacheStats).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -289,9 +265,9 @@ test("6/7/8 only DELETE /cache, DELETE /cache/:key and GET /cache/stats are guar
     const isCacheOp = l.route.path.startsWith("/cache") && (l.route.methods.delete || l.route.methods.get);
     if (isCacheOp) guarded.push(`${Object.keys(l.route.methods)[0].toUpperCase()} ${l.route.path}`);
     if (isCacheOp) {
-      expect(names.slice(0, 4)).toEqual(["authenticate", "tenantContextWarn", "requireTenant", "requireSuperUser"]);
+      expect(names.slice(0, 4)).toEqual(["authenticate", "tenantContextWarn", "requireTenant", "platformAuthzGuard"]);
     } else {
-      expect(names).not.toContain("requireSuperUser");
+      expect(names).not.toContain("platformAuthzGuard");
       expect(names).not.toContain("authenticate");
     }
   }

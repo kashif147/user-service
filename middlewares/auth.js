@@ -508,29 +508,6 @@ const requireTenantPathAccess = (paramName) => {
 };
 
 /**
- * Phase 1C-2B: platform-level actions (e.g. creating a tenant) are SU-only, decided from the
- * trusted authenticated roles in req.ctx — never from body/query/header values and not solely from
- * permission assignments in the database. 403 otherwise.
- */
-const requireSuperUser = (req, res, next) => {
-  if (req.ctx?.tenantId && hasRole(req.ctx.roles, "SU")) return next();
-  const authError = AppError.forbidden("Super user required", { authError: true, superUserRequired: true });
-  console.warn("[AUTH] requireSuperUser denied", {
-    path: req.originalUrl,
-    correlationId: req.correlationId || req.headers?.["x-correlation-id"] || null,
-  });
-  return res.status(authError.status).json({
-    error: {
-      message: authError.message,
-      code: authError.code,
-      status: authError.status,
-      authError: authError.authError,
-      superUserRequired: authError.superUserRequired,
-    },
-  });
-};
-
-/**
  * Helper function to add tenantId to MongoDB queries
  */
 const withTenant = (tenantId) => {
@@ -556,7 +533,6 @@ module.exports = {
 
   // Phase 1C-2B: per-route guard — named path tenant must equal the trusted tenant (SU exempt).
   requireTenantPathAccess,
-  requireSuperUser,
 
   // Phase B / Z2: the platform authorization evaluator re-verifies the forwarded Bearer with this.
   verifyProjectShellToken,
@@ -564,7 +540,6 @@ module.exports = {
   // Utility functions (for backward compatibility, but prefer policy-middleware)
   hasRole,
   hasAnyRole,
-  isSuperUser: roleHierarchyService.isSuperUser,
   isAssistantSuperUser: roleHierarchyService.isAssistantSuperUser,
   isSystemAdmin: roleHierarchyService.isSystemAdmin,
   getUserRoleLevel: roleHierarchyService.getHighestRoleLevel,

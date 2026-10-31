@@ -12,14 +12,14 @@ jest.mock("@membership/policy-middleware", () => ({
   tenantContextMiddleware: () => (req, res, next) => next(),
 }));
 jest.mock("../services/roleHierarchyService", () => ({
-  isSuperUser: () => false,
+  isTenantAdmin: () => false,
   isAssistantSuperUser: () => false,
   isSystemAdmin: () => false,
   getHighestRoleLevel: () => 1,
   hasMinimumRole: () => false,
 }));
 
-const { requireTenantPathAccess, requireSuperUser } = require("../middlewares/auth");
+const { requireTenantPathAccess } = require("../middlewares/auth");
 
 const A = "68cbf7806080b4621d469d34";
 const B = "aaaaaaaaaaaaaaaaaaaaaaaa";
@@ -106,28 +106,10 @@ describe("requireTenantPathAccess", () => {
   });
 });
 
-describe("requireSuperUser", () => {
-  test("SU (code or object) with a trusted tenant passes", () => {
-    for (const roles of [["SU"], [{ code: "SU" }]]) {
-      expect(run(requireSuperUser, { ctx: { tenantId: A, roles } }).nextCalls).toBe(1);
-    }
-  });
-
-  test("non-SU is 403; SU claims in body/query/header are ignored", () => {
-    const { nextCalls, res } = run(requireSuperUser, {
-      ctx: { tenantId: A, roles: ["ASU"] },
-      body: { roles: ["SU"] },
-      query: { role: "SU" },
-      headers: { "x-user-roles": '["SU"]' },
-    });
-    expect(nextCalls).toBe(0);
-    expect(res.statusCode).toBe(403);
-    expect(res.body.error).toMatchObject({ code: "FORBIDDEN", superUserRequired: true });
-  });
-
-  test("fails closed without a trusted tenant context", () => {
-    for (const ctx of [undefined, { roles: ["SU"] }]) {
-      expect(run(requireSuperUser, { ctx }).res.statusCode).toBe(403);
-    }
-  });
+// Phase B / Z9: requireSuperUser is gone - the legacy tenant SU is retired; the operator policy-cache routes it
+// guarded require the exact platform permission (requirePlatformPermission("platform:cache:admin")).
+test("requireSuperUser no longer exists (no SU-only middleware)", () => {
+  const auth = require("../middlewares/auth");
+  expect(auth.requireSuperUser).toBeUndefined();
+  expect(auth.isSuperUser).toBeUndefined();
 });

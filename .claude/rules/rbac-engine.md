@@ -46,16 +46,23 @@ string:
 1. `evaluateResourcePolicy` — does the resource have any permissions defined at all, and does the
    caller's `userType` category (`CRM`/`PORTAL`/`ADMIN`/`GENERAL`) match the permission's category
    (with `COMMUNICATION`/`NOTIFICATION`/`API`/`GENERAL` as shared categories both PORTAL and CRM can
-   use)? Also handles the `tenant` resource specially: `SU` gets global access, `ASU` is restricted
-   to `tenantId === userTenantId`.
+   use)? Also handles the `tenant` resource specially: `ASU` is restricted to
+   `tenantId === userTenantId` (cross-tenant tenant administration is PlatformPrincipal-only, Z6).
 2. `evaluateActionPolicy` — either an exact canonical permission match (`{resource}:{action}`) in the
    caller's `permissions` array, or a fallback minimum role level (`read`:1, `create`/`write`/
    `update`:30, `delete`:60, `admin`:80, `super_admin`:100) via `roleHierarchyService`.
 3. `evaluatePermissionPolicy` — the specific `{resource}:{action}` permission must exist in the
    database (`permissionsService`) and be present in the caller's `permissions` array (or `"*"`).
 
-`SU` role always short-circuits to PERMIT before any of this via
-`roleHierarchyService.isSuperUser()`. `AUTH_BYPASS_ENABLED=true` skips authorization but **still
+**Phase B / Z9: the legacy tenant SU is retired.** Before rules 1-3, in this order: Rule 0 denies every
+platform-namespace request (platform authority = a PlatformPrincipal with the exact permission, decided by
+`middlewares/requirePlatformPermission.js`, never here); Rule 0b refuses any token still carrying the
+retired `SU` role (`RETIRED_ROLE_REAUTH_REQUIRED` - sign in again); then the tenant boundary; then the ASU
+own-tenant administrative rule (`roleHierarchyService.isTenantAdmin()`: ASU + request tenant == the
+actor's own tenant -> PERMIT `ASU_OWN_TENANT_ADMIN`). That PERMIT never overrides the stronger guards
+enforced afterwards by services/models (A14 GLOBAL_DATA_FROZEN, tenant / User ownership immutability,
+identity binding). Former SU holders were migrated to ASU (`scripts/migrate-su-to-asu.js`); "*" is never
+stored on ASU (the token shows ASU as the computed TENANT wildcard). `AUTH_BYPASS_ENABLED=true` skips authorization but **still
 validates the JWT is well-formed** — it is a skip of the permission checks only, never a blanket
 "accept anything." Evaluation has a hard 3-second timeout (`Promise.race`) that DENIES on timeout
 rather than hanging.

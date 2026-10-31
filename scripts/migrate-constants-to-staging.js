@@ -20,16 +20,7 @@ const axios = require("axios");
 
 // Default roles and permissions data (fallback if API not available)
 const DEFAULT_ROLES = [
-  // System Roles
-  {
-    name: "Super User",
-    code: "SU",
-    description:
-      "Super User with full system access and role management capabilities",
-    userType: "SYSTEM",
-    permissions: ["*"], // Full access
-    isSystemRole: true,
-  },
+  // System Roles (Phase B / Z9: the tenant SU is retired - ASU is the highest tenant role; never seed SU)
   {
     name: "Assistant Super User",
     code: "ASU",

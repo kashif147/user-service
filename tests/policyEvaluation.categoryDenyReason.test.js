@@ -17,7 +17,7 @@ const CATALOGUE = [
 ];
 
 jest.mock("../services/roleHierarchyService", () => ({
-  isSuperUser: (roles) => !!roles && roles.includes("SU"),
+  isTenantAdmin: (roles) => !!roles && roles.includes("ASU"),
   isAssistantSuperUser: (roles) => !!roles && roles.includes("ASU"),
   getHighestRoleLevel: async () => 1,
 }));
@@ -114,17 +114,22 @@ describe("3 normal resource/action denials unchanged", () => {
   });
 });
 
-describe("4 SU bypass - own tenant only (Phase A / A16 SU closure, temporary until Phase B)", () => {
-  test("SU with a PORTAL user type on a CRM-only resource, own tenant -> PERMIT SUPER_USER_OWN_TENANT", async () => {
-    expect(await applyPolicyRules(ctx({ roles: ["SU"], userType: "PORTAL" }))).toMatchObject({ decision: "PERMIT", reason: "SUPER_USER_OWN_TENANT" });
+describe("4 ASU own-tenant tenant-admin rule (Phase B / Z9; replaces the retired tenant SU rule)", () => {
+  test("ASU with a PORTAL user type on a CRM-only resource, own tenant -> PERMIT ASU_OWN_TENANT_ADMIN", async () => {
+    expect(await applyPolicyRules(ctx({ roles: ["ASU"], userType: "PORTAL" }))).toMatchObject({ decision: "PERMIT", reason: "ASU_OWN_TENANT_ADMIN" });
   });
-  test("SU (even with \"*\") targeting another tenant -> TENANT_SCOPE_VIOLATION; no tenant -> MISSING_TENANT_CONTEXT", async () => {
-    expect(await applyPolicyRules(ctx({ roles: ["SU"], permissions: ["*"], tenantId: TB }))).toMatchObject({ decision: "DENY", reason: "TENANT_SCOPE_VIOLATION" });
-    expect(await applyPolicyRules(ctx({ roles: ["SU"], permissions: ["*"], tenantId: null }))).toMatchObject({ decision: "DENY", reason: "MISSING_TENANT_CONTEXT" });
+  test("ASU (even with \"*\") targeting another tenant -> TENANT_SCOPE_VIOLATION; no tenant -> MISSING_TENANT_CONTEXT", async () => {
+    expect(await applyPolicyRules(ctx({ roles: ["ASU"], permissions: ["*"], tenantId: TB }))).toMatchObject({ decision: "DENY", reason: "TENANT_SCOPE_VIOLATION" });
+    expect(await applyPolicyRules(ctx({ roles: ["ASU"], permissions: ["*"], tenantId: null }))).toMatchObject({ decision: "DENY", reason: "MISSING_TENANT_CONTEXT" });
   });
-  test("SU on the tenant resource: own tenant PERMIT, other tenant TENANT_SCOPE_VIOLATION", async () => {
-    expect(await applyPolicyRules(ctx({ roles: ["SU"], resource: "tenant", permissions: ["*"] }))).toMatchObject({ decision: "PERMIT" });
-    expect(await applyPolicyRules(ctx({ roles: ["SU"], resource: "tenant", permissions: ["*"], tenantId: TB }))).toMatchObject({ decision: "DENY", reason: "TENANT_SCOPE_VIOLATION" });
+  test("ASU on the tenant resource: own tenant PERMIT, other tenant TENANT_SCOPE_VIOLATION", async () => {
+    expect(await applyPolicyRules(ctx({ roles: ["ASU"], resource: "tenant", permissions: [] }))).toMatchObject({ decision: "PERMIT" });
+    expect(await applyPolicyRules(ctx({ roles: ["ASU"], resource: "tenant", permissions: ["*"], tenantId: TB }))).toMatchObject({ decision: "DENY", reason: "TENANT_SCOPE_VIOLATION" });
+  });
+  test("a stale token still carrying the retired SU role is refused outright (no bypass, not even its own tenant)", async () => {
+    for (const permissions of [[], ["*"], ["crmonly:read"]]) {
+      expect(await applyPolicyRules(ctx({ roles: ["SU"], userType: "CRM", permissions }))).toMatchObject({ decision: "DENY", reason: "RETIRED_ROLE_REAUTH_REQUIRED" });
+    }
   });
 });
 
@@ -132,9 +137,9 @@ describe("5 tenant-scoped behaviour unchanged", () => {
   test("missing tenant context -> MISSING_TENANT_CONTEXT", async () => {
     expect(await applyPolicyRules(ctx({ tenantId: null, userType: "PORTAL", permissions: ["crmonly:read"] }))).toMatchObject({ decision: "DENY", reason: "MISSING_TENANT_CONTEXT" });
   });
-  test("ASU on the tenant resource: own tenant PERMIT, other tenant TENANT_SCOPE_VIOLATION", async () => {
-    expect(await applyPolicyRules(ctx({ roles: ["ASU"], resource: "tenant", permissions: ["tenant:read"] }))).toMatchObject({ decision: "PERMIT", reason: "POLICY_SATISFIED" });
-    expect(await applyPolicyRules(ctx({ roles: ["ASU"], resource: "tenant", permissions: ["tenant:read"], tenantId: TB }))).toMatchObject({ decision: "DENY", reason: "TENANT_SCOPE_VIOLATION" });
+  test("an ordinary role on the tenant resource: own tenant needs tenant:read; other tenant denied", async () => {
+    expect(await applyPolicyRules(ctx({ roles: ["MANAGER"], resource: "tenant", permissions: ["tenant:read"] }))).toMatchObject({ decision: "PERMIT", reason: "POLICY_SATISFIED" });
+    expect(await applyPolicyRules(ctx({ roles: ["MANAGER"], resource: "tenant", permissions: [] }))).toMatchObject({ decision: "DENY" });
   });
 });
 

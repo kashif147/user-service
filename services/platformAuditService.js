@@ -244,7 +244,38 @@ function auditPrincipalChange({ action, result, reason, principalId, status, rev
   }, { auditContext: systemAuditContext(), correlationId });
 }
 
+/**
+ * Phase B / Z9: one tenant's legacy SU -> ASU role migration (scripts/migrate-su-to-asu.js; the reserved system
+ * actor platform:migration - audit-service helpers/auditContext.js SYSTEM_ACTORS).
+ * A TENANT-owned record (envelope + target = that tenant, actor_scope "system"): counts and status only -
+ * no user ids, emails or role permission lists. Awaitable: resolves true when published.
+ */
+const ROLE_MIGRATION_ACTOR = "platform:migration";
+function auditTenantRoleMigration({ tenantId, outcome, affectedUsers, affectedConnections, permissionsAdded, suRolesRetired, runId, correlationId }) {
+  const target = idOrNull(tenantId);
+  if (!target) return Promise.resolve(false);
+  return publish(EVENTS.TENANT_LIFECYCLE_CHANGED, {
+    tenantId: target,
+    action: "TENANT_ROLE_MIGRATED",
+    actorId: ROLE_MIGRATION_ACTOR,
+    fromRole: "SU",
+    toRole: "ASU",
+    outcome,
+    affectedUsers,
+    affectedConnections,
+    permissionsAdded,
+    suRolesRetired,
+    runId,
+  }, {
+    envelopeTenantId: target,
+    auditContext: { actorScope: "system", actorTenantId: null, targetTenantId: target },
+    correlationId: correlationId || runId,
+  });
+}
+
 module.exports = {
+  auditTenantRoleMigration,
+  ROLE_MIGRATION_ACTOR,
   auditClaimDecision,
   auditAuthzDecision,
   auditTenantCreated,

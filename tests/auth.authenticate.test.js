@@ -28,7 +28,7 @@ jest.mock("@membership/policy-middleware", () => ({
 // roleHierarchyService is only referenced in module.exports; stub it so require
 // does not pull in DB/model code.
 jest.mock("../services/roleHierarchyService", () => ({
-  isSuperUser: () => false,
+  isTenantAdmin: () => false,
   isAssistantSuperUser: () => false,
   isSystemAdmin: () => false,
   getHighestRoleLevel: () => 1,

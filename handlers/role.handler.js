@@ -164,10 +164,10 @@ module.exports.getRoleById = async (roleId, tenantId) => {
 // ---------------------------------------------------------------------------
 // Phase 1C-2B (M1): role privilege boundary.
 //
-// SU is identified purely by role code ("SU"), ASU by "ASU"; a "*" permission satisfies every PDP
-// permission check; and role levels are merged platform-wide by code (roleHierarchyService). So a
-// non-SU actor editing role definitions could otherwise mint platform-admin access. Rules for
-// non-SU actors (actor roles come from the trusted, authenticated req.ctx — never the body):
+// Phase B / Z9: the legacy tenant SU is retired; ASU (by role code) is the tenant administrator of its
+// own tenant. A "*" permission satisfies every tenant PDP permission check, so a non-ASU actor editing
+// role definitions could otherwise mint tenant-admin access. Rules for non-ASU actors (actor roles come
+// from the trusted, authenticated req.ctx — never the body; every lookup is in the actor's tenant):
 //   - cannot create/rename a role to a reserved code (SU, ASU)
 //   - cannot modify an existing SU/ASU role or any role whose persisted isSystemRole is true
 //   - cannot create a role with isSystemRole: true
@@ -176,9 +176,14 @@ module.exports.getRoleById = async (roleId, tenantId) => {
 //     permissions, any ":super_admin" action, or (Phase A / A14, until the tenant cutover) the
 //     shared-metadata writes lookup:write / lookupType:write (permissions already on the role are
 //     untouched)
-// SU actors are exempt. tenantId/_id/Mongo operators stay non-editable for everyone.
+// ASU actors (own tenant) are exempt from the rules above EXCEPT the ones below, which bind everyone.
+// tenantId/_id/Mongo operators stay non-editable for everyone.
 //
-// Phase B / Z3: two rules apply to EVERY actor, legacy SU included (constants/permissionClassification.js):
+// Phase B / Z9, EVERY actor (ASU included): no role may be created with, or renamed to, a reserved code
+// (no new SU - it is retired - and no second ASU), and no reserved permission may be added ("*",
+// platform-catalogue / tenant-creation / admin-resource permissions, ":super_admin", the A14 shared-
+// metadata writes): those are stronger than tenant administration.
+// Phase B / Z3: two rules apply to EVERY actor (constants/permissionClassification.js):
 //   - no platform-namespace permission ("platform" resource: today's catalogue or any future code) may be
 //     on a tenant role at all - checked over the whole proposed permission set, ObjectId entries resolved;
 //   - no malformed wildcard ("*:*", "*:read", "pay*:read") may be added.
@@ -189,14 +194,16 @@ const PLATFORM_ADMIN_MIN_LEVEL = 95; // ASU level in roleHierarchyService's fall
 const RESERVED_CATEGORIES = ["SYSTEM"];
 const OBJECT_ID_RE = /^[0-9a-fA-F]{24}$/;
 
-// Reserved for SU (legacy list) - and, Phase B / Z3, every platform-namespace code (reserved for everyone).
+// Reserved for everyone (Phase B / Z9: the legacy list SU alone could grant; Z3: every platform-namespace code).
 const isReservedPermission = (canonical) => isPlatformNamespace(canonical) || isLegacyReservedPermission(canonical);
 
 const toCanonicalPermission = canonicalPermission;
 
-const isSuperUserActor = (actor) =>
+// Phase B / Z9: the tenant administrator (ASU) of the actor's own tenant (handlers only ever load roles
+// with the actor's trusted tenantId, so this never reaches another tenant).
+const isTenantAdminActor = (actor) =>
   Array.isArray(actor?.roles) &&
-  actor.roles.some((r) => (typeof r === "string" ? r : r?.code) === "SU");
+  actor.roles.some((r) => String(typeof r === "string" ? r : r?.code).trim().toUpperCase() === "ASU");
 
 // Canonical form of permission entries (ObjectId entries resolved against the catalogue).
 const resolveCanonicalPermissions = async (entries) => {
@@ -223,7 +230,7 @@ const canonicalAddedPermissions = async (proposed, existing = []) => {
 
 /**
  * Phase B / Z3: throws RolePrivilegeError when a tenant role's permission set would hold a platform-namespace
- * code (any actor, SU included; raw entries and resolved ObjectId entries). Also used by the tenant-scoped
+ * code (any actor, ASU included; raw entries and resolved ObjectId entries). Also used by the tenant-scoped
  * permission API before its catalogue lookup, so the answer is the same 403 there.
  */
 const assertTenantGrantablePermissions = async (entries) => {
@@ -237,7 +244,7 @@ const assertTenantGrantablePermissions = async (entries) => {
 
 /**
  * Throws RolePrivilegeError when a role change would cross the privilege boundary: the platform-namespace
- * and malformed-wildcard rules for every actor, then the reserved rules for non-SU actors.
+ * and malformed-wildcard rules for every actor, then the reserved rules for non-ASU actors.
  * persisted: the current role document (null on create). proposed: the fields being written.
  */
 const assertRoleChangeAllowed = async (actor, persisted, proposed) => {
@@ -255,22 +262,31 @@ const assertRoleChangeAllowed = async (actor, persisted, proposed) => {
       throw new RolePrivilegeError(`Malformed wildcard permission: ${malformed.join(", ")}`);
     }
   }
-  if (isSuperUserActor(actor)) return;
-
   const code = (v) => (v == null ? "" : String(v).trim().toUpperCase());
-  if (persisted) {
-    if (RESERVED_ROLE_CODES.includes(code(persisted.code))) {
-      throw new RolePrivilegeError(`Only SU may modify the ${code(persisted.code)} role`);
-    }
-    if (persisted.isSystemRole === true) {
-      throw new RolePrivilegeError("Only SU may modify a system role");
-    }
-  }
-  if (proposed.code !== undefined && RESERVED_ROLE_CODES.includes(code(proposed.code))) {
+  // Phase B / Z9, every actor: no new SU / second ASU (a reserved code may only stay on the role that has it).
+  if (proposed.code !== undefined && RESERVED_ROLE_CODES.includes(code(proposed.code)) && code(proposed.code) !== code(persisted?.code)) {
     throw new RolePrivilegeError(`Role code ${code(proposed.code)} is reserved`);
   }
+  // Phase B / Z9, every actor: reserved permissions are stronger than tenant administration.
+  if (proposed.permissions !== undefined) {
+    const added = await canonicalAddedPermissions(proposed.permissions, persisted?.permissions || []);
+    const reserved = added.filter(isReservedPermission);
+    if (reserved.length) {
+      throw new RolePrivilegeError(`Reserved permissions cannot be granted to a tenant role: ${reserved.join(", ")}`);
+    }
+  }
+  if (isTenantAdminActor(actor)) return;
+
+  if (persisted) {
+    if (RESERVED_ROLE_CODES.includes(code(persisted.code))) {
+      throw new RolePrivilegeError(`Only the tenant administrator (ASU) may modify the ${code(persisted.code)} role`);
+    }
+    if (persisted.isSystemRole === true) {
+      throw new RolePrivilegeError("Only the tenant administrator (ASU) may modify a system role");
+    }
+  }
   if (proposed.isSystemRole === true) {
-    throw new RolePrivilegeError("Only SU may create a system role");
+    throw new RolePrivilegeError("Only the tenant administrator (ASU) may create a system role");
   }
   if (proposed.level !== undefined && Number(proposed.level) >= PLATFORM_ADMIN_MIN_LEVEL) {
     throw new RolePrivilegeError(`Role level ${proposed.level} is reserved for platform roles`);
@@ -278,18 +294,11 @@ const assertRoleChangeAllowed = async (actor, persisted, proposed) => {
   if (proposed.category !== undefined && RESERVED_CATEGORIES.includes(code(proposed.category))) {
     throw new RolePrivilegeError(`Role category ${code(proposed.category)} is reserved`);
   }
-  if (proposed.permissions !== undefined) {
-    const added = await canonicalAddedPermissions(proposed.permissions, persisted?.permissions || []);
-    const reserved = added.filter(isReservedPermission);
-    if (reserved.length) {
-      throw new RolePrivilegeError(`Only SU may grant platform permissions: ${reserved.join(", ")}`);
-    }
-  }
 };
 
-// Phase 1C-2B: role ASSIGNMENT boundary — same reserved codes / system flag / SU detection as the
-// role-definition rules above. A role is protected when its PERSISTED document has code SU/ASU
-// (case/whitespace-insensitive) or isSystemRole: true. Non-SU actors may not assign protected
+// Phase 1C-2B: role ASSIGNMENT boundary — same reserved codes / system flag / tenant-admin detection as
+// the role-definition rules above. A role is protected when its PERSISTED document has code SU/ASU
+// (case/whitespace-insensitive) or isSystemRole: true. Non-ASU actors may not assign protected
 // roles to anyone (including themselves). Callers pass role documents loaded with the trusted
 // tenantId; nothing from the request body (ids or codes) is trusted. The error message is generic.
 const isProtectedRole = (role) =>
@@ -301,14 +310,18 @@ const assertRoleAssignmentAllowed = (actor, roleDocs) => {
   if (!actor || !Array.isArray(actor.roles)) {
     throw new RolePrivilegeError("Actor context required for role assignment");
   }
-  if (isSuperUserActor(actor)) return;
+  // Phase B / Z9: the retired SU role is never assigned again, by anyone.
+  if ((roleDocs || []).some((r) => String(r?.code == null ? "" : r.code).trim().toUpperCase() === "SU")) {
+    throw new RolePrivilegeError("The SU role is retired and cannot be assigned");
+  }
+  if (isTenantAdminActor(actor)) return;
   if ((roleDocs || []).some(isProtectedRole)) {
-    throw new RolePrivilegeError("Only SU may assign platform or system roles");
+    throw new RolePrivilegeError("Only the tenant administrator (ASU) may assign system roles");
   }
 };
 
-// Phase 1C-2C: role REMOVAL boundary — same protected-role model (isProtectedRole / isSuperUserActor
-// / RolePrivilegeError). Non-SU actors may not remove a role whose persisted, tenant-scoped document
+// Phase 1C-2C: role REMOVAL boundary — same protected-role model (isProtectedRole / isTenantAdminActor
+// / RolePrivilegeError). Non-ASU actors may not remove a role whose persisted, tenant-scoped document
 // is protected. Role docs are loaded with {_id: {$in}, tenantId} only (never _id alone, no isActive
 // filter so an inactive protected role is still protected).
 //  - requested removals (remove-role / remove-roles-batch): every requested id must resolve in the
@@ -328,14 +341,14 @@ const assertRequestedRoleRemovalAllowed = async (actor, tenantId, requestedIds) 
   if (!actor || !Array.isArray(actor.roles)) {
     throw new RolePrivilegeError("Actor context required for role removal");
   }
-  if (isSuperUserActor(actor)) return;
+  if (isTenantAdminActor(actor)) return;
   const ids = [...new Set((requestedIds || []).map(String))];
   const docs = await loadTenantRoles(ids, tenantId);
   const found = new Set(docs.map((d) => String(d._id)));
   const missing = ids.filter((id) => !found.has(id));
   if (missing.length) throw new Error(`Roles not found: ${missing.join(", ")}`);
   if (docs.some(isProtectedRole)) {
-    throw new RolePrivilegeError("Only SU may remove platform or system roles");
+    throw new RolePrivilegeError("Only the tenant administrator (ASU) may remove system roles");
   }
 };
 
@@ -343,12 +356,12 @@ const assertImplicitRoleRemovalAllowed = async (actor, tenantId, removedIds) => 
   if (!actor || !Array.isArray(actor.roles)) {
     throw new RolePrivilegeError("Actor context required for role removal");
   }
-  if (isSuperUserActor(actor)) return;
+  if (isTenantAdminActor(actor)) return;
   const ids = [...new Set((removedIds || []).map(String))].filter((id) => mongoose.Types.ObjectId.isValid(id));
   const docs = ids.length ? await Role.find({ _id: { $in: ids }, tenantId }) : [];
   const unverifiable = docs.length !== ids.length || (removedIds || []).some((id) => !mongoose.Types.ObjectId.isValid(String(id)));
   if (unverifiable || docs.some(isProtectedRole)) {
-    throw new RolePrivilegeError("Only SU may remove platform or system roles");
+    throw new RolePrivilegeError("Only the tenant administrator (ASU) may remove system roles");
   }
 };
 
@@ -618,7 +631,7 @@ module.exports.syncRolesForUser = async (userId, roleIds, tenantId, actor) => {
       throw new Error("User not found");
     }
 
-    // Phase 1C-2C: roles the user holds that the new set drops are removals — a non-SU actor may not
+    // Phase 1C-2C: roles the user holds that the new set drops are removals — a non-ASU actor may not
     // drop a protected (or unverifiable) role. Protected roles that stay assigned do not block.
     const desired = new Set(ids.map(String));
     const implicitlyRemoved = (user.roles || []).map(String).filter((r) => !desired.has(r));
@@ -743,10 +756,12 @@ module.exports.getUserPermissions = async (userId, tenantId) => {
 
     const permissions = new Set();
 
-    // Check if user has Super User role
-    const hasSuperUserRole = user.roles.some((role) => role.code === "SU");
-    if (hasSuperUserRole) {
-      return ["*"]; // Full access
+    // Phase B / Z9: ASU = full administrator of its OWN tenant -> the tenant wildcard "*" (computed, never
+    // stored on the role; the PDP never lets "*" cover the platform namespace). The retired SU role grants
+    // nothing (a user still holding it is migrated by scripts/migrate-su-to-asu.js).
+    const isTenantAdmin = user.roles.some((role) => String(role.code || "").trim().toUpperCase() === "ASU");
+    if (isTenantAdmin) {
+      return ["*"]; // Full own-tenant access (tenant scope only)
     }
 
     // Collect permissions from all roles
