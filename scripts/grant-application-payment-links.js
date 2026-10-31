@@ -22,16 +22,19 @@
  * reported and skipped - roles are never created. Users are never read or written.
  *
  * Usage (inside the user-service container; MONGO_URI from its environment, never printed):
- *   node scripts/grant-application-payment-links.js --tenant MULTIAUTH,DEVTENANTB
+ *   node scripts/grant-application-payment-links.js --tenant MULTIAUTH,DEVTENANTB --read-roles MO,REO --write-roles MO
  *       dry run (default): role inventory + planned writes, nothing written
- *   node scripts/grant-application-payment-links.js --tenant MULTIAUTH,DEVTENANTB \
+ *   node scripts/grant-application-payment-links.js --tenant MULTIAUTH,DEVTENANTB --read-roles MO,REO --write-roles MO \
  *       --execute --backup /home/deploy-dev/backups/payment-link-roles-<ts>.json
  *       apply; the backup (affected roles' current permissions) is written BEFORE any change
- *   node scripts/grant-application-payment-links.js --tenant ... --revoke [--execute --backup <file>]
+ *   node scripts/grant-application-payment-links.js --tenant ... --read-roles ... --write-roles ... --revoke [--execute --backup <file>]
  *       rollback: pull exactly these two codes (and their ObjectId strings) from the named roles;
  *       catalogue rows are left in place (inert without a grant)
- *   --roles IRO,BO,RO   role codes (default IRO,BO,RO per design s.6; add the confirmed CRM
- *                       membership-processing role codes here - they are not guessed)
+ *   --read-roles MO,REO   roles that get APPLICATION_PAYMENT_LINKS_READ
+ *   --write-roles MO      roles that get APPLICATION_PAYMENT_LINKS_WRITE
+ *                         Independent sets (a role may be in one, both or neither); at least one
+ *                         is required and there is no default - role codes are never guessed.
+ *                         --revoke pulls only the code(s) each named role is listed for.
  * Output: tenant codes, role codes/names/categories, counts. No URIs, user data or secrets.
  */
 const fs = require("fs");
@@ -64,7 +67,8 @@ const PERMISSIONS = Object.freeze([
   }),
 ]);
 const CODES = PERMISSIONS.map((p) => p.code);
-const DEFAULT_ROLE_CODES = Object.freeze(["IRO", "BO", "RO"]);
+const READ = "APPLICATION_PAYMENT_LINKS_READ";
+const WRITE = "APPLICATION_PAYMENT_LINKS_WRITE";
 // Never granted by this script: wildcard/admin roles already pass, and member (PORTAL) roles must
 // not get staff payment-link access (design s.6).
 const REFUSED_ROLE_CODES = new Set(["SU", "ASU", "MEMBER", "NON-MEMBER"]);
@@ -110,7 +114,7 @@ async function resolveTenants(db, selectors) {
  * @param {{tenants: string[], roles?: string[], execute?: boolean, revoke?: boolean,
  *          backup?: string, inventory?: boolean, log?: (line: string) => void}} opts
  */
-async function run(db, { tenants: tenantSelectors = [], roles: roleCodes = DEFAULT_ROLE_CODES, execute = false, revoke = false, backup, inventory = true, log = () => {} } = {}) {
+async function run(db, { tenants: tenantSelectors = [], readRoles = [], writeRoles = [], execute = false, revoke = false, backup, inventory = true, log = () => {} } = {}) {
   const permissions = db.collection("permissions");
   const rolesCol = db.collection("roles");
   const report = {
@@ -133,8 +137,14 @@ async function run(db, { tenants: tenantSelectors = [], roles: roleCodes = DEFAU
   };
 
   if (!tenantSelectors.length) return refuse("TENANT_REQUIRED (pass --tenant CODE[,CODE])");
-  const codes = [...new Set(roleCodes.map((c) => String(c).trim().toUpperCase()).filter(Boolean))];
-  if (!codes.length) return refuse("ROLES_REQUIRED");
+  const norm = (list) => [...new Set((list || []).map((c) => String(c).trim().toUpperCase()).filter(Boolean))];
+  const readCodes = norm(readRoles);
+  const writeCodes = norm(writeRoles);
+  const codes = [...new Set([...readCodes, ...writeCodes])];
+  if (!codes.length) return refuse("ROLES_REQUIRED (pass --read-roles and/or --write-roles)");
+  // The permission code(s) each role code is named for.
+  const wantedFor = (code) => [...(readCodes.includes(code) ? [READ] : []), ...(writeCodes.includes(code) ? [WRITE] : [])];
+  log(`role sets: READ=${readCodes.join(",") || "-"} WRITE=${writeCodes.join(",") || "-"}`);
   const refused = codes.filter((c) => REFUSED_ROLE_CODES.has(c));
   if (refused.length) return refuse(`ROLE_NOT_ALLOWED:${refused.join(",")}`);
   if (execute && !backup) return refuse("BACKUP_REQUIRED (pass --backup <file> with --execute)");
@@ -183,7 +193,7 @@ async function run(db, { tenants: tenantSelectors = [], roles: roleCodes = DEFAU
       const held = heldCodes(r.permissions, idsByCode);
       const drives = (r.permissions || []).some((p) => typeof p === "string" && /^MEMBERSHIP_DRIVES_/.test(p));
       log(
-        `  ${tenantCode.get(String(r.tenantId)) || "?"} ${r.code} "${r.name}" category=${r.category}${r.roleCategory ? `/${r.roleCategory}` : ""} payLinks=${[...held].map((c) => c.replace("APPLICATION_PAYMENT_LINKS_", "")).join("+") || "-"} drives=${drives ? "Y" : "-"}${codes.includes(r.code) ? "  <- target" : ""}`
+        `  ${tenantCode.get(String(r.tenantId)) || "?"} ${r.code} "${r.name}" category=${r.category}${r.roleCategory ? `/${r.roleCategory}` : ""} payLinks=${[...held].map((c) => c.replace("APPLICATION_PAYMENT_LINKS_", "")).join("+") || "-"} drives=${drives ? "Y" : "-"}${codes.includes(r.code) ? `  <- target ${wantedFor(r.code).map((c) => c.replace("APPLICATION_PAYMENT_LINKS_", "")).join("+")}` : ""}`
       );
     }
   }
@@ -206,16 +216,17 @@ async function run(db, { tenants: tenantSelectors = [], roles: roleCodes = DEFAU
   const plan = targets
     .map((r) => {
       const held = heldCodes(r.permissions, idsByCode);
+      const wanted = wantedFor(r.code);
       if (revoke) {
         const pull = [];
-        for (const c of CODES) {
+        for (const c of wanted) {
           if (!held.has(c)) continue;
           pull.push(c);
           if (idsByCode[c]) pull.push(idsByCode[c]);
         }
         return { role: r, change: pull };
       }
-      return { role: r, change: CODES.filter((c) => !held.has(c)) };
+      return { role: r, change: wanted.filter((c) => !held.has(c)) };
     })
     .filter((p) => p.change.length > 0);
   report.rolesNeedingChange = plan.length;
@@ -269,7 +280,7 @@ async function run(db, { tenants: tenantSelectors = [], roles: roleCodes = DEFAU
   return report;
 }
 
-module.exports = { run, PERMISSIONS, DEFAULT_ROLE_CODES };
+module.exports = { run, PERMISSIONS };
 
 if (require.main === module) {
   const mongoose = require("mongoose");
@@ -280,7 +291,8 @@ if (require.main === module) {
   };
   const opts = {
     tenants: parseList(val("--tenant")),
-    roles: val("--roles") ? parseList(val("--roles")) : DEFAULT_ROLE_CODES,
+    readRoles: parseList(val("--read-roles")),
+    writeRoles: parseList(val("--write-roles")),
     execute: args.includes("--execute"),
     revoke: args.includes("--revoke"),
     backup: val("--backup"),
