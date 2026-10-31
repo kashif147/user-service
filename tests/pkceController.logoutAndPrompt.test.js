@@ -93,34 +93,25 @@ describe("getLogoutUrls", () => {
     );
   });
 
-  test("no logoutHint: the Azure AD logout URL carries no logout_hint (unchanged behaviour)", async () => {
+  // The Microsoft logout_hint never travels through ProjectShell: the CRM appends it to the Entra
+  // logout URL in the browser (src/utils/microsoftLogout.js). /pkce/logout-urls has no hint input.
+  test.each([
+    ["a valid-looking hint", "O.aX-yz_12+ab/cd=="],
+    ["a value with URL-structural characters", "abc&post_logout_redirect_uri=https://evil.example"],
+    ["a repeated query parameter (array)", ["a", "b"]],
+  ])("a logoutHint query (%s) is ignored: no logout_hint in either URL, response unchanged", async (_label, logoutHint) => {
+    const plain = mockRes();
+    await getLogoutUrls(mockReq(), plain, jest.fn());
     const res = mockRes();
-    await getLogoutUrls(mockReq(), res, jest.fn());
-    const url = new URL(res.json.mock.calls[0][0].azureADLogoutUrl);
-    expect(url.searchParams.has("logout_hint")).toBe(false);
-  });
-
-  test("a valid logoutHint is forwarded as Microsoft's logout_hint (Azure AD URL only)", async () => {
-    const hint = "O.aX-yz_12+ab/cd==";
-    const res = mockRes();
-    await getLogoutUrls(mockReq({ logoutHint: hint }), res, jest.fn());
+    await getLogoutUrls(mockReq({ logoutHint }), res, jest.fn());
     const body = res.json.mock.calls[0][0];
-    const url = new URL(body.azureADLogoutUrl);
-    expect(url.searchParams.get("logout_hint")).toBe(hint);
-    expect(url.searchParams.get("post_logout_redirect_uri")).toBeTruthy();
+    expect(body).toEqual(plain.json.mock.calls[0][0]);
+    expect(new URL(body.azureADLogoutUrl).searchParams.has("logout_hint")).toBe(false);
     expect(new URL(body.b2cLogoutUrl).searchParams.has("logout_hint")).toBe(false);
   });
 
-  test.each([
-    ["a value with URL-structural characters", "abc&post_logout_redirect_uri=https://evil.example"],
-    ["an over-long value", "a".repeat(2049)],
-    ["an empty string", ""],
-    ["a repeated query parameter (array)", ["a", "b"]],
-  ])("drops %s rather than forwarding it", async (_label, logoutHint) => {
-    const res = mockRes();
-    await getLogoutUrls(mockReq({ logoutHint }), res, jest.fn());
-    const url = new URL(res.json.mock.calls[0][0].azureADLogoutUrl);
-    expect(url.searchParams.has("logout_hint")).toBe(false);
-    expect([...url.searchParams.getAll("post_logout_redirect_uri")]).toHaveLength(1);
+  test("source: getLogoutUrls does not read a logout hint from the request", () => {
+    const src = require("fs").readFileSync(require("path").join(__dirname, "../controllers/pkce.controller.js"), "utf8");
+    expect(src).not.toMatch(/logoutHint|logout_hint/i);
   });
 });

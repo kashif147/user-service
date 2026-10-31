@@ -112,8 +112,9 @@ module.exports.handleAzureADCallback = async (req, res, next) => {
       user: userResponse,
       accessToken: tokenData.token,
       ...(organisation ? { organisation } : {}),
-      // Opaque Microsoft `login_hint`, handed back to GET /pkce/logout-urls?logoutHint= so
-      // sign-out ends this account's Microsoft session without showing the account picker.
+      // Opaque Microsoft `login_hint`. The CRM appends it as `logout_hint` to the Entra logout
+      // URL in the browser (never sent back to ProjectShell), so sign-out ends this account's
+      // Microsoft session without showing the account picker.
       // Not a credential. Omitted when the app registration doesn't emit the claim.
       ...(loginHint ? { logoutHint: loginHint } : {}),
     });
