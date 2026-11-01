@@ -146,8 +146,15 @@ async function handleStepResultEvent({ eventType, envelope }) {
   }
   const wanted = eventType === COMPLETED ? "succeeded" : "failed";
   if (step.status === "succeeded" || step.status === "failed") {
-    // redelivery of the same result is a no-op; a different result for a finished step is refused
-    if (step.status === wanted || (step.status === "failed" && step.failureCode === RESULT_CODES.MANIFEST_DIGEST_MISMATCH)) return { outcome: "duplicate", code: RESULT_CODES.DUPLICATE };
+    // A redelivery carries the SAME result: same outcome, same digest, same counts / failure code - a no-op. Anything
+    // else for a finished step (other digest, other counts, other code, other outcome) is a conflict, refused.
+    const sameDigest = d.manifestSha256 === step.manifestSha256;
+    const redelivery =
+      (step.status === "failed" && step.failureCode === RESULT_CODES.MANIFEST_DIGEST_MISMATCH && !sameDigest) ||
+      (sameDigest && step.status === wanted && (wanted === "succeeded"
+        ? step.insertedCount === d.insertedCount && step.skippedCount === d.skippedCount
+        : step.failureCode === d.failureCode));
+    if (redelivery) return { outcome: "duplicate", code: RESULT_CODES.DUPLICATE };
     audit("PROVISIONING_STEP_RESULT_REFUSED", "failure", "result_conflict");
     return refused(RESULT_CODES.RESULT_CONFLICT);
   }

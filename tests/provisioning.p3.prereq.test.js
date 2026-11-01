@@ -272,7 +272,10 @@ describeDb("outbox, publisher and result events against a real replica set", () 
       expect(r).toMatchObject({ outcome: "recorded", code: "MANIFEST_DIGEST_MISMATCH", stepStatus: "failed", runStatus: "failed" });
       const stored = await ProvisioningRun.findOne({ runId: run.runId }).lean();
       expect([stored.failureCode, stored.failedStep, stored.steps[0].insertedCount]).toEqual(["MANIFEST_DIGEST_MISMATCH", row.stepKey, null]);
-      expect(await orchestrator.handleStepResultEvent({ eventType: COMPLETED, envelope: resultEnv(row) })).toMatchObject({ outcome: "duplicate" }); // no later "success"
+      // the same mismatched completion again = redelivery; a later "success" (even with the pinned digest) is refused
+      expect(await orchestrator.handleStepResultEvent({ eventType: COMPLETED, envelope: resultEnv(row, {}, { manifestSha256: "0".repeat(64) }) })).toMatchObject({ outcome: "duplicate" });
+      expect(await orchestrator.handleStepResultEvent({ eventType: COMPLETED, envelope: resultEnv(row) })).toMatchObject({ outcome: "refused", code: "RESULT_CONFLICT" });
+      expect((await ProvisioningRun.findOne({ runId: run.runId }).lean()).steps[0]).toMatchObject({ status: "failed", failureCode: "MANIFEST_DIGEST_MISMATCH" });
     });
 
     test("stale attempt: a result for attempt 1 after the run was resumed (attempt 2) is refused", async () => {
@@ -301,6 +304,10 @@ describeDb("outbox, publisher and result events against a real replica set", () 
       const before = await docHash(run.runId);
       const h = (eventType, env) => orchestrator.handleStepResultEvent({ eventType, envelope: env });
       expect(await h(FAILED, resultEnv(row, {}, { failureCode: "TIMEOUT" }))).toMatchObject({ code: "RESULT_CONFLICT" });
+      // a "completed" for the finished step is a redelivery ONLY if it is the same result
+      expect(await h(COMPLETED, resultEnv(row, {}, { manifestSha256: "0".repeat(64) }))).toMatchObject({ code: "RESULT_CONFLICT" });
+      expect(await h(COMPLETED, resultEnv(row, {}, { insertedCount: 3, skippedCount: 1 }))).toMatchObject({ code: "RESULT_CONFLICT" });
+      expect(await h(COMPLETED, resultEnv(row))).toMatchObject({ outcome: "duplicate" });
       const otherRun = "33333333-3333-4333-8444-555555555555";
       expect(await h(COMPLETED, resultEnv(row, {}, { runId: otherRun, stepKey: row.stepKey.replace(run.runId, otherRun) }))).toMatchObject({ code: "UNKNOWN_RUN" });
       expect(await h(COMPLETED, resultEnv(row, {}, { stepKey: row.stepKey.replace(run.runId, otherRun) }))).toMatchObject({ code: "INVALID_STEP_KEY" });

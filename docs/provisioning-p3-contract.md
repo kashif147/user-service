@@ -98,7 +98,7 @@ completion → step **failed** `MANIFEST_DIGEST_MISMATCH`. Audit: `platform.prov
 |---|---|
 | Broker unavailable / publish timeout / nack | row stays `pending`, backoff, `dead` after 12; run step stays `running` |
 | Duplicate delivery (requested) | consumer re-runs idempotent ensure; same result event |
-| Duplicate delivery (result) | `DUPLICATE`, no write |
+| Duplicate delivery (result) | `DUPLICATE` only if identical (outcome, digest, counts / code); otherwise `RESULT_CONFLICT`; no write |
 | Consumer crash before write | no ack → redelivery → normal processing |
 | Consumer crash after write, before ack | redelivery → ensure inserts 0 → same completion |
 | Manifest hash mismatch | consumer: no write + `failed MANIFEST_DIGEST_MISMATCH`; orchestrator: a completion with a foreign digest fails the step |
@@ -111,7 +111,16 @@ completion → step **failed** `MANIFEST_DIGEST_MISMATCH`. Audit: `platform.prov
 No scenario updates an existing tenant default, moves ownership, creates tenantless rows, users, roles or platform
 permissions.
 
-## 9. Not done here (P3 activation / P4)
+## 9. Open decisions before activation
+
+- **DEVTENANTB slot**: the unique `(tenantId, templateKey, templateVersion)` slot for DEVTENANTB /
+  `standard-tenant@1` is held by the legacy v1 P2 run (never rewritten, never dispatchable). A first real P3 run
+  therefore needs another target (e.g. the roadmap's P6 throwaway tenant), a `standard-tenant` v2, or an
+  explicitly reviewed supersede mechanism for legacy runs.
+- **Stuck `running` step**: if its outbox row goes `dead`, nothing currently fails the step (`resumeRun` accepts
+  only `failed`). Needs a reviewed platform action (fail the step with a fixed code, or requeue the dead row).
+
+## 10. Not done here (P3 activation / P4)
 
 Wiring (dispatch trigger, publisher start, user-service result consumer), service consumers + digest check (P4),
 middleware adoption (pin the M1 SHA per service), audit-service #10 deploy, DEV broker confirm proof.
