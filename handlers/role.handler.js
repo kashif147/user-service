@@ -838,6 +838,40 @@ module.exports.getUsersByRole = async (roleId, tenantId) => {
   }
 };
 
+/**
+ * Display names for a set of user ids, for hydrating id-only references (e.g. issue-service's
+ * createdBy / owner.userId / resolvedByUserId) into names. Tenant-scoped: an id from another
+ * tenant simply doesn't resolve. Returns only { _id, fullName }, never email/roles/tokens.
+ * Invalid ids are skipped rather than rejected - callers pass whatever ids they hold.
+ */
+const USER_LOOKUP_MAX_IDS = 500;
+
+module.exports.USER_LOOKUP_MAX_IDS = USER_LOOKUP_MAX_IDS;
+
+module.exports.getUserDisplayNamesByIds = async (userIds, tenantId) => {
+  const ids = [
+    ...new Set(
+      (Array.isArray(userIds) ? userIds : [])
+        .map((id) => (id == null ? "" : String(id).trim()))
+        .filter((id) => id && mongoose.Types.ObjectId.isValid(id) && /^[a-f0-9]{24}$/i.test(id)),
+    ),
+  ];
+  if (!tenantId || ids.length === 0) return [];
+
+  // Minimum data: id + display name only (no email, roles, permissions, tenant or identity ids).
+  const users = await User.find({ _id: { $in: ids }, tenantId })
+    .select("_id userFirstName userLastName userFullName")
+    .lean();
+
+  return users.map((user) => {
+    const composed = [user.userFirstName, user.userLastName].filter(Boolean).join(" ").trim();
+    return {
+      _id: String(user._id),
+      fullName: (user.userFullName && String(user.userFullName).trim()) || composed || null,
+    };
+  });
+};
+
 module.exports.getUsersByRoleIds = async (roleIds, tenantId) => {
   try {
     const uniqueRoleIds = [

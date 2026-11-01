@@ -356,6 +356,34 @@ module.exports.getUsersByPermission = async (req, res, next) => {
   }
 };
 
+/**
+ * POST /api/users/lookup  body: { ids: string[] }
+ * Id -> display name for users in the caller's own (verified) tenant (see
+ * RoleHandler.getUserDisplayNamesByIds). POST rather than GET so id lists never land in the
+ * gateway access log's query string.
+ */
+module.exports.lookupUserDisplayNames = async (req, res, next) => {
+  try {
+    // Tenant from the verified user token only (requireVerifiedUserToken), never from headers.
+    const tenantId = req.verifiedCaller?.tenantId;
+    if (!tenantId) return next(AppError.forbidden("Verified tenant context required"));
+    const ids = req.body?.ids;
+    if (!Array.isArray(ids)) {
+      return next(AppError.badRequest("ids array is required"));
+    }
+    if (ids.length > RoleHandler.USER_LOOKUP_MAX_IDS) {
+      return next(
+        AppError.badRequest(`Too many ids (max ${RoleHandler.USER_LOOKUP_MAX_IDS} per request)`)
+      );
+    }
+    const users = await RoleHandler.getUserDisplayNamesByIds(ids, tenantId);
+    res.status(200).json({ status: "success", data: users });
+  } catch (error) {
+    console.error("lookupUserDisplayNames failed:", error.message);
+    return next(AppError.internalServerError("Failed to look up users"));
+  }
+};
+
 module.exports.getUsersByRoles = async (req, res, next) => {
   try {
     const tenantId = req.ctx.tenantId;

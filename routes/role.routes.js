@@ -3,6 +3,7 @@ const router = express.Router();
 const RoleController = require("../controllers/role.controller");
 const { authenticate, requireTenant, tenantContextWarn } = require("../middlewares/auth");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter.js");
+const { requireVerifiedUserToken } = require("../middlewares/requireVerifiedUserToken");
 
 // Apply authentication and tenant enforcement to all routes
 router.use(authenticate, tenantContextWarn);
@@ -105,6 +106,17 @@ router.get(
   "/users",
   defaultPolicyAdapter.middleware("user", "read"),
   RoleController.getAllUsers
+);
+
+// Id -> display name for users referenced by issue records (createdBy/owner/resolvedBy).
+// Gated on issues:read (owner decision 2026-10-31) rather than user:read. Authorization and
+// tenant come ONLY from the caller's cryptographically verified user JWT (forwarded by
+// issue-service), never from forwarded x-user-* / x-tenant-id headers - see
+// middlewares/requireVerifiedUserToken.js. Returns only id + display name, own tenant only.
+router.post(
+  "/users/lookup",
+  requireVerifiedUserToken("issues", "read"),
+  RoleController.lookupUserDisplayNames
 );
 
 router.get(
