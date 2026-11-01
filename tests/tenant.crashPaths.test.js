@@ -106,6 +106,10 @@ beforeAll(async () => {
   const app = express();
   app.use(express.json());
   app.use(require("../middlewares/response.mw"));
+  // P5 / D6: PUT /tenants/:id/status is platform-only (tenant actors are refused by middlewares/tenantLifecycleGuard.js,
+  // covered by tests/tenantLifecycle.p5.test.js). The controller itself is still served to platform principals, so its
+  // behaviour is exercised here through a direct mount.
+  app.put("/direct/tenants/:id/status", require("../controllers/tenant.controller").updateTenantStatus);
   app.use("/api", require("../routes/tenant.routes"));
   app.use((req, res) => res.status(404).json({ notFound: true }));
   // eslint-disable-next-line no-unused-vars
@@ -169,27 +173,34 @@ describe("GET /api/tenants/:id/stats", () => {
 });
 
 describe("PUT /api/tenants/:id/status", () => {
-  test("success unchanged", async () => {
-    const r = await call("PUT", `/api/tenants/${A}/status`, { body: { status: "SUSPENDED" } });
+  test("tenant actors (MO / ASU / legacy SU) are refused on their own tenant - platform-only (P5 / D6), nothing written", async () => {
+    for (const roles of [["MO"], ["ASU"], ["SU"]]) {
+      const r = await call("PUT", `/api/tenants/${A}/status`, { body: { status: "SUSPENDED" }, roles });
+      expect([r.status, r.body.error.code]).toEqual([403, "TENANT_LIFECYCLE_PLATFORM_ONLY"]);
+    }
+    expect(mockState.mutations).toEqual([]);
+  });
+  test("controller: success unchanged", async () => {
+    const r = await call("PUT", `/direct/tenants/${A}/status`, { body: { status: "SUSPENDED" } });
     expect(r.status).toBe(200);
     expect(r.body.status).toBe("success");
     expect(mockState.mutations).toEqual([`update:${A}:SUSPENDED`]);
   });
   test("invalid status -> 400, nothing written", async () => {
-    const r = await call("PUT", `/api/tenants/${A}/status`, { body: { status: "BOGUS" } });
+    const r = await call("PUT", `/direct/tenants/${A}/status`, { body: { status: "BOGUS" } });
     expect(r.status).toBe(400);
     expect(errMsg(r)).toBe("Invalid status");
     expect(mockState.mutations).toEqual([]);
   });
   test("tenant not found (SU) -> 404", async () => {
     // Phase A / A16 SU closure: the caller's OWN (non-existent) tenant - SU no longer reaches another tenant.
-    const r = await call("PUT", `/api/tenants/${C}/status`, { body: { status: "ACTIVE" }, roles: ["SU"], tenant: C });
+    const r = await call("PUT", `/direct/tenants/${C}/status`, { body: { status: "ACTIVE" }, roles: ["SU"], tenant: C });
     expect(r.status).toBe(404);
     expect(errMsg(r)).toBe("Tenant not found");
   });
   test("unexpected failure -> generic 500", async () => {
     mockState.fail = "update";
-    expect500(await call("PUT", `/api/tenants/${A}/status`, { body: { status: "ACTIVE" } }), "Failed to update tenant status");
+    expect500(await call("PUT", `/direct/tenants/${A}/status`, { body: { status: "ACTIVE" } }), "Failed to update tenant status");
     expect(mockState.mutations).toEqual([]);
   });
 });
@@ -297,10 +308,12 @@ describe("tenant guards unchanged", () => {
     expect(mockState.mutations).toEqual([]);
   });
   test("tenant spoof via body/query/header cannot redirect the write", async () => {
+    // P5 / D6: a tenant actor cannot change ANY tenant's status now; the spoof gains nothing either.
     const r = await call("PUT", `/api/tenants/${A}/status?tenantId=${B}`, { body: { status: "INACTIVE", tenantId: B }, headers: { "x-tenant-id": B } });
-    expect(r.status).toBe(200);
-    expect(mockState.mutations).toEqual([`update:${A}:INACTIVE`]);
+    expect([r.status, r.body.error.code]).toEqual([403, "TENANT_LIFECYCLE_PLATFORM_ONLY"]);
+    expect(mockState.mutations).toEqual([]);
     expect(mockState.tenants[B].status).toBe("ACTIVE");
+    expect(mockState.tenants[A].status).toBe("ACTIVE");
   });
 });
 

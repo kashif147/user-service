@@ -19,6 +19,9 @@ const { observePlatformPermission, requirePlatformPermission } = require("../mid
 // then the UNCHANGED tenant chain (tenant actors - legacy SU "*", ASU, ordinary users: own tenant only), reached
 // via next("route") whenever the caller carries no verified platform claim. See middlewares/platformTenantAdmin.js.
 const { platformTenantAdmin } = require("../middlewares/platformTenantAdmin");
+// P5 / D6: tenant lifecycle (delete / decommission / status) is platform-only - tenant actors (ASU included) are
+// refused on their own tenant too. See middlewares/tenantLifecycleGuard.js.
+const { refuseTenantLifecycle, refuseTenantLifecycleFields } = require("../middlewares/tenantLifecycleGuard");
 const READ_ANY = "platform:tenant:read:any";
 const UPDATE_ANY = "platform:tenant:update:any";
 const DELETE_ANY = "platform:tenant:delete:any";
@@ -80,6 +83,7 @@ router.put(
   "/tenants/:id",
   requireTenant,
   requireTenantPathAccess("id"),
+  refuseTenantLifecycleFields,
   defaultPolicyAdapter.middleware("tenant", "update"),
   TenantController.updateTenant
 );
@@ -91,8 +95,7 @@ router.delete(
   "/tenants/:id",
   requireTenant,
   requireTenantPathAccess("id"),
-  defaultPolicyAdapter.middleware("tenant", "delete"),
-  TenantController.deleteTenant
+  refuseTenantLifecycle
 );
 
 // Tenant management operations
@@ -110,8 +113,7 @@ router.put(
   "/tenants/:id/status",
   requireTenant,
   requireTenantPathAccess("id"),
-  defaultPolicyAdapter.middleware("tenant", "update"),
-  TenantController.updateTenantStatus
+  refuseTenantLifecycle
 );
 
 platform("patch", "/tenants/:id/organisation-profile", platformTenantAdmin(UPDATE_ANY, { target: "id", change: "TENANT_UPDATED", section: "organisation-profile" }), TenantController.updateOrganisationProfile);

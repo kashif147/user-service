@@ -145,6 +145,10 @@ beforeAll(async () => {
   const app = express();
   app.use(express.json());
   app.use(require("../middlewares/response.mw"));
+  // P5 / D6: PUT /tenants/:id/status is platform-only (tenant actors are refused by middlewares/tenantLifecycleGuard.js,
+  // covered by tests/tenantLifecycle.p5.test.js). The controller itself is still served to platform principals, so its
+  // behaviour is exercised here through a direct mount.
+  app.put("/direct/tenants/:id/status", require("../controllers/tenant.controller").updateTenantStatus);
   app.use("/api", require("../routes/tenant.routes"));
   app.use((err, req, res, next) => res.status(err.status || 500).json({ error: { message: err.message } }));
   await new Promise((r) => (server = app.listen(0, r)));
@@ -448,7 +452,7 @@ describe("responses (allow-list)", () => {
     await run("GET", `/api/tenants`, undefined, (d) => d[0].authenticationConnections);
     await run("GET", `/api/tenants/${A}`, undefined, (d) => d.authenticationConnections);
     await run("PUT", `/api/tenants/${A}`, { description: "x" }, (d) => d.authenticationConnections);
-    await run("PUT", `/api/tenants/${A}/status`, { status: "ACTIVE" }, (d) => d.authenticationConnections);
+    await run("PUT", `/direct/tenants/${A}/status`, { status: "ACTIVE" }, (d) => d.authenticationConnections);
     await run("GET", `/api/tenants/${A}/auth-connections`, undefined, (d) => d);
     await run("POST", `/api/tenants/${A}/auth-connections`, { connectionType: B2C, directoryId: "b2c-x" }, (d) => d.authenticationConnections);
     await run("PUT", `/api/tenants/${A}/auth-connections/${CONN_E}`, { isActive: true }, (d) => d.authenticationConnections);

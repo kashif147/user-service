@@ -217,6 +217,12 @@ const B2 = [
   ["DELETE", "/auth-connections/c1", "policy:tenant:admin", "removeAuthenticationConnection"],
 ];
 
+// P5 / D6: tenant lifecycle is platform-only - tenant actors are refused on their OWN tenant too (after the path
+// guard, before policy / controller). PUT /tenants/:id refuses only a CHANGE of isActive / status.
+const LIFECYCLE = new Set(["DELETE ", "PUT /status"]);
+const isLifecycle = (m, suffix) => LIFECYCLE.has(`${m} ${suffix}`);
+const ownBody = (suffix) => (suffix === "/status" ? { status: "ACTIVE" } : { connectionType: "x" });
+
 describe("B2 /tenants/:id*", () => {
   test.each(B2)("%s /tenants/:id%s — cross tenant (ASU): 403 before policy/controller/handler", async (m, suffix) => {
     const res = await call(m, `/api/tenants/${B}${suffix}`, { body: m === "GET" ? undefined : { status: "active" } });
@@ -227,13 +233,22 @@ describe("B2 /tenants/:id*", () => {
     expect(mockTenantHandlerCalls).toHaveLength(0);
   });
 
-  test.each(B2.filter((r) => r[3]))("%s /tenants/:id%s — same tenant reaches policy then handler with the path id", async (m, suffix, policy, handler) => {
-    const res = await call(m, `/api/tenants/${A}${suffix}`, { body: m === "GET" ? undefined : { status: "active", connectionType: "x" } });
+  test.each(B2.filter((r) => r[3] && !isLifecycle(r[0], r[1])))("%s /tenants/:id%s — same tenant reaches policy then handler with the path id", async (m, suffix, policy, handler) => {
+    const res = await call(m, `/api/tenants/${A}${suffix}`, { body: m === "GET" ? undefined : ownBody(suffix) });
     expect(mockCalls).toEqual(["authenticate", "tenantContextWarn", "pathGuard:id", policy]);
     const h = mockTenantHandlerCalls.find((c) => c.name === handler);
     expect(h).toBeDefined();
     expect(h.args[0]).toBe(A);
     expect(res.status).not.toBe(403);
+  });
+
+  test.each(B2.filter((r) => isLifecycle(r[0], r[1])))("%s /tenants/:id%s — same tenant (ASU): lifecycle is platform-only -> 403 after the path guard, before policy/controller/handler", async (m, suffix) => {
+    const res = await call(m, `/api/tenants/${A}${suffix}`, { body: m === "GET" ? undefined : ownBody(suffix) });
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe("TENANT_LIFECYCLE_PLATFORM_ONLY");
+    expect(mockCalls).toEqual(["authenticate", "tenantContextWarn", "pathGuard:id"]);
+    expect(hasController()).toBe(false);
+    expect(mockTenantHandlerCalls).toHaveLength(0);
   });
 
   test.each(B2)("%s /tenants/:id%s — SU is refused for another tenant (A16 SU closure)", async (m, suffix) => {
@@ -336,9 +351,13 @@ describe("A16 SU closure: per-tenant SU is tenant-scoped on every /tenants/:id(*
     }
   }
   test.each(CASES)("SU of %s -> %s: %s /tenants/:id%s", async (_c, _t, m, suffix, policy, param, caller, target) => {
-    const res = await call(m, `/api/tenants/${target}${suffix}`, { tenant: caller, roles: ["SU"], body: m === "GET" ? undefined : { status: "active", tenantId: target } });
+    const res = await call(m, `/api/tenants/${target}${suffix}`, { tenant: caller, roles: ["SU"], body: m === "GET" ? undefined : { ...(param === "id" ? ownBody(suffix) : { status: "active" }), tenantId: target } });
     expect(mockCalls).toContain(`pathGuard:${param}`);
-    if (caller === target) {
+    if (caller === target && param === "id" && isLifecycle(m, suffix)) {
+      expect([res.status, res.body.error.code]).toEqual([403, "TENANT_LIFECYCLE_PLATFORM_ONLY"]); // P5 / D6
+      expect(hasPolicy()).toBe(false);
+      expect(mockTenantHandlerCalls).toHaveLength(0);
+    } else if (caller === target) {
       expect(res.status).not.toBe(403);
       expect(mockCalls).toContain(policy);
     } else {
