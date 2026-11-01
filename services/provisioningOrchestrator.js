@@ -74,13 +74,15 @@ function requestPayload(run, step) {
   };
 }
 
-async function requestNextStep({ runId }, { startSession = () => mongoose.startSession() } = {}) {
+async function requestNextStep({ runId, tenantId }, { startSession = () => mongoose.startSession() } = {}) {
+  // tenantId (optional for internal callers, required by the platform dispatch route): must be the run's target
+  if (tenantId !== undefined && (typeof tenantId !== "string" || !INTERNAL_TENANT_ID.test(tenantId))) throw err(400, runs.CODES.INTERNAL_TENANT_ID_REQUIRED, "An internal tenant id is required");
   const session = await startSession();
   let out;
   try {
     await session.withTransaction(async () => {
       const run = await ProvisioningRun.findOne({ runId: String(runId) }).session(session).lean();
-      if (!run) throw err(404, runs.CODES.RUN_NOT_FOUND, "Provisioning run not found");
+      if (!run || (tenantId !== undefined && run.tenantId !== tenantId)) throw err(404, runs.CODES.RUN_NOT_FOUND, "Provisioning run not found");
       if (run.stepKeyVersion !== STEP_KEY_VERSION) throw err(409, runs.CODES.LEGACY_STEP_KEY_VERSION, "Run predates the canonical step key; it is history only");
       if (!OPEN_STATUSES.includes(run.status)) throw err(409, runs.CODES.RUN_STATE_CONFLICT, "Run is not open");
       const running = run.steps.find((s) => s.status === "running");

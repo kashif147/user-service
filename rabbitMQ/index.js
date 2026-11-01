@@ -235,6 +235,9 @@ async function setupConsumers() {
       MEMBERSHIP_DEMOTION_QUEUE
     );
 
+    // Phase B / P4: provisioning step results - bound only with PROVISIONING_RESULT_CONSUMER=on (default off)
+    await require("./provisioningResults").setupProvisioningResultConsumer(consumer);
+
     console.log("✅ All consumers set up successfully");
   } catch (error) {
     console.error("❌ Failed to set up consumers:", error.message);
