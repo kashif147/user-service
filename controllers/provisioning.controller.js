@@ -125,3 +125,25 @@ module.exports.recoverDelivery = async (req, res, next) => {
     return fail(next, e);
   }
 };
+
+/**
+ * P4 dispatch trigger (route present only with PROVISIONING_DISPATCH=on): POST
+ * /tenants/:targetTenantId/runs/:runId/dispatch, empty body. requestNextStep = the next pending step of the target
+ * tenant's v2 run -> running + its outbox row, in one transaction; a step already running returns its existing
+ * event (no second one). Publishes nothing itself.
+ */
+module.exports.dispatchNextStep = async (req, res, next) => {
+  const body = req.body && typeof req.body === "object" && !Array.isArray(req.body) ? req.body : {};
+  const refuse = (e) => {
+    auditProvisioningRun({ req, action: "PROVISIONING_RUN_REFUSED", result: "failure", reason: String(e.code).toLowerCase() });
+    return next(e);
+  };
+  if (Object.keys(body).length) return refuse(new AppError("No body is accepted (the next step follows the template order)", 400, "BAD_REQUEST"));
+  try {
+    const out = await orchestrator.requestNextStep({ runId: req.params.runId, tenantId: req.params.targetTenantId });
+    return res.success({ requested: out.requested, existing: out.existing, stepKey: out.stepKey, eventId: out.eventId });
+  } catch (e) {
+    if (e instanceof AppError) return refuse(e);
+    return fail(next, e);
+  }
+};

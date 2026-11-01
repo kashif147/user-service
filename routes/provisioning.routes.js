@@ -27,5 +27,11 @@ router.get(`${BASE}/runs/:runId`, guard(), ProvisioningController.getRun);
 router.post(`${BASE}/runs/:runId/resume`, guard(), ProvisioningController.resumeRun);
 // P3 recovery: fail a running step whose request event is dead (fixed code OUTBOX_DELIVERY_EXHAUSTED); then resume.
 router.post(`${BASE}/tenants/:targetTenantId/runs/:runId/recover-delivery`, guard(), ProvisioningController.recoverDelivery);
+// P4 dispatch trigger: run/step transition + outbox insert in ONE transaction (requestNextStep) - never a direct
+// broker publish (the outbox publisher is separately controlled). The route EXISTS only with PROVISIONING_DISPATCH=on
+// at boot (default: absent -> 404).
+if (process.env.PROVISIONING_DISPATCH === "on") {
+  router.post(`${BASE}/tenants/:targetTenantId/runs/:runId/dispatch`, guard(), ProvisioningController.dispatchNextStep);
+}
 
 module.exports = router;
