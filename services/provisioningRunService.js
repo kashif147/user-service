@@ -109,9 +109,14 @@ async function createOrGetRun({ tenantId, templateKey, templateVersion, principa
     history: [historyEntry(actor, "created", null, "pending", 1)],
     completedAt: null,
   };
+  // timestamps: false - a repeat request must return the existing run UNTOUCHED (mongoose would otherwise add
+  // $set: { updatedAt } to every upsert, found in the P2 DEV run); an inserted run gets both stamps here.
+  const now = new Date();
+  insert.createdAt = now;
+  insert.updatedAt = now;
   let res;
   try {
-    res = await ProvisioningRun.findOneAndUpdate(filter, { $setOnInsert: insert }, { upsert: true, new: true, includeResultMetadata: true, runValidators: true, lean: true });
+    res = await ProvisioningRun.findOneAndUpdate(filter, { $setOnInsert: insert }, { upsert: true, new: true, includeResultMetadata: true, runValidators: true, lean: true, timestamps: false });
   } catch (e) {
     if (e && e.code === 11000) {
       const run = await ProvisioningRun.findOne(filter).lean(); // a concurrent create won: same run

@@ -113,6 +113,10 @@ describeDb("provisioning P1 against a real mongod", () => {
       expect(b.created).toBe(false);
       expect(b.run.runId).toBe(a.run.runId);
       expect(await ProvisioningRun.countDocuments()).toBe(1);
+      // the repeat returns the stored run untouched - not even updatedAt moves
+      expect(JSON.stringify(b.run)).toBe(JSON.stringify(a.run));
+      expect(a.run.createdAt).toBeInstanceOf(Date);
+      expect(a.run.updatedAt.getTime()).toBe(a.run.createdAt.getTime());
       expect(a.run.steps).toHaveLength(DEF.components.length);
       expect(a.run.steps.every((s) => s.status === "pending" && s.key.startsWith(`${tenantId}:${DEF.key}@1:`))).toBe(true);
     });
