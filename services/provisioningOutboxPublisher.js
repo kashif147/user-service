@@ -1,7 +1,7 @@
 /**
  * Phase B / P3 prerequisite: the provisioning outbox publisher - SEPARATE from run creation / step requests.
- * NOT started by the service in this change: startOutboxPublisher() must be called explicitly AND requires
- * PROVISIONING_OUTBOX_PUBLISHER=on (P3 activation wires it after review). No hidden fire-and-forget publishing.
+ * Started at boot by services/provisioningOutboxBoot.js (bin/user-service.js), and only when
+ * PROVISIONING_OUTBOX_PUBLISHER=on - default OFF, no timer without the flag. No hidden fire-and-forget publishing.
  *
  * publishDueOnce({ limit, now, publishFn })
  *   For each due pending row (status pending, nextAttemptAt <= now, lease free): take a short lease, publish with

@@ -64,7 +64,8 @@ its existing event (no new row). Unique indexes: `eventId`; `(eventType, stepKey
 ## 5. Publisher (user-service)
 
 `services/provisioningOutboxPublisher.js` — separate from requests; started only by `startOutboxPublisher()` with
-`PROVISIONING_OUTBOX_PUBLISHER=on`. Lease → `publishConfirmed` → mark `published` only after broker ack (CAS).
+`PROVISIONING_OUTBOX_PUBLISHER=on`, called once at boot by `services/provisioningOutboxBoot.js` after the event system
+is initialised (flag absent → no timer; no broker URL → not started; stopped on SIGINT/SIGTERM). Lease → `publishConfirmed` → mark `published` only after broker ack (CAS).
 Failure: attempts + 1, fixed `lastErrorCode`, backoff 5 s·2ⁿ (≤ 5 min), `dead` after 12 (kept, observable). A crash
 between ack and mark re-publishes the same eventId. Refuses to run on a middleware without `publishConfirmed`.
 
