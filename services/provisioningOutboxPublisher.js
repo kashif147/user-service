@@ -29,16 +29,16 @@ function errorCode(res) {
   return "PUBLISH_ERROR";
 }
 
-function defaultPublishFn() {
-  const { publisher } = require("@projectShell/rabbitmq-middleware");
+function defaultPublishFn(middleware = require("@projectShell/rabbitmq-middleware")) {
+  const { publisher } = middleware || {};
   if (!publisher || typeof publisher.publishConfirmed !== "function") return null;
   return (eventType, data, options) => publisher.publishConfirmed(eventType, data, options);
 }
 
 const log = (event, extra) => console.info("[provisioning-outbox]", JSON.stringify({ event, ...extra }));
 
-async function publishDueOnce({ limit = 20, now = new Date(), publishFn } = {}) {
-  const fn = publishFn || defaultPublishFn();
+async function publishDueOnce({ limit = 20, now = new Date(), publishFn, middleware } = {}) {
+  const fn = publishFn || defaultPublishFn(middleware);
   const summary = { published: 0, retried: 0, dead: 0, skipped: 0 };
   if (!fn) {
     log("provisioning.outbox.blocked", { code: "MIDDLEWARE_CONFIRM_UNAVAILABLE" });
@@ -97,4 +97,4 @@ function stopOutboxPublisher() {
   timer = null;
 }
 
-module.exports = { publishDueOnce, startOutboxPublisher, stopOutboxPublisher, MAX_ATTEMPTS, backoff };
+module.exports = { publishDueOnce, startOutboxPublisher, stopOutboxPublisher, defaultPublishFn, MAX_ATTEMPTS, backoff };
