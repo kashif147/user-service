@@ -18,7 +18,10 @@ router.use(BASE, authenticate, tenantContextWarn);
 router.get(`${BASE}/components`, guard(), ProvisioningController.listComponents);
 router.get(`${BASE}/templates`, guard(), ProvisioningController.listTemplates);
 router.get(`${BASE}/templates/:key/:version`, guard(), ProvisioningController.getTemplate);
-router.post(`${BASE}/runs`, guard(), ProvisioningController.createRun);
+// The target tenant is a PATH parameter, never a `tenantId` key: the enforce-mode tenant-context guard
+// (policy-middleware) refuses any body / query / params `tenantId` that differs from the caller's trusted tenant,
+// and a platform principal provisions tenants other than the one it signed in to (Z6 path-target pattern).
+router.post(`${BASE}/tenants/:targetTenantId/runs`, guard(), ProvisioningController.createRun);
 router.get(`${BASE}/runs`, guard(), ProvisioningController.listRuns);
 router.get(`${BASE}/runs/:runId`, guard(), ProvisioningController.getRun);
 router.post(`${BASE}/runs/:runId/resume`, guard(), ProvisioningController.resumeRun);

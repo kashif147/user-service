@@ -59,7 +59,7 @@ const ROUTES = [
   ["GET", "/api/platform/provisioning/components"],
   ["GET", "/api/platform/provisioning/templates"],
   ["GET", `/api/platform/provisioning/templates/${DEF.key}/${DEF.version}`],
-  ["POST", "/api/platform/provisioning/runs", { tenantId: TARGET, templateKey: DEF.key, templateVersion: DEF.version }],
+  ["POST", `/api/platform/provisioning/tenants/${TARGET}/runs`, { templateKey: DEF.key, templateVersion: DEF.version }],
   ["GET", "/api/platform/provisioning/runs"],
   ["GET", `/api/platform/provisioning/runs/${RUN_ID}`],
   ["POST", `/api/platform/provisioning/runs/${RUN_ID}/resume`, {}],
@@ -129,6 +129,8 @@ const TENANT_ACTORS = [
   ["ordinary tenant user (MO)", () => ident(["MO"], ["tenant:read"], { roles: [{ code: "MO" }] })],
   ["no roles", () => ident([], [], {})],
 ];
+const runPath = (target) => `/api/platform/provisioning/tenants/${encodeURIComponent(target)}/runs`;
+const createRun = (headers, target, body = { templateKey: DEF.key, templateVersion: DEF.version }) => request("POST", runPath(target), headers, body);
 const runEvents = () => mockPublished.filter((p) => p[0] === "platform.provisioning.run.changed.v1");
 
 test("the surface: 7 routes, every one guarded by exactly platform:provisioning:admin (route-enforce)", () => {
@@ -159,7 +161,7 @@ test.each(TENANT_ACTORS)("%s is denied every provisioning route (403); no run is
 test("ASU cannot provision another tenant, nor its own", async () => {
   const asu = TENANT_ACTORS[0][1];
   for (const tenantId of [TARGET, A]) {
-    const res = await request("POST", "/api/platform/provisioning/runs", asu(), { tenantId, templateKey: DEF.key, templateVersion: DEF.version });
+    const res = await createRun(asu(), tenantId);
     expect(res.status).toBe(403);
   }
   expect(ProvisioningRun.findOneAndUpdate).not.toHaveBeenCalled();
@@ -177,22 +179,22 @@ test.each([
   ["stale token revision", () => { principalState.revision = 3; }],
 ])("%s -> denied", async (_n, change) => {
   change();
-  expect((await request("POST", "/api/platform/provisioning/runs", PRINCIPAL(), ROUTES[3][2])).status).toBe(403);
+  expect((await createRun(PRINCIPAL(), TARGET)).status).toBe(403);
   expect(ProvisioningRun.findOneAndUpdate).not.toHaveBeenCalled();
 });
 
 test("platform authorization switched off -> denied (route-enforce never falls back to tenant roles)", async () => {
   process.env.PLATFORM_AUTH_MODE = "off";
-  expect((await request("POST", "/api/platform/provisioning/runs", PRINCIPAL(), ROUTES[3][2])).status).toBe(403);
+  expect((await createRun(PRINCIPAL(), TARGET)).status).toBe(403);
 });
 
 test("the A14 freeze does not block the control plane, and stays frozen (GLOBAL_DATA_WRITES unset)", async () => {
   expect(process.env.GLOBAL_DATA_WRITES).toBeUndefined();
-  expect((await request("POST", "/api/platform/provisioning/runs", PRINCIPAL(), ROUTES[3][2])).status).toBe(201);
+  expect((await createRun(PRINCIPAL(), TARGET)).status).toBe(201);
 });
 
 test("POST /runs creates the run for the explicit internal tenant id: steps planned, nothing dispatched", async () => {
-  const res = await request("POST", "/api/platform/provisioning/runs", PRINCIPAL(), ROUTES[3][2]);
+  const res = await createRun(PRINCIPAL(), TARGET);
   expect(res.status).toBe(201);
   const { created, run } = res.json().data;
   expect(created).toBe(true);
@@ -211,21 +213,22 @@ test("POST /runs creates the run for the explicit internal tenant id: steps plan
 
 test("a repeat request returns the existing run (200, created false) - idempotent", async () => {
   ProvisioningRun.findOneAndUpdate.mockImplementation(async () => ({ value: storedRun({ status: "succeeded" }), lastErrorObject: { updatedExisting: true } }));
-  const res = await request("POST", "/api/platform/provisioning/runs", PRINCIPAL(), ROUTES[3][2]);
+  const res = await createRun(PRINCIPAL(), TARGET);
   expect(res.status).toBe(200);
   expect(res.json().data).toMatchObject({ created: false, run: { runId: RUN_ID, status: "succeeded" } });
   expect(runEvents()[0][1].action).toBe("PROVISIONING_RUN_REQUESTED_EXISTING");
 });
 
 test.each([
-  ["organisation code as tenantId", { tenantId: "MULTIAUTH" }],
-  ["Entra tid (GUID) as tenantId", { tenantId: DIR }],
-  ["email domain as tenantId", { tenantId: "example.org" }],
-  ["missing tenantId", {}],
-  ["placeholder tenantId", { tenantId: "default" }],
-  ["uppercase hex", { tenantId: TARGET.toUpperCase() }],
-])("%s -> 400 INTERNAL_TENANT_ID_REQUIRED, no tenant lookup, no run", async (_n, over) => {
-  const res = await request("POST", "/api/platform/provisioning/runs", PRINCIPAL(), { templateKey: DEF.key, templateVersion: DEF.version, ...over });
+  ["organisation code as target", "MULTIAUTH"],
+  ["Entra tid (GUID) as target", DIR],
+  ["email as target", "someone@example.org"],
+  ["domain as target", "example.org"],
+  ["placeholder target", "default"],
+  ["uppercase hex", TARGET.toUpperCase()],
+  ["25 hex", `${TARGET}0`],
+])("%s -> 400 INTERNAL_TENANT_ID_REQUIRED, no tenant lookup, no run", async (_n, target) => {
+  const res = await createRun(PRINCIPAL(), target);
   expect(res.status).toBe(400);
   expect(res.json().error.code).toBe("INTERNAL_TENANT_ID_REQUIRED");
   expect(Tenant.findById).not.toHaveBeenCalled();
@@ -233,22 +236,25 @@ test.each([
   expect(ProvisioningRun.findOneAndUpdate).not.toHaveBeenCalled();
 });
 
-test.each(["code", "orgCode", "organisationCode", "tid", "directoryId", "domain"])("a locator field %p alongside a valid tenantId is refused before any read", async (f) => {
-  const res = await request("POST", "/api/platform/provisioning/runs", PRINCIPAL(), { ...ROUTES[3][2], [f]: "MULTIAUTH" });
+test.each(["targetTenantId", "code", "orgCode", "organisationCode", "tid", "directoryId", "domain"])("a locator field %p in the body (valid path target) is refused before any read", async (f) => {
+  const res = await createRun(PRINCIPAL(), TARGET, { ...ROUTES[3][2], [f]: "MULTIAUTH" });
   expect(res.status).toBe(400);
   expect(res.json().error.code).toBe("INTERNAL_TENANT_ID_REQUIRED");
   expect(Tenant.findById).not.toHaveBeenCalled();
   expect(ProvisioningRun.findOneAndUpdate).not.toHaveBeenCalled();
 });
 
-test("the caller's own tenant / an unknown field is never used as the target", async () => {
-  const res = await request("POST", "/api/platform/provisioning/runs", PRINCIPAL(), { templateKey: DEF.key, templateVersion: DEF.version, tenant: TARGET });
-  expect(res.status).toBe(400);
+test("the caller's own tenant / an unknown or tenantId body field is never used as the target", async () => {
+  for (const extra of [{ tenant: TARGET }, { tenantId: TARGET }, { tenantId: A }]) {
+    const res = await createRun(PRINCIPAL(), TARGET, { ...ROUTES[3][2], ...extra });
+    expect(res.status).toBe(400);
+  }
+  expect((await request("POST", "/api/platform/provisioning/runs", PRINCIPAL(), { tenantId: TARGET, ...ROUTES[3][2] })).status).toBe(404); // the old body-target route is gone
   expect(ProvisioningRun.findOneAndUpdate).not.toHaveBeenCalled();
 });
 
 test("a valid-looking internal id that is not a tenant -> 404 TENANT_NOT_FOUND, no run", async () => {
-  const res = await request("POST", "/api/platform/provisioning/runs", PRINCIPAL(), { ...ROUTES[3][2], tenantId: "6a00000000000000000000ee" });
+  const res = await createRun(PRINCIPAL(), "6a00000000000000000000ee");
   expect(res.status).toBe(404);
   expect(res.json().error.code).toBe("TENANT_NOT_FOUND");
   expect(ProvisioningRun.findOneAndUpdate).not.toHaveBeenCalled();
@@ -256,10 +262,10 @@ test("a valid-looking internal id that is not a tenant -> 404 TENANT_NOT_FOUND, 
 
 test("an unpublished template / a published record that differs from its reviewed definition is refused", async () => {
   PlatformTemplate.findOne.mockImplementation(() => ({ lean: async () => null }));
-  expect((await request("POST", "/api/platform/provisioning/runs", PRINCIPAL(), ROUTES[3][2])).json().error.code).toBe("TEMPLATE_NOT_PUBLISHED");
+  expect((await createRun(PRINCIPAL(), TARGET)).json().error.code).toBe("TEMPLATE_NOT_PUBLISHED");
   const tampered = { ...PUBLISHED, components: PUBLISHED.components.slice(1).map((c, i) => ({ ...c, order: i + 1 })) };
   PlatformTemplate.findOne.mockImplementation(() => ({ lean: async () => tampered }));
-  expect((await request("POST", "/api/platform/provisioning/runs", PRINCIPAL(), ROUTES[3][2])).json().error.code).toBe("TEMPLATE_INTEGRITY");
+  expect((await createRun(PRINCIPAL(), TARGET)).json().error.code).toBe("TEMPLATE_INTEGRITY");
   expect(ProvisioningRun.findOneAndUpdate).not.toHaveBeenCalled();
 });
 
@@ -275,8 +281,8 @@ test("resume: only a failed run; the audit records it with the run's tenant as t
 });
 
 test("audit: platform scope, target = the provisioned tenant (never the caller's tenant as owner), ids and counts only", async () => {
-  await request("POST", "/api/platform/provisioning/runs", PRINCIPAL(), ROUTES[3][2]);
-  await request("POST", "/api/platform/provisioning/runs", PRINCIPAL(), { tenantId: "MULTIAUTH", templateKey: DEF.key, templateVersion: DEF.version });
+  await createRun(PRINCIPAL(), TARGET);
+  await createRun(PRINCIPAL(), "MULTIAUTH");
   const [created, refused] = runEvents();
   expect(created[2].auditContext).toEqual({ actorScope: "platform", actorTenantId: null, targetTenantId: TARGET, loginTenantId: A });
   expect(created[2].tenantId).toBeUndefined(); // no envelope owner
@@ -291,11 +297,11 @@ test("audit: platform scope, target = the provisioned tenant (never the caller's
 
 test("a refusal never records an unverified tenant as the audit target", async () => {
   // format-valid but nonexistent tenant, and a bad template version (refused before the tenant lookup)
-  await request("POST", "/api/platform/provisioning/runs", PRINCIPAL(), { tenantId: "6a00000000000000000000ee", templateKey: DEF.key, templateVersion: DEF.version });
-  await request("POST", "/api/platform/provisioning/runs", PRINCIPAL(), { tenantId: "6a00000000000000000000ee", templateKey: DEF.key, templateVersion: "1" });
+  await createRun(PRINCIPAL(), "6a00000000000000000000ee");
+  await createRun(PRINCIPAL(), "6a00000000000000000000ee", { templateKey: DEF.key, templateVersion: "1" });
   // an existing tenant with an unpublished template: verified, so it is the target
   PlatformTemplate.findOne.mockImplementation(() => ({ lean: async () => null }));
-  await request("POST", "/api/platform/provisioning/runs", PRINCIPAL(), ROUTES[3][2]);
+  await createRun(PRINCIPAL(), TARGET);
   const [notFound, badVersion, unpublished] = runEvents();
   expect([notFound[1].reason, notFound[2].auditContext.targetTenantId, notFound[1].tenantId]).toEqual(["tenant_not_found", null, undefined]);
   expect([badVersion[1].reason, badVersion[2].auditContext.targetTenantId]).toEqual(["bad_request", null]);

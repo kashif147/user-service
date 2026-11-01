@@ -201,8 +201,10 @@ consumers calling each service's `ensureTenantDefaults`).
   `scripts/platform-template.js` from the reviewed definition in `constants/platformTemplates.js` (dry run by
   default, `--expect-db <db>` explicit target required, insert-only, refuses a different hash for an existing
   version); immutable (only published -> retired, never deleted). Not run on any environment yet.
-- **ProvisioningRun** (`models/provisioningRun.model.js`): one per (internal tenantId, template key, version);
-  the target is the INTERNAL tenant id only (organisation code / Entra tid / domain are refused, never resolved);
+- **ProvisioningRun** (`models/provisioningRun.model.js`): one per (internal tenantId, template key, version),
+  created by `POST /api/platform/provisioning/tenants/:targetTenantId/runs` (target in the PATH - a body / query
+  `tenantId` is reserved by the enforce-mode tenant-context guard for the caller's own tenant and refused when it
+  differs); the target is the INTERNAL tenant id only (organisation code / Entra tid / domain are refused, never resolved);
   create-or-get is idempotent; step results are compare-and-set, in order, never overwritten; a failed
   required step fails the run; resume re-opens only unfinished steps. tenantId immutable (A15 plugin).
 - **Audit**: `platform.provisioning.run.changed.v1` (platform actor, target = run tenant) and
