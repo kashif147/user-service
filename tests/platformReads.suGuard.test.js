@@ -27,7 +27,7 @@ jest.mock("@membership/policy-middleware", () => ({
   tenantContextMiddleware: () => (req, res, next) => next(),
 }));
 jest.mock("../services/roleHierarchyService", () => ({
-  isSuperUser: () => false,
+  isTenantAdmin: () => false,
   isAssistantSuperUser: () => false,
   isSystemAdmin: () => false,
   getHighestRoleLevel: () => 1,
@@ -169,11 +169,12 @@ test("E every route in cache.routes.js (reads and writes) is guarded by enforcin
   }
 });
 
-test("F the internal /policy router stays mounted at /policy (not under /api); only its operator /cache routes (2 DELETEs + GET /cache/stats) are SU-guarded (Phase 1C-2I/2J)", () => {
+test("F the internal /policy router stays mounted at /policy (not under /api); only its operator /cache routes (2 DELETEs + GET /cache/stats) are platform-guarded (Phase 1C-2I/2J; Z9: platform:cache:admin, no SU)", () => {
   const fs = require("fs");
   const path = require("path");
   const index = fs.readFileSync(path.join(__dirname, "..", "routes", "index.js"), "utf8");
   expect(index).toMatch(/router\.use\("\/policy", require\("\.\/policy\.routes"\)\)/);
   const policy = fs.readFileSync(path.join(__dirname, "..", "routes", "policy.routes.js"), "utf8");
-  expect((policy.match(/^  requireSuperUser,$/gm) || []).length).toBe(4); // import + DELETE /cache, DELETE /cache/:key, GET /cache/stats (Phase 1C-2J)
+  expect(policy).not.toMatch(/requireSuperUser/);
+  expect((policy.match(/^  requirePlatformPermission\("platform:cache:admin", \{ mode: "route-enforce" \}\),$/gm) || []).length).toBe(3); // DELETE /cache, DELETE /cache/:key, GET /cache/stats
 });

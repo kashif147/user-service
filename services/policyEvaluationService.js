@@ -43,6 +43,14 @@ const POLICY_VERSION = process.env.POLICY_VERSION || "1.0.0";
  * Get current policy version
  */
 const getPolicyVersion = () => POLICY_VERSION;
+// Part of every decision-cache key (see evaluatePolicy). Phase B / Z9: tenant SU retired.
+const PDP_DECISION_EPOCH = "z9-tenant-su-retired";
+// Phase B / Z9: SU is no longer a role. A token that still carries it predates the SU -> ASU migration
+// and must not be honoured at all (not even as a tenant wildcard): the user signs in again and gets
+// their current role (ASU). Never a reason to grant anything.
+const RETIRED_ROLE_CODES = Object.freeze(["SU"]);
+const carriesRetiredRole = (roles) =>
+  Array.isArray(roles) && roles.some((r) => RETIRED_ROLE_CODES.includes(String(typeof r === "string" ? r : r && r.code).trim().toUpperCase()));
 
 /**
  * Invalidate cache entries for a specific tenant or all entries
@@ -270,8 +278,8 @@ const evaluatePolicyInternal = async (request) => {
     //
     // INVARIANT: the authorization cache key must include EVERY verified
     // identity attribute the PDP consumes for an allow/deny decision. Today
-    // applyPolicyRules decides on userType (category match), roles (SU
-    // short-circuit + role-level fallback) and permissions (canonical match),
+    // applyPolicyRules decides on userType (category match), roles (ASU own-
+    // tenant admin rule + role-level fallback) and permissions (canonical match),
     // scoped by tenant — so all of those are in the digest below, with
     // deterministic property ordering. If future PDP logic becomes
     // context/ABAC dependent, this key MUST be updated to include those
@@ -282,6 +290,9 @@ const evaluatePolicyInternal = async (request) => {
       .createHash("sha256")
       .update(
         JSON.stringify({
+          // Phase B / Z9 decision epoch: no decision cached before the tenant-SU retirement (e.g. a
+          // legacy SU PERMIT) can ever be read back - bump when PDP semantics change.
+          pdp: PDP_DECISION_EPOCH,
           id: user.id,
           tenantId: user.tenantId,
           userType: user.userType || null,
@@ -448,24 +459,35 @@ const applyPolicyRules = async (context) => {
 
   // Rule 0 (Phase B / Z3): this is the TENANT policy decision point. A platform-namespace resource is
   // platform authority, decided only by the platform evaluator (middlewares/requirePlatformPermission.js)
-  // from a PlatformPrincipal - never here, never by "*", never by the legacy SU rule below.
+  // from a PlatformPrincipal - never here, never by "*", never by the ASU tenant-admin rule below.
   if (isPlatformNamespace(String(resource || "")) || isPlatformNamespace(`${resource}:${action}`)) {
     return { decision: "DENY", reason: "PLATFORM_PERMISSION_NOT_TENANT_EVALUABLE" };
   }
 
-  // Rule 1: Super User skips the permission rules - but, Phase A / A16 SU closure (TEMPORARY until
-  // Phase B), only inside its own tenant: today's SU is a legacy role cloned into every tenant and
-  // cannot be told apart from a genuine platform SU, so it never bypasses the tenant boundary.
-  if (roleHierarchyService.isSuperUser(roles)) {
-    if (!tenantId) {
+  // Rule 0b (Phase B / Z9): a token still carrying the retired tenant SU role is refused outright.
+  if (carriesRetiredRole(roles)) {
+    return { decision: "DENY", reason: "RETIRED_ROLE_REAUTH_REQUIRED" };
+  }
+
+  // Rule 1 (Phase B / Z9): ASU own-tenant administrative authority. The legacy tenant SU is retired;
+  // ASU is the highest tenant role and this is an explicit tenant-admin rule, not a bypass. Order:
+  // authentication and the trusted internal tenant (callers), Rule 0 above (a platform-namespace request
+  // is ALWAYS denied here - only a PlatformPrincipal with the exact platform permission is authorized,
+  // by the platform evaluator), then the tenant boundary below (the request tenant must be the actor's
+  // own internal tenant), then ASU. Security invariants intentionally stronger than tenant
+  // administration - the A14 GLOBAL_DATA_FROZEN freeze, tenant / User ownership immutability,
+  // identity binding, platform catalogue / cache / reference-data protections - are enforced by the
+  // services and models after this decision; a PERMIT here never overrides them. Never cross-tenant.
+  if (roleHierarchyService.isTenantAdmin(roles)) {
+    if (!tenantId || !context.userTenantId) {
       return { decision: "DENY", reason: "MISSING_TENANT_CONTEXT" };
     }
-    if (context.userTenantId && String(tenantId) !== String(context.userTenantId)) {
+    if (String(tenantId) !== String(context.userTenantId)) {
       return { decision: "DENY", reason: "TENANT_SCOPE_VIOLATION" };
     }
     return {
       decision: "PERMIT",
-      reason: "SUPER_USER_OWN_TENANT",
+      reason: "ASU_OWN_TENANT_ADMIN",
     };
   }
 
@@ -576,14 +598,12 @@ const evaluateResourcePolicy = async (context) => {
       };
     }
 
-    // Special handling for tenant resource - ASU can only manage their own tenant
+    // Special handling for tenant resource - ASU can only manage their own tenant (Phase B / Z9: the
+    // legacy tenant SU is retired; cross-tenant tenant administration is PlatformPrincipal-only, Z6).
     if (resource === "tenant") {
       const hasASURole = roles.includes("ASU");
-      const hasSURole = roles.includes("SU");
 
-      // ASU - and, Phase A / A16 SU closure (TEMPORARY until Phase B), the legacy per-tenant SU -
-      // can only manage their own tenant. Phase B: an explicit platform-SU authorization model.
-      if (hasSURole || hasASURole) {
+      if (hasASURole) {
         if (!tenantId || !userTenantId) {
           return {
             decision: "DENY",
@@ -600,7 +620,7 @@ const evaluateResourcePolicy = async (context) => {
 
         return {
           decision: "PERMIT",
-          reason: hasSURole ? "SUPER_USER_OWN_TENANT" : "ASU_OWN_TENANT_ACCESS",
+          reason: "ASU_OWN_TENANT_ACCESS",
         };
       }
     }
@@ -701,7 +721,7 @@ const evaluateActionPolicy = async (context) => {
       minRoleLevel: 80, // DIR level and above
     },
     super_admin: {
-      minRoleLevel: 100, // SU only
+      minRoleLevel: 100, // no tenant role holds level 100 (Phase B / Z9: SU retired) - reserved
     },
   };
 
@@ -867,13 +887,19 @@ const getEffectivePermissions = async (token, resource) => {
       };
     }
 
-    // Super User has all permissions
-    if (roleHierarchyService.isSuperUser(roles)) {
+    if (carriesRetiredRole(roles)) {
+      return { success: false, permissions: [], error: "Sign in again", reason: "RETIRED_ROLE_REAUTH_REQUIRED" };
+    }
+    // Phase B / Z9: ASU is the full administrator of its OWN tenant. Shown as the tenant wildcard "*"
+    // (scope "tenant": never platform authority - a platform-namespace resource is not summarised this
+    // way, and the PDP never lets "*" cover the platform namespace).
+    if (roleHierarchyService.isTenantAdmin(roles) && !isPlatformNamespace(String(resource || ""))) {
       return {
         success: true,
         permissions: ["*"],
+        scope: "tenant",
         roles: roles,
-        reason: "SUPER_USER",
+        reason: "ASU_OWN_TENANT_ADMIN",
       };
     }
 
@@ -1069,13 +1095,19 @@ const getEffectivePermissionsWithHeaders = async (headers, resource) => {
       console.warn("Failed to parse x-user-permissions:", e.message);
     }
 
-    // Super User has all permissions
-    if (roleHierarchyService.isSuperUser(roles)) {
+    if (carriesRetiredRole(roles)) {
+      return { success: false, permissions: [], error: "Sign in again", reason: "RETIRED_ROLE_REAUTH_REQUIRED" };
+    }
+    // Phase B / Z9: ASU is the full administrator of its OWN tenant. Shown as the tenant wildcard "*"
+    // (scope "tenant": never platform authority - a platform-namespace resource is not summarised this
+    // way, and the PDP never lets "*" cover the platform namespace).
+    if (roleHierarchyService.isTenantAdmin(roles) && !isPlatformNamespace(String(resource || ""))) {
       return {
         success: true,
         permissions: ["*"],
+        scope: "tenant",
         roles: roles,
-        reason: "SUPER_USER",
+        reason: "ASU_OWN_TENANT_ADMIN",
       };
     }
 

@@ -21,6 +21,10 @@ const tenantKey = (tenantId) => {
   return t;
 };
 
+// Phase B / Z9: the tenant administrator role (ASU), by code. Accepts codes or { code } objects.
+const hasTenantAdminRole = (userRoles) =>
+  Array.isArray(userRoles) && userRoles.some((r) => String(typeof r === "string" ? r : r && r.code).trim().toUpperCase() === "ASU");
+
 class RoleHierarchyService {
   constructor() {
     this.cachePrefix = "role_hierarchy";
@@ -120,30 +124,23 @@ class RoleHierarchyService {
   }
 
   /**
-   * Check if user has Super User privileges
-   * @param {string[]} userRoles - User's roles
-   * @returns {boolean} True if user is Super User
+   * Phase B / Z9: ASU is the highest TENANT role - the tenant administrator of its own tenant only (the
+   * legacy tenant SU is retired; platform authority is a PlatformPrincipal, never a role).
+   * @param {Array<string|{code:string}>} userRoles - User's role codes
+   * @returns {boolean} True if the roles include ASU
    */
-  isSuperUser(userRoles) {
-    return userRoles && userRoles.includes("SU");
+  isTenantAdmin(userRoles) {
+    return hasTenantAdminRole(userRoles);
   }
 
-  /**
-   * Check if user has Assistant Super User privileges
-   * @param {string[]} userRoles - User's roles
-   * @returns {boolean} True if user is Assistant Super User
-   */
+  /** @deprecated alias of isTenantAdmin (ASU). Safe to call unbound. */
   isAssistantSuperUser(userRoles) {
-    return userRoles && userRoles.includes("ASU");
+    return hasTenantAdminRole(userRoles);
   }
 
-  /**
-   * Check if user has Super User or Assistant Super User privileges
-   * @param {string[]} userRoles - User's roles
-   * @returns {boolean} True if user is SU or ASU
-   */
+  /** Tenant administrator (ASU) - never platform authority. Safe to call unbound. */
   isSystemAdmin(userRoles) {
-    return this.isSuperUser(userRoles) || this.isAssistantSuperUser(userRoles);
+    return hasTenantAdminRole(userRoles);
   }
 
   /**
@@ -193,8 +190,7 @@ class RoleHierarchyService {
    */
   getFallbackHierarchy() {
     return {
-      // System Roles
-      SU: 100,
+      // System Roles (Phase B / Z9: the tenant SU is retired; ASU is the highest tenant role)
       ASU: 95,
 
       // Executive Roles

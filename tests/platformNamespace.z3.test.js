@@ -15,7 +15,7 @@ const OID_PLATFORM = "444444444444444444444444"; // a catalogue entry that (ille
 const OID_USER_READ = "555555555555555555555555";
 
 jest.mock("../services/roleHierarchyService", () => ({
-  isSuperUser: (roles) => Array.isArray(roles) && roles.some((r) => (typeof r === "string" ? r : r?.code) === "SU"),
+  isTenantAdmin: (roles) => Array.isArray(roles) && roles.some((r) => (typeof r === "string" ? r : r?.code) === "ASU"),
   isAssistantSuperUser: (roles) => Array.isArray(roles) && roles.includes("ASU"),
   getHighestRoleLevel: async () => 0,
 }));
@@ -84,8 +84,9 @@ const RoleController = require("../controllers/role.controller");
 const TenantScopedController = require("../controllers/tenantScoped.controller");
 const { RolePrivilegeError } = require("../errors/RolePrivilegeError");
 
-const SU = { roles: ["SU"] };
+const SU = { roles: ["SU"] }; // a stale token still carrying the retired SU role
 const ASU = { roles: ["ASU"] };
+const ORDINARY = { roles: ["GS"] };
 const FUTURE = ["platform:test:future", "PLATFORM_TEST_FUTURE", " Platform:Test:Future ", "platform", "platform:*", "PLATFORM:anything", "platform.billing:read"];
 const LISTED = ["platform:tenant:create", "platform:tenant:read:any", "platform:cache:admin", "platform:principals:manage"];
 
@@ -151,13 +152,14 @@ describe("tenant PDP (applyPolicyRules)", () => {
       expect(d).toEqual({ decision: "DENY", reason: "PLATFORM_PERMISSION_NOT_TENANT_EVALUABLE" });
     }
   });
-  test("legacy SU stays tenant-confined: own tenant PERMIT, another tenant DENY (tenant boundary before wildcard)", async () => {
-    expect((await decide({ roles: ["SU"], permissions: ["*"] })).reason).toBe("SUPER_USER_OWN_TENANT");
-    expect(await decide({ roles: ["SU"], permissions: ["*"], tenantId: B })).toEqual({ decision: "DENY", reason: "TENANT_SCOPE_VIOLATION" });
-  });
-  test("ASU unchanged: own tenant via permission; tenant resource for another tenant still denied", async () => {
-    expect((await decide({ roles: ["ASU"], permissions: ["tenant:read"], resource: "tenant", action: "read" })).decision).toBe("PERMIT");
+  test("ASU (tenant admin) stays tenant-confined: own tenant PERMIT, another tenant DENY (tenant boundary before ASU)", async () => {
+    expect((await decide({ roles: ["ASU"], permissions: ["*"] })).reason).toBe("ASU_OWN_TENANT_ADMIN");
+    expect(await decide({ roles: ["ASU"], permissions: ["*"], tenantId: B })).toEqual({ decision: "DENY", reason: "TENANT_SCOPE_VIOLATION" });
     expect((await decide({ roles: ["ASU"], permissions: ["tenant:read", "*"], resource: "tenant", action: "read", tenantId: B })).decision).toBe("DENY");
+  });
+  test("the retired SU role: refused (RETIRED_ROLE_REAUTH_REQUIRED), never platform, never another tenant", async () => {
+    expect(await decide({ roles: ["SU"], permissions: ["*"] })).toEqual({ decision: "DENY", reason: "RETIRED_ROLE_REAUTH_REQUIRED" });
+    expect((await decide({ roles: ["SU"], permissions: ["*"], tenantId: B })).decision).toBe("DENY");
   });
 });
 
@@ -205,15 +207,17 @@ describe("role API boundary: no actor may put a platform code on a tenant role",
       await rejects(RoleHandler.createRole({ name: "N", code: "N", description: "d", category: "CRM", permissions: [p] }, A, "u", SU));
     }
   });
-  test("legitimate tenant permissions still grant (SU and ASU); SU may still grant the tenant wildcard", async () => {
+  test("legitimate tenant permissions still grant (ASU and an ordinary actor)", async () => {
     await RoleHandler.createRole({ name: "N", code: "N", description: "d", category: "CRM", permissions: ["user:read", OID_USER_READ, "payments:*"] }, A, "u", ASU);
-    await RoleHandler.createRole({ name: "N", code: "N", description: "d", category: "CRM", permissions: ["*"] }, A, "u", SU);
+    await RoleHandler.createRole({ name: "N", code: "N", description: "d", category: "CRM", permissions: ["user:read"] }, A, "u", ORDINARY);
     await RoleHandler.updateRolePermissions("507f1f77bcf86cd799439011", ["user:read", "user:write"], A, "u", ASU);
     expect(mockSaved).toHaveLength(2);
     expect(mockWrites).toHaveLength(1);
   });
-  test("non-SU still cannot add '*' (legacy rule unchanged)", async () => {
-    await rejects(RoleHandler.createRole({ name: "N", code: "N", description: "d", category: "CRM", permissions: ["*"] }, A, "u", ASU));
+  test("nobody may add '*' (Phase B / Z9: not even ASU; the legacy SU that could is retired)", async () => {
+    for (const actor of [ASU, ORDINARY, SU]) {
+      await rejects(RoleHandler.createRole({ name: "N", code: "N", description: "d", category: "CRM", permissions: ["*"] }, A, "u", actor));
+    }
   });
   test("connection default roles: a platform code makes a role RESERVED_PERMISSION", () => {
     expect(RoleHandler.isReservedPermission("platform:test:future")).toBe(true);

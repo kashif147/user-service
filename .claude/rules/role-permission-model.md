@@ -15,7 +15,7 @@ changed together:
 
 A change to permission-resolution logic made in only one of these will make them diverge.
 
-`roleHierarchyService`'s "hierarchy" is a flat numeric `level` per role code (`SU:100, ASU:95, GS:90,
+`roleHierarchyService`'s "hierarchy" is a flat numeric `level` per role code (`ASU:95, GS:90,
 … MEMBER/NON-MEMBER:1`, merged from DB roles onto a hardcoded fallback list), used purely for
 privilege-level comparison (`hasMinimumRole`) — there is no parent/child role inheritance despite the
 name.

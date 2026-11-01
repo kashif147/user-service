@@ -70,7 +70,7 @@ jest.mock("@membership/policy-middleware", () => ({
   tenantContextMiddleware: () => (req, res, next) => next(),
 }));
 jest.mock("../services/roleHierarchyService", () => ({
-  isSuperUser: () => false, isAssistantSuperUser: () => false, isSystemAdmin: () => false,
+  isTenantAdmin: () => false, isAssistantSuperUser: () => false, isSystemAdmin: () => false,
   getHighestRoleLevel: () => 1, hasMinimumRole: () => false,
 }));
 jest.mock("../helpers/policyAdapter.js", () => ({ defaultPolicyAdapter: { middleware: () => (req, res, next) => next() } }));
@@ -178,8 +178,8 @@ test.each([
   ["5 SU", ID.su],
   ["6 ASU (code ' asu ')", ID.asu],
   ["7 system role (isSystemRole)", ID.sys],
-])("%s cannot be assigned by non-SU — to another user or to themselves (403)", async (_label, roleId) => {
-  for (const actorRoles of [["MO"], ["ASU"], [{ code: "ASU" }], []]) {
+])("%s cannot be assigned by non-ASU — to another user or to themselves (403)", async (_label, roleId) => {
+  for (const actorRoles of [["MO"], ["GS"], [{ code: "GS" }], []]) {
     for (const userId of [ID.other, ID.actor]) {
       const res = await post({ userId, roleId }, { actorRoles });
       expect(res.status).toBe(403);
@@ -190,10 +190,18 @@ test.each([
   untouched(ID.actor, [ID.ord2]);
 });
 
-test("SU actor may assign a protected role (existing SU rule unchanged)", async () => {
-  const res = await post({ userId: ID.other, roleId: ID.su }, { actorRoles: ["SU"] });
+test("ASU (tenant admin) may assign a protected role in its own tenant (the former SU rule)", async () => {
+  const res = await post({ userId: ID.other, roleId: ID.sys }, { actorRoles: ["ASU"] });
   expect(res.status).toBe(200);
-  expect(roles(ID.other)).toEqual([ID.ord2, ID.su]);
+  expect(roles(ID.other)).toEqual([ID.ord2, ID.sys]);
+});
+
+test("Phase B / Z9: the retired SU role cannot be assigned - by ASU or a stale SU token (403, untouched)", async () => {
+  for (const actorRoles of [["ASU"], ["SU"]]) {
+    const res = await post({ userId: ID.other, roleId: ID.su }, { actorRoles });
+    expect(res.status).toBe(403);
+    expect(roles(ID.other)).toEqual([ID.ord2]);
+  }
 });
 
 test("8 body / query / header tenant spoofing is ignored (lookups use trusted tenant A only)", async () => {
@@ -205,7 +213,7 @@ test("8 body / query / header tenant spoofing is ignored (lookups use trusted te
   expect(mockUserQueries.every((q) => q.tenantId === A)).toBe(true);
   expect(mockRoleQueries.every((q) => q.tenantId === A)).toBe(true);
   untouched(ID.otherTenantUser, []);
-  const self = await post({ userId: ID.actor, roleId: ID.su, roles: ["SU"] }, { headers: { "x-user-roles": '["SU"]' } });
+  const self = await post({ userId: ID.actor, roleId: ID.su, roles: ["ASU"] }, { headers: { "x-user-roles": '["ASU"]' } });
   expect(self.status).toBe(403); // SU claimed in body/header does not elevate
   untouched(ID.actor, [ID.ord2]);
 });
@@ -244,7 +252,7 @@ test("10 tenant endpoint follows the same decisions as /users/assign-role for ev
     return err ? err.status : res.statusCode;
   };
   const rows = [];
-  for (const actorRoles of [["SU"], ["ASU"], ["MO"], []])
+  for (const actorRoles of [["ASU"], ["GS"], ["MO"], []])
     for (const userId of [ID.other, ID.actor, ID.otherTenantUser, "not-an-id"])
       for (const roleId of [ID.su, ID.asu, ID.sys, ID.ord1, ID.ord2, ID.inactive, ID.otherTenantOrd]) {
         const t = await outcome(async () => (await post({ userId, roleId }, { actorRoles })).status);

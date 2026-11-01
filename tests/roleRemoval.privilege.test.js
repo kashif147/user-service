@@ -104,37 +104,37 @@ const untouched = (id) => {
 };
 const expect403 = (err) => {
   expect(err).toMatchObject({ status: 403, code: "ROLE_PRIVILEGE_VIOLATION" });
-  expect(err.message).toBe("Only SU may remove platform or system roles"); // generic, no internals
+  expect(err.message).toBe("Only the tenant administrator (ASU) may remove system roles"); // generic, no internals
 };
 
 // ---------------------------------------------------------------------------
 // remove-role (single)
 // ---------------------------------------------------------------------------
-describe("POST /users/remove-role — non-SU (ASU)", () => {
+describe("POST /users/remove-role — non-admin (GS)", () => {
   test.each([["A SU", ID.su], ["B ASU (inactive, lower-case/whitespace)", ID.asu], ["C system role", ID.sys]])(
     "%s from another user -> 403, user untouched (F)",
     async (_l, roleId) => {
-      const { err } = await callCtl("removeRoleFromUser", ["ASU"], { userId: ID.other, roleId });
+      const { err } = await callCtl("removeRoleFromUser", ["GS"], { userId: ID.other, roleId });
       expect403(err);
       untouched(ID.other);
     }
   );
 
   test.each([[ID.su], [ID.asu], [ID.sys]])("E self-removal of protected role %s -> 403", async (roleId) => {
-    const { err } = await callCtl("removeRoleFromUser", ["ASU"], { userId: ID.self, roleId }, ID.self);
+    const { err } = await callCtl("removeRoleFromUser", ["GS"], { userId: ID.self, roleId }, ID.self);
     expect403(err);
     untouched(ID.self);
   });
 
   test("D ordinary role removal succeeds", async () => {
-    const { res, next } = await callCtl("removeRoleFromUser", ["ASU"], { userId: ID.other, roleId: ID.ord1 });
+    const { res, next } = await callCtl("removeRoleFromUser", ["GS"], { userId: ID.other, roleId: ID.ord1 });
     expect(next).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(200);
     expect(rolesOf(ID.other)).toEqual([ID.su, ID.asu, ID.sys, ID.ord2]);
   });
 
   test("G cross-tenant role id -> 400 Roles not found, user untouched, lookup tenant-scoped", async () => {
-    const { err } = await callCtl("removeRoleFromUser", ["ASU"], { userId: ID.other, roleId: ID.otherTenantOrd });
+    const { err } = await callCtl("removeRoleFromUser", ["GS"], { userId: ID.other, roleId: ID.otherTenantOrd });
     expect(err.status).toBe(400);
     expect(err.message).toMatch(/Roles not found/);
     untouched(ID.other);
@@ -143,7 +143,7 @@ describe("POST /users/remove-role — non-SU (ASU)", () => {
   });
 
   test("H body claims an ordinary role but the stored role is SU -> 403", async () => {
-    const { err } = await callCtl("removeRoleFromUser", ["ASU"], {
+    const { err } = await callCtl("removeRoleFromUser", ["GS"], {
       userId: ID.other,
       roleId: ID.su,
       roleCode: "BRO",
@@ -157,28 +157,28 @@ describe("POST /users/remove-role — non-SU (ASU)", () => {
 // ---------------------------------------------------------------------------
 // remove-roles-batch
 // ---------------------------------------------------------------------------
-describe("POST /users/remove-roles-batch — non-SU (ASU)", () => {
+describe("POST /users/remove-roles-batch — non-admin (GS)", () => {
   test("J all ordinary removals succeed", async () => {
-    const { res, next } = await callCtl("removeRolesFromUser", ["ASU"], { userId: ID.other, roleIds: [ID.ord1, ID.ord2] });
+    const { res, next } = await callCtl("removeRolesFromUser", ["GS"], { userId: ID.other, roleIds: [ID.ord1, ID.ord2] });
     expect(next).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(200);
     expect(rolesOf(ID.other)).toEqual([ID.su, ID.asu, ID.sys]);
   });
 
   test.each([[ID.su], [ID.asu], [ID.sys]])("K/L one protected (%s) + ordinary -> whole batch rejected, no partial save", async (p) => {
-    const { err } = await callCtl("removeRolesFromUser", ["ASU"], { userId: ID.other, roleIds: [ID.ord1, p, ID.ord2] });
+    const { err } = await callCtl("removeRolesFromUser", ["GS"], { userId: ID.other, roleIds: [ID.ord1, p, ID.ord2] });
     expect403(err);
     untouched(ID.other);
   });
 
   test("self batch including a protected role -> 403", async () => {
-    const { err } = await callCtl("removeRolesFromUser", ["ASU"], { userId: ID.self, roleIds: [ID.sys, ID.ord1] }, ID.self);
+    const { err } = await callCtl("removeRolesFromUser", ["GS"], { userId: ID.self, roleIds: [ID.sys, ID.ord1] }, ID.self);
     expect403(err);
     untouched(ID.self);
   });
 
   test("cross-tenant id in a batch -> 400, nothing removed", async () => {
-    const { err } = await callCtl("removeRolesFromUser", ["ASU"], { userId: ID.other, roleIds: [ID.ord1, ID.otherTenantOrd] });
+    const { err } = await callCtl("removeRolesFromUser", ["GS"], { userId: ID.other, roleIds: [ID.ord1, ID.otherTenantOrd] });
     expect(err.status).toBe(400);
     untouched(ID.other);
   });
@@ -187,13 +187,13 @@ describe("POST /users/remove-roles-batch — non-SU (ASU)", () => {
 // ---------------------------------------------------------------------------
 // sync-roles
 // ---------------------------------------------------------------------------
-describe("POST /users/sync-roles — non-SU (ASU)", () => {
+describe("POST /users/sync-roles — non-admin (GS)", () => {
   test("M protected roles retained -> sync succeeds (ordinary change applied)", async () => {
     // user keeps SU + system role (already held — not newly assigned); swaps ord1 -> ord3, keeps ord2.
     // (sync's pre-existing rule requires every desired role to be active, so the inactive ASU fixture
     // is not part of this user's set here.)
     mockUsers[ID.other].roles = [ID.su, ID.sys, ID.ord1, ID.ord2];
-    const { res, next } = await callCtl("syncRolesForUser", ["ASU"], {
+    const { res, next } = await callCtl("syncRolesForUser", ["GS"], {
       userId: ID.other,
       roleIds: [ID.su, ID.sys, ID.ord2, ID.ord3],
     });
@@ -203,14 +203,14 @@ describe("POST /users/sync-roles — non-SU (ASU)", () => {
   });
 
   test("N dropping held SU/ASU/system implicitly (sync to ordinary only) -> 403, untouched", async () => {
-    const { err } = await callCtl("syncRolesForUser", ["ASU"], { userId: ID.other, roleIds: [ID.ord3] });
+    const { err } = await callCtl("syncRolesForUser", ["GS"], { userId: ID.other, roleIds: [ID.ord3] });
     expect403(err);
     untouched(ID.other);
   });
 
   test("M' a user holding only ordinary roles: ordinary sync works; protected kept on another user is not blocked by removal rule", async () => {
     mockUsers[ID.other].roles = [ID.ord1, ID.ord2];
-    const { res, next } = await callCtl("syncRolesForUser", ["ASU"], { userId: ID.other, roleIds: [ID.ord2, ID.ord3] });
+    const { res, next } = await callCtl("syncRolesForUser", ["GS"], { userId: ID.other, roleIds: [ID.ord2, ID.ord3] });
     expect(next).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(200);
     expect(rolesOf(ID.other)).toEqual([ID.ord2, ID.ord3]);
@@ -218,7 +218,7 @@ describe("POST /users/sync-roles — non-SU (ASU)", () => {
 
   test("N protected role would be removed -> 403, no save", async () => {
     mockUsers[ID.other].roles = [ID.sys, ID.ord1];
-    const { err } = await callCtl("syncRolesForUser", ["ASU"], { userId: ID.other, roleIds: [ID.ord1] });
+    const { err } = await callCtl("syncRolesForUser", ["GS"], { userId: ID.other, roleIds: [ID.ord1] });
     expect403(err);
     expect(mockUsers[ID.other].save).not.toHaveBeenCalled();
     expect(rolesOf(ID.other)).toEqual([ID.sys, ID.ord1]);
@@ -226,28 +226,28 @@ describe("POST /users/sync-roles — non-SU (ASU)", () => {
 
   test("N empty sync (remove all) on a user with a protected role -> 403", async () => {
     mockUsers[ID.self].roles = [ID.asu];
-    const { err } = await callCtl("syncRolesForUser", ["ASU"], { userId: ID.self, roleIds: [] }, ID.self);
+    const { err } = await callCtl("syncRolesForUser", ["GS"], { userId: ID.self, roleIds: [] }, ID.self);
     expect403(err);
     expect(mockUsers[ID.self].save).not.toHaveBeenCalled();
   });
 
-  test("unverifiable held role (cannot be resolved in tenant) cannot be dropped by non-SU", async () => {
+  test("unverifiable held role (cannot be resolved in tenant) cannot be dropped by non-ASU", async () => {
     mockUsers[ID.other].roles = [ID.otherTenantOrd, ID.ord1];
-    const { err } = await callCtl("syncRolesForUser", ["ASU"], { userId: ID.other, roleIds: [ID.ord1] });
+    const { err } = await callCtl("syncRolesForUser", ["GS"], { userId: ID.other, roleIds: [ID.ord1] });
     expect403(err);
     expect(mockUsers[ID.other].save).not.toHaveBeenCalled();
   });
 
   test("O ordinary changes still work when protected roles are not part of the user's set", async () => {
     mockUsers[ID.other].roles = [ID.ord1];
-    const { res } = await callCtl("syncRolesForUser", ["ASU"], { userId: ID.other, roleIds: [ID.ord2, ID.ord3] });
+    const { res } = await callCtl("syncRolesForUser", ["GS"], { userId: ID.other, roleIds: [ID.ord2, ID.ord3] });
     expect(res.statusCode).toBe(200);
     expect(rolesOf(ID.other)).toEqual([ID.ord2, ID.ord3]);
   });
 
   test("assignment rule still applies inside sync (adding a protected role is 403)", async () => {
     mockUsers[ID.other].roles = [ID.ord1];
-    const { err } = await callCtl("syncRolesForUser", ["ASU"], { userId: ID.other, roleIds: [ID.ord1, ID.sys] });
+    const { err } = await callCtl("syncRolesForUser", ["GS"], { userId: ID.other, roleIds: [ID.ord1, ID.sys] });
     expect(err).toMatchObject({ status: 403, code: "ROLE_PRIVILEGE_VIOLATION" });
     expect(mockUsers[ID.other].save).not.toHaveBeenCalled();
   });
@@ -256,18 +256,18 @@ describe("POST /users/sync-roles — non-SU (ASU)", () => {
 // ---------------------------------------------------------------------------
 // SU
 // ---------------------------------------------------------------------------
-describe("I/P SU retains existing behaviour", () => {
+describe("I/P ASU (tenant admin) retains the former SU behaviour", () => {
   test("I SU may remove protected roles (single and batch)", async () => {
-    const single = await callCtl("removeRoleFromUser", ["SU"], { userId: ID.other, roleId: ID.su });
+    const single = await callCtl("removeRoleFromUser", ["ASU"], { userId: ID.other, roleId: ID.su });
     expect(single.next).not.toHaveBeenCalled();
     expect(rolesOf(ID.other)).not.toContain(ID.su);
-    const batch = await callCtl("removeRolesFromUser", ["SU"], { userId: ID.other, roleIds: [ID.asu, ID.sys] });
+    const batch = await callCtl("removeRolesFromUser", ["ASU"], { userId: ID.other, roleIds: [ID.asu, ID.sys] });
     expect(batch.next).not.toHaveBeenCalled();
     expect(rolesOf(ID.other)).toEqual([ID.ord1, ID.ord2]);
   });
 
   test("P SU may remove protected roles through sync", async () => {
-    const { res, next } = await callCtl("syncRolesForUser", ["SU"], { userId: ID.other, roleIds: [ID.ord1] });
+    const { res, next } = await callCtl("syncRolesForUser", ["ASU"], { userId: ID.other, roleIds: [ID.ord1] });
     expect(next).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(200);
     expect(rolesOf(ID.other)).toEqual([ID.ord1]);
@@ -287,13 +287,13 @@ describe("POST /tenant/users/remove-role (tenant-scoped) uses the same rule", ()
     await TenantScopedController.removeRoleFromUserInTenant({ ctx: { tenantId: A, userId: ID.self, roles }, body: { userId, roleId } }, res);
     return res;
   };
-  test("non-SU removing protected role (self or other) -> 403; ordinary -> 200; SU -> 200", async () => {
+  test("non-ASU removing protected role (self or other) -> 403; ordinary -> 200; SU -> 200", async () => {
     for (const userId of [ID.other, ID.self]) {
-      expect((await call(["ASU"], ID.sys, userId)).statusCode).toBe(403);
+      expect((await call(["GS"], ID.sys, userId)).statusCode).toBe(403);
     }
     untouched(ID.other);
-    expect((await call(["ASU"], ID.ord1)).statusCode).toBe(200);
-    expect((await call(["SU"], ID.su)).statusCode).toBe(200);
+    expect((await call(["GS"], ID.ord1)).statusCode).toBe(200);
+    expect((await call(["ASU"], ID.su)).statusCode).toBe(200);
   });
 });
 

@@ -102,13 +102,13 @@ const unchanged = (id) => {
 };
 
 // ---------------------------------------------------------------------------
-// assign-role / assign-roles-batch (same controller) and sync-roles — non-SU
+// assign-role / assign-roles-batch (same controller) and sync-roles — non-ASU
 // ---------------------------------------------------------------------------
-describe.each([["assignRolesToUser"], ["syncRolesForUser"]])("%s — non-SU (ASU)", (fn) => {
+describe.each([["assignRolesToUser"], ["syncRolesForUser"]])("%s — non-admin (GS)", (fn) => {
   test.each([["SU", ID.su], ["ASU (lower-case/whitespace)", ID.asu], ["system role", ID.sys]])(
     "A/B/C assigning %s to another user -> 403 ROLE_PRIVILEGE_VIOLATION, user untouched",
     async (_l, roleId) => {
-      const { err } = await callCtl(fn, ["ASU"], { userId: ID.other, roleIds: [roleId] });
+      const { err } = await callCtl(fn, ["GS"], { userId: ID.other, roleIds: [roleId] });
       expect(err).toMatchObject({ status: 403, code: "ROLE_PRIVILEGE_VIOLATION" });
       expect(err.message).not.toMatch(/GS|asu|SU,|_id/); // generic message, no role internals
       unchanged(ID.other);
@@ -116,13 +116,13 @@ describe.each([["assignRolesToUser"], ["syncRolesForUser"]])("%s — non-SU (ASU
   );
 
   test.each([[ID.su], [ID.asu], [ID.sys]])("D self-assign protected role %s -> 403", async (roleId) => {
-    const { err } = await callCtl(fn, ["ASU"], { userId: ID.self, roleIds: [roleId] }, ID.self);
+    const { err } = await callCtl(fn, ["GS"], { userId: ID.self, roleIds: [roleId] }, ID.self);
     expect(err).toMatchObject({ status: 403, code: "ROLE_PRIVILEGE_VIOLATION" });
     unchanged(ID.self);
   });
 
   test("E/H ordinary tenant roles succeed", async () => {
-    const { res, next } = await callCtl(fn, ["ASU"], { userId: ID.other, roleIds: [ID.ord1, ID.ord2] });
+    const { res, next } = await callCtl(fn, ["GS"], { userId: ID.other, roleIds: [ID.ord1, ID.ord2] });
     expect(next).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(200);
     expect(mockUsers[ID.other].save).toHaveBeenCalledTimes(1);
@@ -130,7 +130,7 @@ describe.each([["assignRolesToUser"], ["syncRolesForUser"]])("%s — non-SU (ASU
   });
 
   test("F another tenant's role _id is not found (400), never assigned", async () => {
-    const { err } = await callCtl(fn, ["ASU"], { userId: ID.other, roleIds: [ID.otherTenantOrd] });
+    const { err } = await callCtl(fn, ["GS"], { userId: ID.other, roleIds: [ID.otherTenantOrd] });
     expect(err.status).toBe(400);
     expect(err.message).toMatch(/Roles not found/);
     unchanged(ID.other);
@@ -139,7 +139,7 @@ describe.each([["assignRolesToUser"], ["syncRolesForUser"]])("%s — non-SU (ASU
   });
 
   test("G body claiming an ordinary code while the _id resolves to SU -> 403", async () => {
-    const { err } = await callCtl(fn, ["ASU"], {
+    const { err } = await callCtl(fn, ["GS"], {
       userId: ID.other,
       roleIds: [ID.su],
       roleCodes: ["BRO"],
@@ -150,25 +150,35 @@ describe.each([["assignRolesToUser"], ["syncRolesForUser"]])("%s — non-SU (ASU
   });
 
   test("I/J one protected role mixed with ordinary roles -> whole operation rejected, no partial update", async () => {
-    const { err } = await callCtl(fn, ["ASU"], { userId: ID.other, roleIds: [ID.ord1, ID.sys, ID.ord2] });
+    const { err } = await callCtl(fn, ["GS"], { userId: ID.other, roleIds: [ID.ord1, ID.sys, ID.ord2] });
     expect(err).toMatchObject({ status: 403, code: "ROLE_PRIVILEGE_VIOLATION" });
     unchanged(ID.other);
   });
 
   test("actor roles come from req.ctx only: SU claimed in the body is ignored", async () => {
-    const { err } = await callCtl(fn, ["ASU"], { userId: ID.other, roleIds: [ID.su], actorRoles: ["SU"], ctx: { roles: ["SU"] } });
+    const { err } = await callCtl(fn, ["GS"], { userId: ID.other, roleIds: [ID.su], actorRoles: ["ASU"], ctx: { roles: ["ASU"] } });
     expect(err).toMatchObject({ status: 403 });
     unchanged(ID.other);
   });
 });
 
-describe("K SU keeps existing assignment behaviour", () => {
-  test.each([["assignRolesToUser"], ["syncRolesForUser"]])("%s: SU may assign SU/ASU/system roles", async (fn) => {
-    const { res, next } = await callCtl(fn, ["SU"], { userId: ID.other, roleIds: [ID.su, ID.asu, ID.sys] });
+describe("K ASU (tenant admin) keeps the former SU assignment behaviour", () => {
+  test.each([["assignRolesToUser"], ["syncRolesForUser"]])("%s: ASU may assign ASU / system roles in its own tenant", async (fn) => {
+    const { res, next } = await callCtl(fn, ["ASU"], { userId: ID.other, roleIds: [ID.asu, ID.sys] });
     expect(next).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(200);
-    expect(userRoles(ID.other)).toEqual(expect.arrayContaining([ID.su, ID.asu, ID.sys]));
+    expect(userRoles(ID.other)).toEqual(expect.arrayContaining([ID.asu, ID.sys]));
   });
+
+  // Phase B / Z9: the legacy tenant SU is retired - nobody (ASU included, or a stale SU token) can assign it.
+  test.each([["assignRolesToUser", ["ASU"]], ["syncRolesForUser", ["ASU"]], ["assignRolesToUser", ["SU"]], ["syncRolesForUser", ["SU"]]])(
+    "%s by %j: the retired SU role cannot be assigned -> 403, user untouched",
+    async (fn, actorRoles) => {
+      const { err } = await callCtl(fn, actorRoles, { userId: ID.other, roleIds: [ID.su] });
+      expect(err && err.status).toBe(403);
+      unchanged(ID.other);
+    }
+  );
 
   test("handlers fail closed without an actor", async () => {
     await expect(RoleHandler.assignRolesToUser(ID.other, [ID.ord1], A)).rejects.toBeInstanceOf(RoleHandler.RolePrivilegeError);
@@ -187,9 +197,9 @@ describe("tenantScoped assignRoleToUserInTenant", () => {
     return res;
   };
 
-  test.each([[ID.su], [ID.asu], [ID.sys]])("non-SU assigning protected role %s (incl. self) -> 403", async (roleId) => {
+  test.each([[ID.su], [ID.asu], [ID.sys]])("non-ASU assigning protected role %s (incl. self) -> 403", async (roleId) => {
     for (const userId of [ID.other, ID.self]) {
-      const res = await call(["ASU"], roleId, userId);
+      const res = await call(["GS"], roleId, userId);
       expect(res.statusCode).toBe(403);
       expect(res.body.code).toBe("ROLE_PRIVILEGE_VIOLATION");
     }
@@ -198,19 +208,20 @@ describe("tenantScoped assignRoleToUserInTenant", () => {
   });
 
   test("ordinary role passes the guard; another tenant's role is not found", async () => {
-    const ok = await call(["ASU"], ID.ord1);
+    const ok = await call(["GS"], ID.ord1);
     expect(ok.statusCode).not.toBe(403);
     // Phase 1C-2N: delegates to RoleHandler.assignRolesToUser (assignRoleToUser never existed)
     expect(ok.statusCode).toBe(200);
     expect(userRoles(ID.other)).toEqual([ID.ord2, ID.ord1]);
-    const cross = await call(["ASU"], ID.otherTenantOrd);
+    const cross = await call(["GS"], ID.otherTenantOrd);
     expect(cross.statusCode).toBe(400);
     expect(mockRoleQueries.every((q) => q.tenantId === A)).toBe(true);
   });
 
-  test("SU passes the guard for a protected role", async () => {
-    const res = await call(["SU"], ID.su);
-    expect(res.statusCode).not.toBe(403);
+  test("ASU passes the guard for a protected (system / ASU) role; the retired SU role is never assignable", async () => {
+    expect((await call(["ASU"], ID.sys)).statusCode).not.toBe(403);
+    expect((await call(["ASU"], ID.su)).statusCode).toBe(403);
+    expect((await call(["SU"], ID.sys)).statusCode).toBe(403); // a stale SU token is no tenant admin
   });
 });
 
