@@ -17,6 +17,7 @@ const Role = require("../models/role.model");
 const Permission = require("../models/permission.model");
 const RoleHandler = require("../handlers/role.handler");
 const { ensureTenantRoles } = require("../services/tenantRoleProvisioning");
+const { loadManifest } = require("../services/tenantRoleManifest");
 
 jest.setTimeout(120000);
 const describeDb = mongodBin ? describe : describe.skip;
@@ -182,6 +183,15 @@ describeDb("ensureTenantRoles (real replica set)", () => {
     expect(invalidate).not.toHaveBeenCalled();
     const r = await run(A);
     expect([r.inserted, r.skipped]).toEqual([["ASU", "MO"], [{ code: "MEMBER", reason: "EXISTS" }]]);
+  });
+
+  test("the committed (PROVISIONAL) tenantRoles.v1.json provisions a fresh tenant against a catalogue holding exactly its codes", async () => {
+    const real = loadManifest();
+    await seedCatalogue(real.manifest.roles.flatMap((r) => r.permissions));
+    const r = await ensureTenantRoles(A, { version: real.version, sha256: real.sha256 }, { invalidate });
+    expect(r.inserted).toEqual(real.manifest.roles.map((x) => x.code));
+    expect(await Role.countDocuments({ tenantId: A })).toBe(real.manifest.roles.length);
+    expect(await Role.countDocuments({ tenantId: A, code: "SU" })).toBe(0);
   });
 
   test("manifest absent from the build -> MANIFEST_NOT_FOUND, fail closed, nothing written", async () => {
