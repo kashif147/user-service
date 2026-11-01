@@ -231,6 +231,11 @@ test("legacy SU '*' / ASU / ordinary users: unchanged tenant chain - own tenant 
       const other = await request(method, url, asTenant(roles, perms));
       expect({ roles, method, url, status: other.status, violation: other.body?.error?.tenantScopeViolation }).toEqual({ roles, method, url, status: 403, violation: true });
       const own = await request(method, url.replace(B, A), asTenant(roles, perms));
+      if ((method === "DELETE" && url === `/api/tenants/${B}`) || (method === "PUT" && url === `/api/tenants/${B}/status`)) {
+        // P5 / D6: tenant lifecycle is platform-only - no tenant actor (ASU, legacy SU "*", ordinary) on its own tenant
+        expect({ roles, method, url, status: own.status, code: own.body?.error?.code }).toEqual({ roles, method, url, status: 403, code: "TENANT_LIFECYCLE_PLATFORM_ONLY" });
+        continue;
+      }
       expect({ roles, method, url, status: own.status, platform: own.body.platform }).toEqual({ roles, method, url, status: 200, platform: null });
     }
     const list = await request("GET", "/api/tenants", asTenant(roles, perms));
