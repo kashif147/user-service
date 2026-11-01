@@ -22,7 +22,8 @@
  *  - platform:permission-catalogue:manage        the global permission catalogue (permission.routes writes)
  *  - platform:reference-data:manage              shared reference data writes (lookups, lookup types, countries,
  *                                                contacts, contact types)
- *  - platform:provisioning:admin                 platform templates, provisioning runs (reserved until P3)
+ *  - platform:provisioning:admin                 provisioning control plane (P1): components, published templates,
+ *                                                provisioning runs (/api/platform/provisioning/*)
  *  - platform:principals:manage                  PlatformPrincipal records (reserved; the reviewed script is the only writer)
  *
  * Each code is matched EXACTLY (middlewares/requirePlatformPermission.js): no wildcard, no prefix, no

@@ -185,3 +185,28 @@ the redirect URI is always the app registration's.
   403 "You don't have access to this organisation", before any update, role sync or token. Roles are
   never restored at sign-in. Note: the membership promotion/approval/demotion listeners still set
   MEMBER/NON-MEMBER regardless of the user's current roles (unchanged).
+
+## Provisioning control plane (Phase B / P1)
+
+`/api/platform/provisioning/*` (`routes/provisioning.routes.js`) - every route is
+`requirePlatformPermission("platform:provisioning:admin", { mode: "route-enforce" })`: a live PlatformPrincipal
+with that exact permission only; ASU / legacy SU `*` / tenant permissions never pass. P1 records and plans - it
+dispatches nothing to other services (P3 = transactional outbox after rabbitmq-middleware M1; P4 = per-service
+consumers calling each service's `ensureTenantDefaults`).
+
+- **Components** (`constants/provisioningComponents.js`): the 7 service-owned grid-default manifests, pinned by
+  version AND raw-file sha256 of the owning service's develop. Changing a manifest file = re-pin + a NEW
+  template version.
+- **PlatformTemplate** (`models/platformTemplate.model.js`): no `tenantId`; published only by
+  `scripts/platform-template.js` from the reviewed definition in `constants/platformTemplates.js` (dry run by
+  default, `--expect-db <db>` explicit target required, insert-only, refuses a different hash for an existing
+  version); immutable (only published -> retired, never deleted). Not run on any environment yet.
+- **ProvisioningRun** (`models/provisioningRun.model.js`): one per (internal tenantId, template key, version);
+  the target is the INTERNAL tenant id only (organisation code / Entra tid / domain are refused, never resolved);
+  create-or-get is idempotent; step results are compare-and-set, in order, never overwritten; a failed
+  required step fails the run; resume re-opens only unfinished steps. tenantId immutable (A15 plugin).
+- **Audit**: `platform.provisioning.run.changed.v1` (platform actor, target = run tenant) and
+  `platform.provisioning.template.published.v1` (system actor `platform:provisioning`) -> audit-service
+  `platform_audit_logs` (audit-service must allow-list them first).
+- Not under the A14 freeze (per-tenant control-plane records). New-tenant role creation is still
+  `initializeTenantRoles` (clone of the live MAIN tenant's roles, never SU) - not a versioned source yet.

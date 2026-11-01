@@ -380,7 +380,9 @@ test("no generic platform business-data bypass: req.platform is set only by the 
   walk(ROOT);
   // Readers: the tenant controller (global list), the audit service, the Z2 DEV probe. Writers: only the two guards
   // (Object.defineProperty(req, "platform", ...) in requirePlatformPermission.js / platformTenantAdmin.js).
-  expect(hits.sort()).toEqual(["controllers/tenant.controller.js", "routes/platformProbe.routes.js", "services/platformAuditService.js"]);
+  // Phase B / P1: the provisioning controller reads req.platform.pid (actor of a run) - every route reaching it is
+  // requirePlatformPermission("platform:provisioning:admin", route-enforce); it is not a business-data bypass.
+  expect(hits.sort()).toEqual(["controllers/provisioning.controller.js", "controllers/tenant.controller.js", "routes/platformProbe.routes.js", "services/platformAuditService.js"]);
   const guard = stripComments(fs.readFileSync(path.join(ROOT, "middlewares", "platformTenantAdmin.js"), "utf8"));
   expect(guard).not.toMatch(/x-target-tenant-id|req\.body(?!\?\.status)|req\.query|ctx\.tenantId\s*=[^=]/); // the body is read only for the status-change label
   const routes = stripComments(fs.readFileSync(path.join(ROOT, "routes", "tenant.routes.js"), "utf8"));
