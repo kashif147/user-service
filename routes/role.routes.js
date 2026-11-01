@@ -107,6 +107,16 @@ router.get(
   RoleController.getAllUsers
 );
 
+// Id -> display name for users referenced by issue records (createdBy/owner/resolvedBy).
+// Gated on issues:read (owner decision 2026-10-31) rather than user:read: issue staff need
+// names for the ids already on cases they can read, without the broader user:read (which
+// also unlocks GET /users with roles). Returns only id/fullName/email, own tenant only.
+router.post(
+  "/users/lookup",
+  defaultPolicyAdapter.middleware("issues", "read"),
+  RoleController.lookupUserDisplayNames
+);
+
 router.get(
   "/roles/users/by-role",
   defaultPolicyAdapter.middleware("role", "read"),
