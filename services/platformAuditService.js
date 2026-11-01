@@ -53,6 +53,7 @@ const EVENTS = Object.freeze({
   TENANT_LIFECYCLE_CHANGED: "tenant.lifecycle.changed.v1",
   PLATFORM_PROVISIONING_RUN_CHANGED: "platform.provisioning.run.changed.v1",
   PLATFORM_PROVISIONING_TEMPLATE_PUBLISHED: "platform.provisioning.template.published.v1",
+  PLATFORM_PROVISIONING_STEP_CHANGED: "platform.provisioning.step.changed.v1",
 });
 const PROVISIONING_PERMISSION = "platform:provisioning:admin";
 const PROVISIONING_ACTOR = "platform:provisioning";
@@ -339,7 +340,39 @@ function auditTemplatePublished({ action, result, reason, templateKey, templateV
   }, { auditContext: systemAuditContext(), correlationId });
 }
 
+/**
+ * Phase B / P3 prerequisite: a provisioning STEP transition by the orchestrator (reserved system actor
+ * platform:provisioning) for ONE verified target tenant - the only system event audit-service accepts with a
+ * target tenant (audit-service SYSTEM_TARGET_EVENTS). Ids, statuses, counts and fixed codes only. Fire-and-forget.
+ */
+function auditProvisioningStep({ action, result, reason, tenantId, runId, stepKey, attempt, stepStatus, runStatus, insertedCount, skippedCount, failureCode, component, manifestVersion }) {
+  const target = tenantOrNull(tenantId);
+  if (!target) {
+    warn("platform.audit.skipped", { eventType: EVENTS.PLATFORM_PROVISIONING_STEP_CHANGED, reason: "no_target_tenant" });
+    return Promise.resolve(false);
+  }
+  const opt = (k, v) => (v !== undefined && v !== null ? { [k]: v } : {});
+  return publish(EVENTS.PLATFORM_PROVISIONING_STEP_CHANGED, {
+    actorId: PROVISIONING_ACTOR,
+    tenantId: target,
+    action,
+    result,
+    ...opt("reason", reason),
+    runId,
+    stepKey,
+    ...opt("attempt", attempt),
+    ...opt("component", component),
+    ...opt("manifestVersion", manifestVersion),
+    ...opt("stepStatus", stepStatus),
+    ...opt("runStatus", runStatus),
+    ...opt("insertedCount", insertedCount),
+    ...opt("skippedCount", skippedCount),
+    ...opt("failureCode", failureCode),
+  }, { auditContext: { actorScope: "system", actorTenantId: null, targetTenantId: target }, correlationId: stepKey });
+}
+
 module.exports = {
+  auditProvisioningStep,
   auditProvisioningRun,
   auditTemplatePublished,
   PROVISIONING_RUN_ACTIONS,

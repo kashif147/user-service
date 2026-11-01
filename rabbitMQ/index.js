@@ -64,6 +64,8 @@ async function initEventSystem() {
       // Phase B / P1: provisioning control plane (-> platform_audit_logs)
       "platform.provisioning.run.changed.v1": "user.events",
       "platform.provisioning.template.published.v1": "user.events",
+      // Phase B / P3 prerequisite: orchestrator step audit (system actor + verified target; audit-service #10)
+      "platform.provisioning.step.changed.v1": "user.events",
     });
     
     isInitialized = true;

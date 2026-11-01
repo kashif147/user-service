@@ -26,6 +26,11 @@ const FILES = [
   "controllers/provisioning.controller.js",
   "routes/provisioning.routes.js",
   "scripts/platform-template.js",
+  // P3 prerequisites
+  "constants/provisioningStepKeys.js",
+  "models/provisioningOutbox.model.js",
+  "services/provisioningOrchestrator.js",
+  "services/provisioningOutboxPublisher.js",
 ];
 const src = (f) => fs.readFileSync(path.join(ROOT, f), "utf8");
 const requires = (f) => [...src(f).matchAll(/require\(\s*["'`]([^"'`]+)["'`]\s*\)/g)].map((m) => m[1]);
