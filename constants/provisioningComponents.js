@@ -17,6 +17,8 @@
  * same digest over the file it ships and refuse a step whose digest differs - the version number alone does
  * not pin content. Changing a manifest file (even its notes) changes the digest: re-pin here and publish a
  * NEW template version; a published template is never edited.
+ * Finalized 2026-11-01 (owner): no pinned manifest is provisional - profile, subscription and notification were
+ * re-pinned after their metadata-only finalization (provisional status cleared, templates unchanged).
  *
  * P1 registers capabilities only. Nothing in user-service calls another service: dispatch is the P3
  * transactional outbox (tenant.provisioning.* events, rabbitmq-middleware M1) and the per-service consumers
@@ -70,7 +72,7 @@ const COMPONENTS = Object.freeze([
     manifestPath: "config/gridSystemDefaults.v1.json",
     collection: "templates",
     templateTypes: ["profile"],
-    manifestSha256: "c3e0404b77ec8a57b0eb883d515a9fdbd51afe507d03395c46d496efd7b39b65",
+    manifestSha256: "83cd64ef060f44cd151954b5d3c1f7ec8fa9b535e510afd648c747f309395d23",
   }),
   grid("reporting-service", {
     kitPath: "services/tenantGridDefaults.js",
@@ -85,14 +87,14 @@ const COMPONENTS = Object.freeze([
     manifestPath: "config/gridSystemDefaults.v1.json",
     collection: "templates",
     templateTypes: ["members"],
-    manifestSha256: "bac771fb8430ee6a98b986302e72daadebbf5096ce5c5e9ec9de7e3436197f36",
+    manifestSha256: "f1ef58f23b6144a69b6ccd2d1fa0d35977e9b31efadb8460a6232a1ee75517c8",
   }),
   grid("notification-service", {
     kitPath: "services/tenantGridDefaults.js",
     manifestPath: "config/gridSystemDefaults.v1.json",
     collection: "notificationfiltertemplates",
     templateTypes: ["notification"],
-    manifestSha256: "7b54ea500d5e1e268099d03a01e84c8f143a65384a1a7191891d3db54c290020",
+    manifestSha256: "add157a41f2669343603f54e34646d76db9f04ff0b668d03f897c9edd77e6758",
   }),
   grid("issue-service", {
     kitPath: "services/tenantGridDefaults.js",

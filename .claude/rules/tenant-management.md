@@ -198,8 +198,9 @@ consumers calling each service's `ensureTenantDefaults`).
   version AND raw-file sha256 of the owning service's develop. Changing a manifest file = re-pin + a NEW
   template version.
 - **PlatformTemplate** (`models/platformTemplate.model.js`): no `tenantId`; published only by
-  `scripts/platform-template.js` from the reviewed definition in `constants/platformTemplates.js`; immutable
-  (only published -> retired, never deleted). Not run on any environment yet.
+  `scripts/platform-template.js` from the reviewed definition in `constants/platformTemplates.js` (dry run by
+  default, `--expect-db <db>` explicit target required, insert-only, refuses a different hash for an existing
+  version); immutable (only published -> retired, never deleted). Not run on any environment yet.
 - **ProvisioningRun** (`models/provisioningRun.model.js`): one per (internal tenantId, template key, version);
   the target is the INTERNAL tenant id only (organisation code / Entra tid / domain are refused, never resolved);
   create-or-get is idempotent; step results are compare-and-set, in order, never overwritten; a failed

@@ -4,10 +4,13 @@
  *
  *   node scripts/platform-template.js list
  *   node scripts/platform-template.js verify  --key <key> --version <n>
- *   node scripts/platform-template.js publish --key <key> --version <n> --by <operator> --approval <ref> [--execute]
- *   node scripts/platform-template.js retire  --key <key> --version <n> --by <operator> --approval <ref> [--execute]
+ *   node scripts/platform-template.js publish --key <key> --version <n> --by <operator> --approval <ref> \
+ *        --expect-db <connected database name> [--execute]
+ *   node scripts/platform-template.js retire  --key <key> --version <n> --by <operator> --approval <ref> \
+ *        --expect-db <connected database name> [--execute]
  *
- * Dry run unless --execute. publish is insert-only: an already published version with the SAME contentHash is
+ * Dry run unless --execute. Every publish / retire (dry run included) needs --expect-db: the explicit target
+ * database, which must equal the database the connection actually opened - otherwise nothing is read or written. publish is insert-only: an already published version with the SAME contentHash is
  * reported and left untouched; a different contentHash for an existing key+version is refused (versions are
  * immutable - add a new version instead). retire only flips published -> retired; nothing is ever deleted.
  *
@@ -67,8 +70,16 @@ async function audit(opts, fields) {
   if (!ok) process.exitCode = 2;
 }
 
+function requireTarget(opts) {
+  const db = mongoose.connection.db && mongoose.connection.db.databaseName;
+  if (!opts["expect-db"]) throw new Error("--expect-db <database name> is required (explicit target)");
+  if (opts["expect-db"] !== db) throw new Error(`refusing: connected to "${db}" but --expect-db="${opts["expect-db"]}"`);
+  console.log(`target database: ${db}`);
+}
+
 async function publish(opts) {
   requireActor(opts);
+  requireTarget(opts);
   const { def, hash } = definitionFor(opts);
   const existing = await PlatformTemplate.findOne({ key: def.key, version: def.version }).lean();
   if (existing) {
@@ -93,6 +104,7 @@ async function publish(opts) {
 
 async function retire(opts) {
   requireActor(opts);
+  requireTarget(opts);
   const existing = await PlatformTemplate.findOne({ key: opts.key, version: opts.version }).lean();
   if (!existing) throw new Error("template version not found");
   if (existing.status === "retired") return console.log(`already retired - nothing written: ${show(existing)}`);
