@@ -18,6 +18,33 @@ content decisions are complete. Without it, `ensureTenantRoles` fails closed (`M
   - duplicate codes or names, placeholder text, extra or missing keys, and out-of-range levels.
 - `catalogueProblems()` requires every permission to be an **active**, non-platform catalogue code.
 
+## 1a. Canonical content — `config/tenantRoles.v1.json` (PROVISIONAL, HELD — do not merge)
+
+- sha256 **5fc7f548ccdceb3359af46d88e8847e799df792196d68a16c711e3654c90e43f** — provisional: it changes until the
+  portal authorization remediation and the owner's content decisions close.
+- 24 roles (NOTIFIER and AI excluded, no SU). Categories:
+
+  | Roles | Category |
+  |---|---|
+  | ASU | SYSTEM |
+  | staff (all other roles) | CRM |
+  | MEMBER / NON-MEMBER | PORTAL |
+
+- Owner decisions applied (D1–D8 and 2026-11-01):
+  - ASU description: "Assistant Super User: highest administrator of its own tenant"; no TENANT_DELETE anywhere.
+  - REO: mutation-free; additions PRODUCT_READ, APPLICATION_READ, CRM_MEMBER_READ, CRM_ACCESS approved;
+    **TENANT_READ is conditional** — do not rely on it until the PDP category rule is fixed (today the category rule
+    denies `tenant:read` to every non-ASU CRM role).
+  - MO: ISSUES_READ, PRODUCT_READ, PRODUCT_TYPE_READ, PRICING_READ approved; **ISSUES_WRITE not approved** (it would
+    allow any issue type; complaint creation needs a narrower design); USER_READ kept provisionally (to be proven);
+    PAYMENTS_WRITE stays removed.
+  - **MEMBER / NON-MEMBER: NOT FROZEN** — carried with dead legacy codes dropped only, pending the portal
+    tenant/object authorization security remediation.
+  - No inactive, test-like or duplicate/dead catalogue code is referenced.
+- Tests: `tests/tenantRoles.p5.committedManifest.test.js`, `tests/tenantRoles.p5.pdp.test.js` (fixture
+  `tests/fixtures/p5-dev-permission-catalogue.json`: DEV catalogue codes/categories + live REO/MO/MEMBER/NON-MEMBER
+  code sets only, no data).
+
 ## 2. `ensureTenantRoles(targetTenantId, { version, sha256 })` — `services/tenantRoleProvisioning.js`
 
 1. **Inputs:**
