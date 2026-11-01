@@ -113,12 +113,17 @@ permissions.
 
 ## 9. Open decisions before activation
 
-- **DEVTENANTB slot**: the unique `(tenantId, templateKey, templateVersion)` slot for DEVTENANTB /
+- **DEVTENANTB slot** (decided 2026-11-01: the first P3 proof uses a NEW disposable DEV tenant; the P2 run stays
+  untouched history): the unique `(tenantId, templateKey, templateVersion)` slot for DEVTENANTB /
   `standard-tenant@1` is held by the legacy v1 P2 run (never rewritten, never dispatchable). A first real P3 run
   therefore needs another target (e.g. the roadmap's P6 throwaway tenant), a `standard-tenant` v2, or an
   explicitly reviewed supersede mechanism for legacy runs.
-- **Stuck `running` step**: if its outbox row goes `dead`, nothing currently fails the step (`resumeRun` accepts
-  only `failed`). Needs a reviewed platform action (fail the step with a fixed code, or requeue the dead row).
+- **Stuck `running` step** (decided 2026-11-01, implemented): no generic requeue. Platform route
+  `POST /api/platform/provisioning/tenants/:targetTenantId/runs/:runId/recover-delivery` `{ stepKey, attempt }`
+  (platform:provisioning:admin): if the outbox row of the SAME run / step key / attempt is `dead` and the step is
+  still `running`, one transaction fails step + run with the fixed code `OUTBOX_DELIVERY_EXHAUSTED` (history
+  `delivery-exhausted`, step audit). Idempotent; anything else refused. The dead row stays as evidence; platform
+  resume then starts a new attempt with a new event id. Services can never report this code.
 
 ## 10. Not done here (P3 activation / P4)
 

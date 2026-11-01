@@ -25,5 +25,7 @@ router.post(`${BASE}/tenants/:targetTenantId/runs`, guard(), ProvisioningControl
 router.get(`${BASE}/runs`, guard(), ProvisioningController.listRuns);
 router.get(`${BASE}/runs/:runId`, guard(), ProvisioningController.getRun);
 router.post(`${BASE}/runs/:runId/resume`, guard(), ProvisioningController.resumeRun);
+// P3 recovery: fail a running step whose request event is dead (fixed code OUTBOX_DELIVERY_EXHAUSTED); then resume.
+router.post(`${BASE}/tenants/:targetTenantId/runs/:runId/recover-delivery`, guard(), ProvisioningController.recoverDelivery);
 
 module.exports = router;

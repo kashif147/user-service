@@ -35,6 +35,7 @@ const Tenant = require("../models/tenant.model");
 const PlatformTemplate = require("../models/platformTemplate.model");
 const ProvisioningRun = require("../models/provisioningRun.model");
 const runService = require("../services/provisioningRunService");
+const orchestrator = require("../services/provisioningOrchestrator");
 const { DEFINITIONS, templateContentHash } = require("../constants/platformTemplates");
 const { PLATFORM_PERMISSIONS } = require("../constants/platformPermissions");
 
@@ -133,10 +134,10 @@ const runPath = (target) => `/api/platform/provisioning/tenants/${encodeURICompo
 const createRun = (headers, target, body = { templateKey: DEF.key, templateVersion: DEF.version }) => request("POST", runPath(target), headers, body);
 const runEvents = () => mockPublished.filter((p) => p[0] === "platform.provisioning.run.changed.v1");
 
-test("the surface: 7 routes, every one guarded by exactly platform:provisioning:admin (route-enforce)", () => {
+test("the surface: 8 routes, every one guarded by exactly platform:provisioning:admin (route-enforce)", () => {
   const router = require("../routes/provisioning.routes");
   const layers = router.stack.filter((l) => l.route);
-  expect(layers).toHaveLength(7);
+  expect(layers).toHaveLength(8);
   for (const l of layers) expect(l.route.stack[0].name).toBe("platformAuthzGuard");
 });
 
@@ -306,4 +307,30 @@ test("a refusal never records an unverified tenant as the audit target", async (
   expect([notFound[1].reason, notFound[2].auditContext.targetTenantId, notFound[1].tenantId]).toEqual(["tenant_not_found", null, undefined]);
   expect([badVersion[1].reason, badVersion[2].auditContext.targetTenantId]).toEqual(["bad_request", null]);
   expect([unpublished[1].reason, unpublished[2].auditContext.targetTenantId]).toEqual(["template_not_published", TARGET]);
+});
+
+// ── P3 dead-outbox recovery route ────────────────────────────────────────────────────────────────────────────────
+const RECOVER = `/api/platform/provisioning/tenants/${TARGET}/runs/${RUN_ID}/recover-delivery`;
+const STEP_KEY = `psk2:${RUN_ID}:events-service:grid-system-defaults:ensure-defaults`;
+test("recover-delivery: only the exact platform permission reaches it; tenant actors, forged headers and no token never do", async () => {
+  const spy = jest.spyOn(orchestrator, "failDeliveryExhaustedStep").mockResolvedValue({ changed: true, run: storedRun({ status: "failed", failureCode: "OUTBOX_DELIVERY_EXHAUSTED" }) });
+  const body = { stepKey: STEP_KEY, attempt: 1 };
+  expect((await request("POST", RECOVER, PRINCIPAL(), body)).status).toBe(200);
+  expect(spy.mock.calls[0][0]).toEqual({ tenantId: TARGET, runId: RUN_ID, stepKey: STEP_KEY, attempt: 1, principalId: PID });
+  for (const [, h] of TENANT_ACTORS) expect((await request("POST", RECOVER, h(), body)).status).toBe(403);
+  const forged = { ...TENANT_ACTORS[2][1](), "x-platform-pid": PID, "x-platform-permissions": "platform:provisioning:admin", "x-user-permissions": "platform:provisioning:admin" };
+  expect((await request("POST", RECOVER, forged, body)).status).toBe(403);
+  expect((await request("POST", RECOVER, { "x-platform-pid": PID }, body)).status).toBe(401);
+  principalState.permissions = ["platform:tenant:update:any"];
+  expect((await request("POST", RECOVER, PRINCIPAL(), body)).status).toBe(403);
+  expect(spy).toHaveBeenCalledTimes(1);
+});
+
+test("recover-delivery: no caller-supplied failure code (or any other field) is accepted", async () => {
+  const spy = jest.spyOn(orchestrator, "failDeliveryExhaustedStep");
+  for (const extra of [{ failureCode: "TIMEOUT" }, { failureCode: "OUTBOX_DELIVERY_EXHAUSTED" }, { status: "failed" }, { tenantId: TARGET }]) {
+    const res = await request("POST", RECOVER, PRINCIPAL(), { stepKey: STEP_KEY, attempt: 1, ...extra });
+    expect([400, 403]).toContain(res.status); // 403 = tenant-context guard for a foreign body tenantId
+  }
+  expect(spy).not.toHaveBeenCalled();
 });
