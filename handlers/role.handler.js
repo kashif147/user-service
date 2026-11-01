@@ -374,6 +374,9 @@ module.exports.isProtectedRole = isProtectedRole;
 module.exports.isReservedPermission = isReservedPermission;
 module.exports.assertTenantGrantablePermissions = assertTenantGrantablePermissions;
 
+// P5: every successful role / role-permission write invalidates that tenant's role-derived caches (best effort).
+const invalidateRoleCaches = (tenantId) => require("../services/tenantRoleCache").invalidateTenantRoleCaches(tenantId);
+
 module.exports.createRole = async (roleData, tenantId, createdBy, actor) => {
   try {
     await assertRoleChangeAllowed(actor, null, roleData || {});
@@ -383,6 +386,7 @@ module.exports.createRole = async (roleData, tenantId, createdBy, actor) => {
       createdBy,
     });
     await role.save();
+    await invalidateRoleCaches(tenantId);
     return role;
   } catch (error) {
     if (error instanceof RolePrivilegeError) throw error;
@@ -426,9 +430,11 @@ module.exports.updateRole = async (roleId, updateData, tenantId, updatedBy, acto
     if (!role) {
       throw new Error("Role not found");
     }
+    await invalidateRoleCaches(tenantId);
     return role;
   } catch (error) {
     if (error instanceof RolePrivilegeError) throw error;
+    if (error && error.code === Role.ROLE_CODE_IMMUTABLE) throw error;
     throw new Error(`Error updating role: ${error.message}`);
   }
 };
@@ -451,6 +457,7 @@ module.exports.deleteRole = async (roleId, tenantId) => {
     }
 
     await Role.findOneAndUpdate({ _id: roleId, tenantId }, { isActive: false });
+    await invalidateRoleCaches(tenantId);
     return { message: "Role deleted successfully" };
   } catch (error) {
     throw new Error(`Error deleting role: ${error.message}`);
@@ -496,6 +503,7 @@ module.exports.updateRolePermissions = async (
     if (!role) {
       throw new Error("Role not found");
     }
+    await invalidateRoleCaches(tenantId);
     return role;
   } catch (error) {
     if (error instanceof RolePrivilegeError) throw error;

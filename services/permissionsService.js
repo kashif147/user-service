@@ -245,6 +245,17 @@ class PermissionsService {
   }
 
   /**
+   * P5: clear ONE tenant's role-permission entries (role_permissions:<tenant>:*) - no global flush.
+   */
+  async clearTenantRoleCache(tenantId) {
+    const tid = tenantId == null ? "" : String(tenantId).trim();
+    if (!tid) return 0;
+    const keys = await cache.keys(`${this.rolePermissionsCacheKey}:${tid}:*`);
+    if (keys.length > 0) await cache.del(...keys);
+    return keys.length;
+  }
+
+  /**
    * Refresh permissions cache
    */
   async refreshCache() {
