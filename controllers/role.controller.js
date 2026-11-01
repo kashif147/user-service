@@ -77,6 +77,9 @@ module.exports.updateRole = async (req, res, next) => {
     if (error instanceof RoleHandler.RolePrivilegeError) {
       return next(AppError.forbidden(error.message, { code: error.code }));
     }
+    if (error && error.code === "ROLE_CODE_IMMUTABLE") {
+      return next(new AppError("The code of a provisioned role cannot be changed", 409, "ROLE_CODE_IMMUTABLE"));
+    }
     return next(AppError.internalServerError("Failed to update role"));
   }
 };
