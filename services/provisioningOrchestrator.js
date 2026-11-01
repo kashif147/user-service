@@ -52,6 +52,8 @@ const RESULT_CODES = Object.freeze({
   MANIFEST_DIGEST_MISMATCH: "MANIFEST_DIGEST_MISMATCH",
   RECORDED: "RECORDED",
 });
+const DELIVERY_EXHAUSTED = "OUTBOX_DELIVERY_EXHAUSTED";
+const RECOVERY_CODES = Object.freeze({ OUTBOX_NOT_DEAD: "OUTBOX_NOT_DEAD", STEP_NOT_RUNNING: "STEP_NOT_RUNNING", TENANT_MISMATCH: "TENANT_MISMATCH", INVALID_STEP_KEY: "INVALID_STEP_KEY" });
 const err = (status, code, message) => new AppError(message, status, code);
 
 function requestPayload(run, step) {
@@ -127,7 +129,8 @@ async function handleStepResultEvent({ eventType, envelope }) {
   if (!key || key.version !== STEP_KEY_VERSION || key.runId !== d.runId) return refused(RESULT_CODES.INVALID_STEP_KEY);
   if (!Number.isInteger(d.attempt) || d.attempt < 1 || typeof d.manifestSha256 !== "string" || !SHA256.test(d.manifestSha256)) return refused(RESULT_CODES.MALFORMED_EVENT);
   if (eventType === COMPLETED && ![d.insertedCount, d.skippedCount].every((n) => Number.isInteger(n) && n >= 0)) return refused(RESULT_CODES.MALFORMED_EVENT);
-  if (eventType === FAILED && !FAILURE_CODES.includes(d.failureCode)) return refused(RESULT_CODES.MALFORMED_EVENT);
+  // OUTBOX_DELIVERY_EXHAUSTED is the platform recovery's own code - a service can never report it
+  if (eventType === FAILED && (!FAILURE_CODES.includes(d.failureCode) || d.failureCode === "OUTBOX_DELIVERY_EXHAUSTED")) return refused(RESULT_CODES.MALFORMED_EVENT);
 
   const run = await ProvisioningRun.findOne({ runId: d.runId }).lean();
   if (!run) return refused(RESULT_CODES.UNKNOWN_RUN);
@@ -190,4 +193,60 @@ async function handleStepResultEvent({ eventType, envelope }) {
   return { outcome: "recorded", code, runStatus: after.status, stepStatus: s.status };
 }
 
-module.exports = { requestNextStep, handleStepResultEvent, RESULT_CODES, EVENT_TYPES: Object.freeze({ REQUESTED, COMPLETED, FAILED }), ORCHESTRATOR, requestPayload };
+/**
+ * P3 recovery (owner decision 2026-11-01): a step whose request event can no longer be delivered. NO generic
+ * requeue: in ONE transaction, a RUNNING step of an open v2 run whose outbox row for the SAME run, step key and
+ * attempt is "dead" -> step failed + run failed with the fixed code OUTBOX_DELIVERY_EXHAUSTED (history
+ * "delivery-exhausted"). The caller supplies no code. The dead row itself is not changed (evidence); the existing
+ * platform resume then starts a NEW attempt with its own event id. Repeating the recovery for a step already
+ * failed this way is a no-op ({ changed: false }); anything else that does not match exactly is refused.
+ * Writes only the run (never tenant application data). Caller: platform route with platform:provisioning:admin.
+ */
+async function failDeliveryExhaustedStep({ tenantId, runId, stepKey, attempt, principalId }, { startSession = () => mongoose.startSession() } = {}) {
+  if (typeof tenantId !== "string" || !INTERNAL_TENANT_ID.test(tenantId)) throw err(400, runs.CODES.INTERNAL_TENANT_ID_REQUIRED, "An internal tenant id is required");
+  if (!Number.isInteger(attempt) || attempt < 1) throw err(400, "BAD_REQUEST", "attempt must be an integer >= 1");
+  const key = parseStepKey(stepKey);
+  if (!key || key.version !== STEP_KEY_VERSION || key.runId !== String(runId)) throw err(400, RECOVERY_CODES.INVALID_STEP_KEY, "A canonical step key of this run is required");
+  if (typeof principalId !== "string" || !/^[0-9a-f]{24}$/.test(principalId)) throw new Error("a platform principal id is required");
+  const actor = { scope: "platform", principalId, actorId: null };
+  const session = await startSession();
+  let out;
+  try {
+    await session.withTransaction(async () => {
+      const run = await ProvisioningRun.findOne({ runId: String(runId) }).session(session).lean();
+      if (!run) throw err(404, runs.CODES.RUN_NOT_FOUND, "Provisioning run not found");
+      if (run.tenantId !== tenantId) throw err(404, runs.CODES.RUN_NOT_FOUND, "Provisioning run not found"); // never confirm another tenant's run
+      if (run.stepKeyVersion !== STEP_KEY_VERSION) throw err(409, runs.CODES.LEGACY_STEP_KEY_VERSION, "Run predates the canonical step key; it is history only");
+      const step = run.steps.find((s) => s.key === stepKey);
+      if (!step) throw err(404, runs.CODES.STEP_NOT_FOUND, "Step not found");
+      if (attempt !== run.attempt) throw err(409, runs.CODES.STALE_ATTEMPT, "Not the run's current attempt");
+      if (step.status === "failed" && step.failureCode === DELIVERY_EXHAUSTED && run.status === "failed" && run.failedStep === stepKey) {
+        out = { changed: false, run };
+        return;
+      }
+      if (step.status !== "running" || !OPEN_STATUSES.includes(run.status)) throw err(409, RECOVERY_CODES.STEP_NOT_RUNNING, "Step is not running");
+      const row = await ProvisioningOutbox.findOne({ eventType: REQUESTED, runId: run.runId, tenantId, stepKey, attempt }).session(session).lean();
+      if (!row || row.status !== "dead") throw err(409, RECOVERY_CODES.OUTBOX_NOT_DEAD, "The step's request event is not dead");
+      const now = new Date();
+      const upd = await ProvisioningRun.updateOne(
+        { runId: run.runId, tenantId, status: run.status, attempt, steps: { $elemMatch: { key: stepKey, status: "running" } } },
+        {
+          $set: { status: "failed", failureCode: DELIVERY_EXHAUSTED, failedStep: stepKey, "steps.$[s].status": "failed", "steps.$[s].failureCode": DELIVERY_EXHAUSTED, "steps.$[s].completedAt": now },
+          $push: { history: { $each: [{ at: now, action: "delivery-exhausted", actor, fromStatus: run.status, toStatus: "failed", step: stepKey, attempt }], $slice: -HISTORY_CAP } },
+        },
+        { arrayFilters: [{ "s.key": stepKey, "s.status": "running" }], session, runValidators: true }
+      );
+      if (upd.modifiedCount !== 1) throw err(409, runs.CODES.RUN_STATE_CONFLICT, "Concurrent change: step not failed");
+      out = { changed: true, run: await ProvisioningRun.findOne({ runId: run.runId, tenantId }).session(session).lean() };
+    });
+  } finally {
+    await session.endSession();
+  }
+  if (out.changed) {
+    const s = out.run.steps.find((x) => x.key === stepKey);
+    auditProvisioningStep({ action: "PROVISIONING_STEP_FAILED", result: "failure", reason: "outbox_delivery_exhausted", tenantId, runId: out.run.runId, stepKey, attempt, stepStatus: s.status, runStatus: out.run.status, failureCode: DELIVERY_EXHAUSTED, component: s.component, manifestVersion: s.version });
+  }
+  return out;
+}
+
+module.exports = { requestNextStep, handleStepResultEvent, failDeliveryExhaustedStep, RECOVERY_CODES, DELIVERY_EXHAUSTED, RESULT_CODES, EVENT_TYPES: Object.freeze({ REQUESTED, COMPLETED, FAILED }), ORCHESTRATOR, requestPayload };

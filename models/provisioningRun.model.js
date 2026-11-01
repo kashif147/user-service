@@ -36,8 +36,11 @@ const FAILURE_CODES = [
   "TENANT_ID_REJECTED",
   "ANOMALY_REFUSED",
   "STEP_ERROR",
+  // P3: a step whose request event could not be delivered (outbox row dead) - set ONLY by the platform recovery
+  // transition (provisioningOrchestrator.failDeliveryExhaustedStep), never accepted from a service.
+  "OUTBOX_DELIVERY_EXHAUSTED",
 ];
-const HISTORY_ACTIONS = ["created", "step-requested", "step-recorded", "failed", "succeeded", "resumed"];
+const HISTORY_ACTIONS = ["created", "step-requested", "step-recorded", "failed", "succeeded", "resumed", "delivery-exhausted"];
 
 const stepSchema = new mongoose.Schema(
   {

@@ -13,6 +13,7 @@ const { AppError } = require("../errors/AppError");
 const PlatformTemplate = require("../models/platformTemplate.model");
 const { COMPONENTS } = require("../constants/provisioningComponents");
 const runs = require("../services/provisioningRunService");
+const orchestrator = require("../services/provisioningOrchestrator");
 const { auditProvisioningRun } = require("../services/platformAuditService");
 
 const RUN_BODY_FIELDS = new Set(["templateKey", "templateVersion"]);
@@ -99,6 +100,28 @@ module.exports.resumeRun = async (req, res, next) => {
     return res.success(runs.toRunView(run));
   } catch (e) {
     if (e instanceof AppError) auditProvisioningRun({ req, action: "PROVISIONING_RUN_REFUSED", result: "failure", reason: String(e.code).toLowerCase() });
+    return fail(next, e);
+  }
+};
+
+/**
+ * P3 recovery: POST /tenants/:targetTenantId/runs/:runId/recover-delivery, body EXACTLY { stepKey, attempt }.
+ * The failure code is fixed (OUTBOX_DELIVERY_EXHAUSTED) - a body failureCode (or any other field) is refused.
+ */
+const RECOVERY_BODY_FIELDS = new Set(["stepKey", "attempt"]);
+module.exports.recoverDelivery = async (req, res, next) => {
+  const body = req.body && typeof req.body === "object" && !Array.isArray(req.body) ? req.body : {};
+  const target = req.params.targetTenantId;
+  const refuse = (e) => {
+    auditProvisioningRun({ req, action: "PROVISIONING_RUN_REFUSED", result: "failure", reason: String(e.code).toLowerCase() });
+    return next(e);
+  };
+  if (Object.keys(body).some((k) => !RECOVERY_BODY_FIELDS.has(k))) return refuse(new AppError("Unexpected field (the failure code is fixed)", 400, "BAD_REQUEST"));
+  try {
+    const out = await orchestrator.failDeliveryExhaustedStep({ tenantId: target, runId: req.params.runId, stepKey: body.stepKey, attempt: body.attempt, principalId: req.platform.pid });
+    return res.success({ changed: out.changed, run: runs.toRunView(out.run) });
+  } catch (e) {
+    if (e instanceof AppError) return refuse(e);
     return fail(next, e);
   }
 };
