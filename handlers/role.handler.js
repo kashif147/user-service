@@ -841,7 +841,7 @@ module.exports.getUsersByRole = async (roleId, tenantId) => {
 /**
  * Display names for a set of user ids, for hydrating id-only references (e.g. issue-service's
  * createdBy / owner.userId / resolvedByUserId) into names. Tenant-scoped: an id from another
- * tenant simply doesn't resolve. Returns only identity display fields, never roles/tokens.
+ * tenant simply doesn't resolve. Returns only { _id, fullName }, never email/roles/tokens.
  * Invalid ids are skipped rather than rejected - callers pass whatever ids they hold.
  */
 const USER_LOOKUP_MAX_IDS = 500;
@@ -858,8 +858,9 @@ module.exports.getUserDisplayNamesByIds = async (userIds, tenantId) => {
   ];
   if (!tenantId || ids.length === 0) return [];
 
+  // Minimum data: id + display name only (no email, roles, permissions, tenant or identity ids).
   const users = await User.find({ _id: { $in: ids }, tenantId })
-    .select("_id userEmail userFirstName userLastName userFullName")
+    .select("_id userFirstName userLastName userFullName")
     .lean();
 
   return users.map((user) => {
@@ -867,7 +868,6 @@ module.exports.getUserDisplayNamesByIds = async (userIds, tenantId) => {
     return {
       _id: String(user._id),
       fullName: (user.userFullName && String(user.userFullName).trim()) || composed || null,
-      email: user.userEmail || null,
     };
   });
 };

@@ -358,13 +358,15 @@ module.exports.getUsersByPermission = async (req, res, next) => {
 
 /**
  * POST /api/users/lookup  body: { ids: string[] }
- * Id -> display name/email for users in the caller's own tenant (see
+ * Id -> display name for users in the caller's own (verified) tenant (see
  * RoleHandler.getUserDisplayNamesByIds). POST rather than GET so id lists never land in the
  * gateway access log's query string.
  */
 module.exports.lookupUserDisplayNames = async (req, res, next) => {
   try {
-    const tenantId = req.ctx.tenantId;
+    // Tenant from the verified user token only (requireVerifiedUserToken), never from headers.
+    const tenantId = req.verifiedCaller?.tenantId;
+    if (!tenantId) return next(AppError.forbidden("Verified tenant context required"));
     const ids = req.body?.ids;
     if (!Array.isArray(ids)) {
       return next(AppError.badRequest("ids array is required"));
