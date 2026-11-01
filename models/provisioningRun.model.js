@@ -37,7 +37,7 @@ const FAILURE_CODES = [
   "ANOMALY_REFUSED",
   "STEP_ERROR",
 ];
-const HISTORY_ACTIONS = ["created", "step-recorded", "failed", "succeeded", "resumed"];
+const HISTORY_ACTIONS = ["created", "step-requested", "step-recorded", "failed", "succeeded", "resumed"];
 
 const stepSchema = new mongoose.Schema(
   {
@@ -89,6 +89,9 @@ const provisioningRunSchema = new mongoose.Schema(
     templateKey: { type: String, required: true, match: TEMPLATE_KEY, immutable: true },
     templateVersion: { type: Number, required: true, min: 1, immutable: true },
     templateContentHash: { type: String, required: true, match: SHA256, immutable: true },
+    // P3 prerequisite: 2 = canonical step keys (constants/provisioningStepKeys.js). Absent = legacy v1 keys (the P2
+    // proof run): kept as history, never rewritten, never dispatched.
+    stepKeyVersion: { type: Number, enum: [2], immutable: true },
     status: { type: String, required: true, enum: RUN_STATUSES, default: "pending" },
     attempt: { type: Number, required: true, min: 1, default: 1 },
     failureCode: { type: String, enum: [...FAILURE_CODES, null], default: null },

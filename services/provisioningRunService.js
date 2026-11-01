@@ -23,6 +23,8 @@ const Tenant = require("../models/tenant.model");
 const PlatformTemplate = require("../models/platformTemplate.model");
 const ProvisioningRun = require("../models/provisioningRun.model");
 const { getDefinition, templateContentHash } = require("../constants/platformTemplates");
+const { getComponent } = require("../constants/provisioningComponents");
+const { STEP_KEY_VERSION, buildStepKey, actionFor } = require("../constants/provisioningStepKeys");
 
 const { INTERNAL_TENANT_ID, OPEN_STATUSES, FAILURE_CODES } = ProvisioningRun;
 const HISTORY_CAP = 200;
@@ -37,6 +39,10 @@ const CODES = Object.freeze({
   STEP_NOT_FOUND: "STEP_NOT_FOUND",
   STEP_OUT_OF_ORDER: "STEP_OUT_OF_ORDER",
   INVALID_STEP_RESULT: "INVALID_STEP_RESULT",
+  // P3 prerequisite
+  LEGACY_STEP_KEY_VERSION: "LEGACY_STEP_KEY_VERSION",
+  STEP_NOT_REQUESTED: "STEP_NOT_REQUESTED",
+  STALE_ATTEMPT: "STALE_ATTEMPT",
 });
 
 const err = (status, code, message) => new AppError(message, status, code);
@@ -66,14 +72,13 @@ async function loadPublishedTemplate(templateKey, templateVersion) {
   return tpl;
 }
 
-const stepKey = (tenantId, tpl, c) => `${tenantId}:${tpl.key}@${tpl.version}:${c.service}:${c.component}`;
-
-function planSteps(tenantId, tpl) {
+// Canonical v2 step key (constants/provisioningStepKeys.js): psk2:<runId>:<service>:<component>:<action>.
+function planSteps(runId, tpl) {
   return [...tpl.components]
     .sort((a, b) => a.order - b.order)
     .map((c) => ({
       order: c.order,
-      key: stepKey(tenantId, tpl, c),
+      key: buildStepKey(runId, c.component, actionFor((getComponent(c.component) || {}).kind)),
       component: c.component,
       service: c.service,
       version: c.version,
@@ -97,14 +102,16 @@ async function createOrGetRun({ tenantId, templateKey, templateVersion, principa
 
   // The owner (and template identity) of an inserted run come from the upsert FILTER only - never from $setOnInsert.
   const filter = { tenantId, templateKey, templateVersion };
+  const runId = crypto.randomUUID();
   const insert = {
-    runId: crypto.randomUUID(),
+    runId,
+    stepKeyVersion: STEP_KEY_VERSION,
     templateContentHash: tpl.contentHash,
     status: "pending",
     attempt: 1,
     failureCode: null,
     failedStep: null,
-    steps: planSteps(tenantId, tpl),
+    steps: planSteps(runId, tpl),
     createdBy: actor,
     history: [historyEntry(actor, "created", null, "pending", 1)],
     completedAt: null,
@@ -140,10 +147,13 @@ async function listRuns({ tenantId } = {}) {
 }
 
 /**
- * P3/P4 entry point (no route in P1): record the result of ONE step.
- * result: { status: "succeeded" | "failed", insertedCount, skippedCount, failureCode }
+ * P3/P4 entry point (no route): record the result of ONE REQUESTED step (services/provisioningOrchestrator.js
+ * validates the result event first). result: { status: "succeeded" | "failed", insertedCount, skippedCount,
+ * failureCode }. Only v2 runs (stepKeyVersion 2), only a step that is "running" (requested), only for the run's
+ * current attempt (expectedAttempt), only after every earlier required step succeeded. A recorded terminal result
+ * is never overwritten.
  */
-async function recordStepResult({ runId, tenantId, stepKey: key, result, actor }) {
+async function recordStepResult({ runId, tenantId, stepKey: key, result, actor, expectedAttempt, session = null }) {
   assertInternalTenantId(tenantId);
   if (!actor || !["platform", "system"].includes(actor.scope)) throw new Error("an actor is required");
   const { status } = result || {};
@@ -152,13 +162,16 @@ async function recordStepResult({ runId, tenantId, stepKey: key, result, actor }
   if (status === "succeeded" && !counts.every((n) => Number.isInteger(n) && n >= 0)) throw err(400, CODES.INVALID_STEP_RESULT, "counts are required");
   if (status === "failed" && !FAILURE_CODES.includes(result.failureCode)) throw err(400, CODES.INVALID_STEP_RESULT, "a known failureCode is required");
 
-  const run = await ProvisioningRun.findOne({ runId, tenantId }).lean();
+  const run = await ProvisioningRun.findOne({ runId, tenantId }).session(session).lean();
   if (!run) throw err(404, CODES.RUN_NOT_FOUND, "Provisioning run not found");
+  if (run.stepKeyVersion !== STEP_KEY_VERSION) throw err(409, CODES.LEGACY_STEP_KEY_VERSION, "Run predates the canonical step key; it is history only");
   const step = run.steps.find((s) => s.key === key);
   if (!step) throw err(404, CODES.STEP_NOT_FOUND, "Step not found");
+  if (expectedAttempt !== undefined && expectedAttempt !== run.attempt) throw err(409, CODES.STALE_ATTEMPT, "Result is for another attempt of this run");
   if (!OPEN_STATUSES.includes(run.status) || !OPEN_STATUSES.includes(step.status)) {
     throw err(409, CODES.RUN_STATE_CONFLICT, "Step result already recorded or run not open");
   }
+  if (step.status !== "running") throw err(409, CODES.STEP_NOT_REQUESTED, "Step has not been requested");
   if (run.steps.some((s) => s.order < step.order && s.required && s.status !== "succeeded")) {
     throw err(409, CODES.STEP_OUT_OF_ORDER, "An earlier required step has not succeeded");
   }
@@ -185,16 +198,15 @@ async function recordStepResult({ runId, tenantId, stepKey: key, result, actor }
   }
   const action = runStatus === "failed" || runStatus === "succeeded" ? runStatus : "step-recorded";
   const upd = await ProvisioningRun.updateOne(
-    { runId, tenantId, status: run.status, attempt: run.attempt, steps: { $elemMatch: { key, status: step.status } } },
+    { runId, tenantId, status: run.status, attempt: run.attempt, steps: { $elemMatch: { key, status: "running" } } },
     {
       $set: set,
-      $inc: { "steps.$[s].attempts": 1 },
       $push: { history: { $each: [historyEntry(actor, action, run.status, runStatus, run.attempt, key)], $slice: -HISTORY_CAP } },
     },
-    { arrayFilters: [{ "s.key": key, "s.status": { $in: OPEN_STATUSES } }], runValidators: true }
+    { arrayFilters: [{ "s.key": key, "s.status": "running" }], runValidators: true, session }
   );
   if (upd.modifiedCount !== 1) throw err(409, CODES.RUN_STATE_CONFLICT, "Concurrent change: step result not recorded");
-  return ProvisioningRun.findOne({ runId, tenantId }).lean();
+  return ProvisioningRun.findOne({ runId, tenantId }).session(session).lean();
 }
 
 /** A failed run back to pending: completed steps are kept (skipped on replay), the rest re-opened. */
@@ -231,6 +243,7 @@ function toRunView(run) {
     templateKey: run.templateKey,
     templateVersion: run.templateVersion,
     templateContentHash: run.templateContentHash,
+    stepKeyVersion: run.stepKeyVersion === STEP_KEY_VERSION ? STEP_KEY_VERSION : 1,
     status: run.status,
     attempt: run.attempt,
     failureCode: run.failureCode,

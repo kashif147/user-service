@@ -4,17 +4,15 @@
  * compare-and-set step results, fail-stop, resume / replay, tenant ownership immutability, and that the control
  * plane writes nothing but its own two collections (no users, roles, permissions or tenant defaults).
  */
-const fs = require("fs");
-const os = require("os");
-const path = require("path");
-const net = require("net");
-const { spawn, spawnSync } = require("child_process");
 const mongoose = require("mongoose");
 
 const Tenant = require("../models/tenant.model");
 const PlatformTemplate = require("../models/platformTemplate.model");
 const ProvisioningRun = require("../models/provisioningRun.model");
 const runs = require("../services/provisioningRunService");
+const orchestrator = require("../services/provisioningOrchestrator");
+const ProvisioningOutbox = require("../models/provisioningOutbox.model");
+const { mongodBin, startReplSet } = require("./helpers/replSetMongod");
 const { DEFINITIONS, templateContentHash } = require("../constants/platformTemplates");
 
 jest.setTimeout(60000);
@@ -25,7 +23,6 @@ const OTHER = "6a00000000000000000000f2";
 const SYSTEM = { scope: "system", principalId: null, actorId: "platform:provisioning" };
 const ok = (inserted, skipped) => ({ status: "succeeded", insertedCount: inserted, skippedCount: skipped });
 
-const mongodBin = process.env.MONGOD_BIN || (spawnSync("sh", ["-c", "command -v mongod"], { encoding: "utf8" }).stdout || "").trim();
 const describeDb = mongodBin ? describe : describe.skip;
 if (!mongodBin) console.warn("provisioning P1 real-mongod tests skipped: no mongod binary (set MONGOD_BIN)");
 
@@ -38,37 +35,20 @@ describeDb("provisioning P1 against a real mongod", () => {
   let mongod;
   let dbPath;
   let tenantId;
+  let rs;
   beforeAll(async () => {
-    const port = await new Promise((resolve, reject) => {
-      const srv = net.createServer();
-      srv.listen(0, "127.0.0.1", () => { const { port: p } = srv.address(); srv.close(() => resolve(p)); });
-      srv.on("error", reject);
-    });
-    dbPath = fs.mkdtempSync(path.join(os.tmpdir(), "prov-p1-"));
-    mongod = spawn(mongodBin, ["--dbpath", dbPath, "--port", String(port), "--bind_ip", "127.0.0.1", "--quiet"], { stdio: "ignore" });
-    for (let i = 0; i < 160 && mongoose.connection.readyState !== 1; i += 1) {
-      try {
-        await mongoose.connect(`mongodb://127.0.0.1:${port}/prov-p1-test`, { serverSelectionTimeoutMS: 500 });
-      } catch (_) {
-        await new Promise((r) => setTimeout(r, 250));
-      }
-    }
-    if (mongoose.connection.readyState !== 1) throw new Error("throwaway mongod did not start");
+    rs = await startReplSet("prov-p1", "prov-p1-test"); // replica set: step requests are transactional (P3 prerequisite)
     await PlatformTemplate.init();
     await ProvisioningRun.init();
+    await ProvisioningOutbox.init();
   });
   afterAll(async () => {
-    await mongoose.disconnect();
-    if (mongod) { const exited = new Promise((r) => mongod.once("exit", r)); mongod.kill(); await Promise.race([exited, new Promise((r) => setTimeout(r, 5000))]); }
-    try {
-      if (dbPath && dbPath.startsWith(os.tmpdir())) fs.rmSync(dbPath, { recursive: true, force: true });
-    } catch (_) {
-      // best-effort temp cleanup
-    }
+    if (rs) await rs.stop();
   });
   beforeEach(async () => {
     const db = mongoose.connection.db;
     await db.collection("provisioningruns").deleteMany({});
+    await db.collection("provisioningoutbox").deleteMany({});
     await db.collection("platformtemplates").deleteMany({});
     await db.collection("tenants").deleteMany({});
     tenantId = String(new mongoose.Types.ObjectId());
@@ -118,7 +98,8 @@ describeDb("provisioning P1 against a real mongod", () => {
       expect(a.run.createdAt).toBeInstanceOf(Date);
       expect(a.run.updatedAt.getTime()).toBe(a.run.createdAt.getTime());
       expect(a.run.steps).toHaveLength(DEF.components.length);
-      expect(a.run.steps.every((s) => s.status === "pending" && s.key.startsWith(`${tenantId}:${DEF.key}@1:`))).toBe(true);
+      expect(a.run.stepKeyVersion).toBe(2);
+      expect(a.run.steps.every((s) => s.status === "pending" && s.key.startsWith(`psk2:${a.run.runId}:`))).toBe(true);
     });
     test("concurrent requests for the same tenant+version create exactly one run", async () => {
       const res = await Promise.all(Array.from({ length: 8 }, () => runs.createOrGetRun({ tenantId, templateKey: DEF.key, templateVersion: 1, principalId: PID })));
@@ -143,12 +124,17 @@ describeDb("provisioning P1 against a real mongod", () => {
       const { run } = await runs.createOrGetRun({ tenantId, templateKey: DEF.key, templateVersion: 1, principalId: PID });
       const k = run.steps.map((s) => s.key);
       const rec = (key, result) => runs.recordStepResult({ runId: run.runId, tenantId, stepKey: key, result, actor: SYSTEM });
-      await expect(rec(k[1], ok(1, 0))).rejects.toMatchObject({ code: "STEP_OUT_OF_ORDER" });
+      const req = () => orchestrator.requestNextStep({ runId: run.runId });
+      await expect(rec(k[0], ok(1, 0))).rejects.toMatchObject({ code: "STEP_NOT_REQUESTED" }); // never requested
+      await req();
+      await expect(rec(k[1], ok(1, 0))).rejects.toMatchObject({ code: "STEP_NOT_REQUESTED" }); // out of order
       let r = await rec(k[0], ok(4, 0));
       expect(r.status).toBe("running");
       await expect(rec(k[0], ok(0, 4))).rejects.toMatchObject({ code: "RUN_STATE_CONFLICT" }); // replay never overwrites
+      await req();
       r = await rec(k[1], { status: "failed", failureCode: "TIMEOUT" });
       expect(r).toMatchObject({ status: "failed", failureCode: "TIMEOUT", failedStep: k[1] });
+      await expect(req()).rejects.toMatchObject({ code: "RUN_STATE_CONFLICT" }); // a failed run requests nothing
       await expect(rec(k[2], ok(1, 0))).rejects.toMatchObject({ code: "RUN_STATE_CONFLICT" }); // no silent continue
       const s0 = r.steps[0];
       expect(s0).toMatchObject({ status: "succeeded", insertedCount: 4, skippedCount: 0, attempts: 1 });
@@ -157,7 +143,10 @@ describeDb("provisioning P1 against a real mongod", () => {
     test("resume / replay: failed -> pending (attempt 2); completed steps keep their result and cannot be redone; the run can then complete", async () => {
       const { run } = await runs.createOrGetRun({ tenantId, templateKey: DEF.key, templateVersion: 1, principalId: PID });
       const k = run.steps.map((s) => s.key);
-      const rec = (key, result) => runs.recordStepResult({ runId: run.runId, tenantId, stepKey: key, result, actor: SYSTEM });
+      const rec = async (key, result) => {
+        await orchestrator.requestNextStep({ runId: run.runId });
+        return runs.recordStepResult({ runId: run.runId, tenantId, stepKey: key, result, actor: SYSTEM });
+      };
       await rec(k[0], ok(4, 0));
       await rec(k[1], { status: "failed", failureCode: "SERVICE_UNAVAILABLE" });
       await expect(runs.resumeRun({ runId: run.runId, principalId: PID })).resolves.toMatchObject({ status: "pending", attempt: 2, failureCode: null });
@@ -165,7 +154,7 @@ describeDb("provisioning P1 against a real mongod", () => {
       let r = await ProvisioningRun.findOne({ runId: run.runId }).lean();
       expect(r.steps[0]).toMatchObject({ status: "succeeded", insertedCount: 4 });
       expect(r.steps[1]).toMatchObject({ status: "pending", failureCode: null });
-      await expect(rec(k[0], ok(0, 4))).rejects.toMatchObject({ code: "RUN_STATE_CONFLICT" });
+      await expect(runs.recordStepResult({ runId: run.runId, tenantId, stepKey: k[0], result: ok(0, 4), actor: SYSTEM })).rejects.toMatchObject({ code: "RUN_STATE_CONFLICT" });
       for (const key of k.slice(1)) r = await rec(key, ok(0, 1));
       expect(r.status).toBe("succeeded");
       expect(r.completedAt).toBeTruthy();
@@ -173,7 +162,10 @@ describeDb("provisioning P1 against a real mongod", () => {
       const again = await runs.createOrGetRun({ tenantId, templateKey: DEF.key, templateVersion: 1, principalId: PID });
       expect(again).toMatchObject({ created: false, run: { runId: run.runId, status: "succeeded", attempt: 2 } });
       expect(again.run.steps.map((s) => s.status)).toEqual(Array(k.length).fill("succeeded"));
-      expect(r.history.map((h) => h.action)).toEqual(["created", "step-recorded", "failed", "resumed", ...Array(k.length - 2).fill("step-recorded"), "succeeded"]);
+      expect(r.history.map((h) => h.action)).toEqual(["created", "step-requested", "step-recorded", "step-requested", "failed", "resumed", ...Array(k.length - 1).fill(0).flatMap((_x, i) => (i === k.length - 2 ? ["step-requested", "succeeded"] : ["step-requested", "step-recorded"]))]);
+      // attempt 2 re-requested step 2 with a NEW logical event; step 1 was never re-requested
+      const ev = await ProvisioningOutbox.find({ runId: run.runId }).sort({ createdAt: 1 }).lean();
+      expect(ev.map((e) => [e.stepKey === k[0] ? 0 : k.indexOf(e.stepKey), e.attempt])).toEqual([[0, 1], [1, 1], [1, 2], ...k.slice(2).map((_x, i) => [i + 2, 2])]);
     });
     test("ownership is immutable: the run's tenant can never be changed, unset or nulled", async () => {
       const { run } = await runs.createOrGetRun({ tenantId, templateKey: DEF.key, templateVersion: 1, principalId: PID });
@@ -191,9 +183,14 @@ describeDb("provisioning P1 against a real mongod", () => {
     });
     test("the control plane writes only its own collections: no users, roles, permissions, tenant defaults or tenantless rows", async () => {
       const { run } = await runs.createOrGetRun({ tenantId, templateKey: DEF.key, templateVersion: 1, principalId: PID });
+      await orchestrator.requestNextStep({ runId: run.runId });
       await runs.recordStepResult({ runId: run.runId, tenantId, stepKey: run.steps[0].key, result: ok(1, 0), actor: SYSTEM });
-      const names = (await mongoose.connection.db.listCollections().toArray()).map((c) => c.name).sort();
-      expect(names).toEqual(["platformtemplates", "provisioningruns", "tenants"]);
+      // mongoose auto-creates (empty) collections for registered models; what matters is that nothing else is WRITTEN
+      const nonEmpty = [];
+      for (const c of await mongoose.connection.db.listCollections().toArray()) {
+        if (await mongoose.connection.db.collection(c.name).countDocuments()) nonEmpty.push(c.name);
+      }
+      expect(nonEmpty.sort()).toEqual(["platformtemplates", "provisioningoutbox", "provisioningruns", "tenants"]);
       expect(await mongoose.connection.db.collection("tenants").countDocuments()).toBe(1);
       expect(await ProvisioningRun.countDocuments({ $or: [{ tenantId: null }, { tenantId: { $exists: false } }] })).toBe(0);
     });

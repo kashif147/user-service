@@ -78,7 +78,7 @@ afterAll(() => new Promise((r) => server.close(r)));
 
 const storedRun = (over = {}) => ({
   runId: RUN_ID, tenantId: TARGET, templateKey: DEF.key, templateVersion: DEF.version, templateContentHash: PUBLISHED.contentHash,
-  status: "pending", attempt: 1, failureCode: null, failedStep: null, steps: runService.planSteps(TARGET, PUBLISHED), history: [], ...over,
+  status: "pending", attempt: 1, failureCode: null, failedStep: null, stepKeyVersion: 2, steps: runService.planSteps(RUN_ID, PUBLISHED), history: [], ...over,
 });
 
 beforeEach(() => {
@@ -201,7 +201,7 @@ test("POST /runs creates the run for the explicit internal tenant id: steps plan
   expect(run.tenantId).toBe(TARGET);
   expect(run.status).toBe("pending");
   expect(run.steps.map((s) => s.status)).toEqual(Array(DEF.components.length).fill("pending"));
-  expect(run.steps[0].key).toBe(`${TARGET}:${DEF.key}@1:${DEF.components[0].service}:${DEF.components[0].component}`);
+  expect(run.steps[0].key).toBe(`psk2:${run.runId}:${DEF.components[0].component}:ensure-defaults`); // canonical v2 key
   const [filter, update] = ProvisioningRun.findOneAndUpdate.mock.calls[0];
   expect(filter).toEqual({ tenantId: TARGET, templateKey: DEF.key, templateVersion: DEF.version });
   expect(update.$setOnInsert.createdBy).toEqual({ scope: "platform", principalId: PID, actorId: null });
