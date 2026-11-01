@@ -288,3 +288,16 @@ test("audit: platform scope, target = the provisioned tenant (never the caller's
   // enforced allow/deny decisions keep their own authz audit event
   expect(mockPublished.some((p) => p[0] === "platform.authz.decision.v1")).toBe(true);
 });
+
+test("a refusal never records an unverified tenant as the audit target", async () => {
+  // format-valid but nonexistent tenant, and a bad template version (refused before the tenant lookup)
+  await request("POST", "/api/platform/provisioning/runs", PRINCIPAL(), { tenantId: "6a00000000000000000000ee", templateKey: DEF.key, templateVersion: DEF.version });
+  await request("POST", "/api/platform/provisioning/runs", PRINCIPAL(), { tenantId: "6a00000000000000000000ee", templateKey: DEF.key, templateVersion: "1" });
+  // an existing tenant with an unpublished template: verified, so it is the target
+  PlatformTemplate.findOne.mockImplementation(() => ({ lean: async () => null }));
+  await request("POST", "/api/platform/provisioning/runs", PRINCIPAL(), ROUTES[3][2]);
+  const [notFound, badVersion, unpublished] = runEvents();
+  expect([notFound[1].reason, notFound[2].auditContext.targetTenantId, notFound[1].tenantId]).toEqual(["tenant_not_found", null, undefined]);
+  expect([badVersion[1].reason, badVersion[2].auditContext.targetTenantId]).toEqual(["bad_request", null]);
+  expect([unpublished[1].reason, unpublished[2].auditContext.targetTenantId]).toEqual(["template_not_published", TARGET]);
+});

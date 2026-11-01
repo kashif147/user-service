@@ -64,8 +64,9 @@ module.exports.createRun = async (req, res, next) => {
     return res.status(created ? 201 : 200).json({ status: "success", data: { created, run: runs.toRunView(run) } });
   } catch (e) {
     if (e instanceof AppError) {
-      const known = e.code === runs.CODES.TENANT_NOT_FOUND ? undefined : body.tenantId;
-      return refuse(e.status, e.code, e.message, String(e.code).toLowerCase(), known);
+      // A refusal names a target only once that tenant was verified to exist (the template checks run after it).
+      const verified = [runs.CODES.TEMPLATE_NOT_PUBLISHED, runs.CODES.TEMPLATE_INTEGRITY].includes(e.code) ? body.tenantId : undefined;
+      return refuse(e.status, e.code, e.message, String(e.code).toLowerCase(), verified);
     }
     return fail(next, e);
   }
