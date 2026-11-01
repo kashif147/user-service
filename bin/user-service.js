@@ -8,6 +8,7 @@ var app = require("../app");
 var debug = require("debug")("user-service:server");
 var http = require("http");
 var { initEventSystem, setupConsumers } = require("../rabbitMQ");
+var { wireOutboxPublisher } = require("../services/provisioningOutboxBoot");
 
 /**
  * Get port from environment and store in Express.
@@ -35,6 +36,8 @@ server.on("listening", onListening);
     await initEventSystem();
     await setupConsumers();
     console.log("✅ RabbitMQ event system initialized (user-service)");
+    // Provisioning outbox publisher: only with PROVISIONING_OUTBOX_PUBLISHER=on, only once the broker is up.
+    wireOutboxPublisher();
   } catch (err) {
     console.error(
       "❌ Failed to initialize RabbitMQ event system:",
