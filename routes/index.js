@@ -36,6 +36,10 @@ router.use("/internal", require("./internalPlatformAuth.routes"));
 // Standard authenticated APIs
 // =====================================================
 
+// Phase B / P1: platform provisioning control plane (platform:provisioning:admin only). Before the tenant
+// routers: its own authenticate is scoped to /api/platform/provisioning.
+router.use("/api", require("./provisioning.routes"));
+
 // Role management API routes (for ProjectShell-1 to consume)
 router.use("/api", require("./role.routes"));
 

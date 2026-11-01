@@ -23,6 +23,10 @@
  *                                     configuration changes only, tenant.lifecycle.changed.v1 (copy owned by the
  *                                     target tenant: action + section / status values / connection id, nothing else).
  *                                     Cross-tenant reads and denials are platform.authz.decision.v1 with the target.
+ *   platform.provisioning.run.changed.v1        (P1) a provisioning-run action by a platform principal holding
+ *                                     platform:provisioning:admin (target = the run's tenant): ids, statuses, counts.
+ *   platform.provisioning.template.published.v1 (P1) scripts/platform-template.js publish / retire (system actor
+ *                                     platform:provisioning, no tenant).
  *
  * Actor context:
  *   platform  a PlatformPrincipal is identified (pid): actorTenantId null, targetTenantId null unless the
@@ -47,7 +51,13 @@ const EVENTS = Object.freeze({
   TENANT_LIFECYCLE_CREATED: "tenant.lifecycle.created.v1",
   PLATFORM_TENANT_ADMIN_CHANGED: "platform.tenant.admin.changed.v1",
   TENANT_LIFECYCLE_CHANGED: "tenant.lifecycle.changed.v1",
+  PLATFORM_PROVISIONING_RUN_CHANGED: "platform.provisioning.run.changed.v1",
+  PLATFORM_PROVISIONING_TEMPLATE_PUBLISHED: "platform.provisioning.template.published.v1",
 });
+const PROVISIONING_PERMISSION = "platform:provisioning:admin";
+const PROVISIONING_ACTOR = "platform:provisioning";
+// Phase B / P1: provisioning-run audit actions (platform actor, target = the run's tenant).
+const PROVISIONING_RUN_ACTIONS = new Set(["PROVISIONING_RUN_CREATED", "PROVISIONING_RUN_REQUESTED_EXISTING", "PROVISIONING_RUN_RESUMED", "PROVISIONING_RUN_REFUSED"]);
 const PRINCIPAL_ADMIN_ACTOR = "platform:principal-admin";
 const TENANT_CREATE_PERMISSION = "platform:tenant:create";
 
@@ -273,7 +283,66 @@ function auditTenantRoleMigration({ tenantId, outcome, affectedUsers, affectedCo
   });
 }
 
+/**
+ * Phase B / P1: a provisioning-run control-plane action by a platform principal (req.platform set by
+ * requirePlatformPermission("platform:provisioning:admin")): create / existing-run request / resume / refusal.
+ * Platform record only (platform_audit_logs), target = the run's tenant (null when the request named no
+ * existing tenant). Ids, statuses and counts only. Step results (P3/P4, system actor) are not emitted here yet.
+ */
+function auditProvisioningRun({ req, action, result, reason, run, tenantId }) {
+  if (!req?.platform?.pid || !PROVISIONING_RUN_ACTIONS.has(action)) {
+    warn("platform.audit.skipped", { eventType: EVENTS.PLATFORM_PROVISIONING_RUN_CHANGED, reason: "no_platform_actor_or_action" });
+    return;
+  }
+  const target = tenantOrNull(run ? run.tenantId : tenantId);
+  const steps = run && Array.isArray(run.steps) ? run.steps : [];
+  const sum = (k) => steps.reduce((n, s) => n + (Number.isInteger(s[k]) ? s[k] : 0), 0);
+  publish(EVENTS.PLATFORM_PROVISIONING_RUN_CHANGED, {
+    principalId: String(req.platform.pid),
+    actorUserId: idOrNull(req.ctx?.userId),
+    ...(target ? { tenantId: target } : {}),
+    action,
+    permission: PROVISIONING_PERMISSION,
+    result,
+    ...(reason ? { reason } : {}),
+    route: routeOf(req),
+    ...(run ? {
+      runId: run.runId,
+      templateKey: run.templateKey,
+      templateVersion: run.templateVersion,
+      runStatus: run.status,
+      attempt: run.attempt,
+      stepCount: steps.length,
+      stepsSucceeded: steps.filter((s) => s.status === "succeeded").length,
+      insertedCount: sum("insertedCount"),
+      skippedCount: sum("skippedCount"),
+    } : {}),
+  }, { auditContext: platformAuditContext(req.ctx?.tenantId, target), correlationId: correlationOf(req) });
+}
+
+/**
+ * Phase B / P1: scripts/platform-template.js publish / retire (reserved system actor platform:provisioning;
+ * --by / --approval are operator-SUPPLIED labels). No tenant: a template belongs to none. Awaitable.
+ */
+function auditTemplatePublished({ action, result, reason, templateKey, templateVersion, contentHash, componentCount, operatorLabel, approvalRef, correlationId }) {
+  return publish(EVENTS.PLATFORM_PROVISIONING_TEMPLATE_PUBLISHED, {
+    actorId: PROVISIONING_ACTOR,
+    action,
+    result,
+    ...(reason ? { reason } : {}),
+    templateKey,
+    templateVersion,
+    ...(contentHash ? { contentHash } : {}),
+    ...(componentCount !== undefined ? { componentCount } : {}),
+    operatorLabel,
+    approvalRef,
+  }, { auditContext: systemAuditContext(), correlationId });
+}
+
 module.exports = {
+  auditProvisioningRun,
+  auditTemplatePublished,
+  PROVISIONING_RUN_ACTIONS,
   auditTenantRoleMigration,
   ROLE_MIGRATION_ACTOR,
   auditClaimDecision,

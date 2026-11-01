@@ -61,6 +61,9 @@ async function initEventSystem() {
       // Phase B / Z6: cross-tenant tenant-administration outcome (-> platform_audit_logs) + approved tenant copy
       "platform.tenant.admin.changed.v1": "user.events",
       "tenant.lifecycle.changed.v1": "user.events",
+      // Phase B / P1: provisioning control plane (-> platform_audit_logs)
+      "platform.provisioning.run.changed.v1": "user.events",
+      "platform.provisioning.template.published.v1": "user.events",
     });
     
     isInitialized = true;
