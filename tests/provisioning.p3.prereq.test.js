@@ -226,11 +226,18 @@ describeDb("outbox, publisher and result events against a real replica set", () 
       expect(fn.calls).toHaveLength(1);
     });
 
-    test("fails closed on the currently installed middleware (no publishConfirmed): nothing sent, row stays pending", async () => {
+    test("fails closed on a middleware without publishConfirmed: nothing sent, row stays pending", async () => {
       const run = await newRun();
       const { eventId } = await orchestrator.requestNextStep({ runId: run.runId });
-      expect(await outboxPublisher.publishDueOnce({})).toMatchObject({ blocked: "MIDDLEWARE_CONFIRM_UNAVAILABLE" });
+      const legacy = { publisher: { publish: jest.fn(async () => ({ success: true })) } }; // e.g. db70fb8
+      expect(await outboxPublisher.publishDueOnce({ middleware: legacy })).toMatchObject({ blocked: "MIDDLEWARE_CONFIRM_UNAVAILABLE" });
+      expect(legacy.publisher.publish).not.toHaveBeenCalled(); // never falls back to the non-confirmed publish()
       expect((await ProvisioningOutbox.findOne({ eventId }).lean()).status).toBe("pending");
+    });
+
+    test("the pinned middleware (466e8f3) exposes publishConfirmed, so the default publish path is the confirmed one", () => {
+      expect(typeof outboxPublisher.defaultPublishFn()).toBe("function");
+      expect(typeof require("@projectShell/rabbitmq-middleware").publisher.publishConfirmed).toBe("function");
     });
 
     test("not started without PROVISIONING_OUTBOX_PUBLISHER=on", () => {
