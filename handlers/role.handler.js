@@ -803,13 +803,19 @@ module.exports.getUserPermissions = async (userId, tenantId) => {
           ...(await Permission.find({ code: { $in: stringPermissions } }))
         );
       }
+      // P5: only ACTIVE catalogue permissions are issued (isActive !== false; the model defaults it to
+      // true). The lookups above deliberately do NOT filter on isActive, so an inactive entry is still
+      // recognised as "resolved by the catalogue" and is dropped here - it must never fall through to
+      // the unresolved-literal branch below and be issued as a lower-cased literal.
       permissionDocs.forEach((perm) => {
+        if (perm.isActive === false) return;
         permissions.add(`${perm.resource}:${perm.action}`.toLowerCase());
       });
 
-      // A string permission that doesn't match any known Permission code is
-      // assumed to already be a literal `resource:action` string (legacy data
-      // predating the CODE convention) - pass it through unchanged.
+      // A string permission that doesn't match any known Permission code (active
+      // or inactive) is assumed to already be a literal `resource:action` string
+      // (legacy data predating the CODE convention) - pass it through unchanged.
+      // (Behaviour for non-catalogue literals is intentionally unchanged here.)
       const resolvedCodes = new Set(permissionDocs.map((p) => p.code));
       stringPermissions
         .filter((p) => !resolvedCodes.has(p))
