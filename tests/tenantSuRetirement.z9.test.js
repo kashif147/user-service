@@ -196,6 +196,7 @@ describe("source guard: no runtime SU authority can come back", () => {
     "scripts/add-communication-permissions.js", // read-only SU verification log
     "scripts/add-category-to-roles.js", // category label map only
     "routes/role-policy.routes.js", // never mounted (routes/index.js)
+    "constants/retiredRoleCodes.js", // P5: the tenant-roles manifest / ensureTenantRoles REFUSAL list (never a grant)
   ]);
 
   test("the walk covers runtime code and scripts", () => {
