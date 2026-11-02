@@ -42,6 +42,8 @@ router.use("/api", require("./provisioning.routes"));
 
 // Role management API routes (for ProjectShell-1 to consume)
 router.use("/api", require("./role.routes"));
+// P5 CRM user directory (directory:read; verified-token + CRM-caller guard, own tenant only).
+router.use("/api", require("./directory.routes"));
 
 // Tenant management API routes
 router.use("/api", require("./tenant.routes"));
