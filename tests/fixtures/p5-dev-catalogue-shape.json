@@ -1,0 +1,1125 @@
+{
+ "description": "P5: shape of the DEV permission catalogue on 2026-11-02 (code/resource/action/isActive only; synthetic _ids; no role or tenant data). expectedActiveTokens = the pre-#42 serialisation `${resource}:${action}`.toLowerCase() of every active row.",
+ "catalogue": [
+  {
+   "_id": "0000000000000000005e0000",
+   "code": "ACCOUNTS.REPORTS_READ",
+   "resource": "accounts.reports",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0001",
+   "code": "ACCOUNTS_REPORTS",
+   "resource": "accounts.reports",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0002",
+   "code": "ADMIN_ACCESS0057",
+   "resource": "admin",
+   "action": "access",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0003",
+   "code": "ADMIN_DELETE",
+   "resource": "admin",
+   "action": "delete",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0004",
+   "code": "ADMIN_READ",
+   "resource": "admin",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0005",
+   "code": "ADMIN_WRITE",
+   "resource": "admin",
+   "action": "write",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0006",
+   "code": "API_DELETE",
+   "resource": "api",
+   "action": "delete",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0007",
+   "code": "API_READ",
+   "resource": "api",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0008",
+   "code": "API_WRITE",
+   "resource": "api",
+   "action": "write",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0009",
+   "code": "APPLICATION_CREATE",
+   "resource": "application",
+   "action": "create",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e000a",
+   "code": "APPLICATION_DELETE",
+   "resource": "application",
+   "action": "delete",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e000b",
+   "code": "APPLICATION_PAYMENT_LINKS_READ",
+   "resource": "application-payment-links",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e000c",
+   "code": "APPLICATION_PAYMENT_LINKS_WRITE",
+   "resource": "application-payment-links",
+   "action": "write",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e000d",
+   "code": "APPLICATION_READ",
+   "resource": "application",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e000e",
+   "code": "APPLICATION_WRITE",
+   "resource": "application",
+   "action": "write",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e000f",
+   "code": "AUDIT_READ",
+   "resource": "audit",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0010",
+   "code": "CHANGEOFCATEGORY_CREATE",
+   "resource": "changeOfCategory",
+   "action": "create",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0011",
+   "code": "CHANGEOFCATEGORY_DELETE",
+   "resource": "changeOfCategory",
+   "action": "delete",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0012",
+   "code": "CHANGEOFCATEGORY_READ",
+   "resource": "changeOfCategory",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0013",
+   "code": "CHANGEOFCATEGORY_WRITE",
+   "resource": "changeOfCategory",
+   "action": "write",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0014",
+   "code": "COMMUNICATION_CREATE",
+   "resource": "communication",
+   "action": "create",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0015",
+   "code": "COMMUNICATION_DELETE",
+   "resource": "communication",
+   "action": "delete",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0016",
+   "code": "COMMUNICATION_READ",
+   "resource": "communication",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0017",
+   "code": "COMMUNICATION_WRITE",
+   "resource": "communication",
+   "action": "write",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0018",
+   "code": "COMPARISON_REPORT_READ",
+   "resource": "REPORT.COMPARISON",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0019",
+   "code": "CONTROL_REPORT_READ",
+   "resource": "REPORT.CONTROL",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e001a",
+   "code": "CORN_MARKET_NEW_GRADUATE_READ",
+   "resource": "Profile_new_graduate",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e001b",
+   "code": "CORN_MARKET_REWARDS_READ",
+   "resource": "Profile.corn_market_rewards",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e001c",
+   "code": "CRM_ACCESS",
+   "resource": "crm",
+   "action": "access",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e001d",
+   "code": "CRM_MEMBER_DELETE",
+   "resource": "crm",
+   "action": "member_delete",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e001e",
+   "code": "CRM_MEMBER_READ",
+   "resource": "crm",
+   "action": "member_read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e001f",
+   "code": "CRM_MEMBER_WRITE",
+   "resource": "crm",
+   "action": "member_write",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0020",
+   "code": "DASHBOARD_READ",
+   "resource": "dashboard",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0021",
+   "code": "DFSDFSDFSD",
+   "resource": "USER",
+   "action": "READ",
+   "isActive": false
+  },
+  {
+   "_id": "0000000000000000005e0022",
+   "code": "EVENTS_CREATE",
+   "resource": "events",
+   "action": "create",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0023",
+   "code": "EVENTS_DELETE",
+   "resource": "events",
+   "action": "delete",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0024",
+   "code": "EVENTS_READ",
+   "resource": "events",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0025",
+   "code": "EVENTS_WRITE",
+   "resource": "events",
+   "action": "write",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0026",
+   "code": "EXECUTIVE_COUNCIL_REPORT_READ",
+   "resource": "report.executive_council",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0027",
+   "code": "FSDF",
+   "resource": "READ",
+   "action": "READ",
+   "isActive": false
+  },
+  {
+   "_id": "0000000000000000005e0028",
+   "code": "ISSUES_COMPLAINTS_READ",
+   "resource": "issues-complaints",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0029",
+   "code": "ISSUES_COMPLAINTS_WRITE",
+   "resource": "issues-complaints",
+   "action": "write",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e002a",
+   "code": "ISSUES_DATAPROTECTION_READ",
+   "resource": "issues-dataprotection",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e002b",
+   "code": "ISSUES_DATAPROTECTION_WRITE",
+   "resource": "issues-dataprotection",
+   "action": "write",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e002c",
+   "code": "ISSUES_FTP_READ",
+   "resource": "issues-ftp",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e002d",
+   "code": "ISSUES_FTP_WRITE",
+   "resource": "issues-ftp",
+   "action": "write",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e002e",
+   "code": "ISSUES_IR_READ",
+   "resource": "issues-ir",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e002f",
+   "code": "ISSUES_IR_WRITE",
+   "resource": "issues-ir",
+   "action": "write",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0030",
+   "code": "ISSUES_READ",
+   "resource": "issues",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0031",
+   "code": "ISSUES_TEMPLATES_READ",
+   "resource": "issues-templates",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0032",
+   "code": "ISSUES_TEMPLATES_WRITE",
+   "resource": "issues-templates",
+   "action": "write",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0033",
+   "code": "ISSUES_WRITE",
+   "resource": "issues",
+   "action": "write",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0034",
+   "code": "LANDING_PAGE_READ",
+   "resource": "landing_page",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0035",
+   "code": "LIVE_STATS_REPORT_READ",
+   "resource": "report.live_stats",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0036",
+   "code": "LOOKUPTYPE_DELETE",
+   "resource": "lookuptype",
+   "action": "delete",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0037",
+   "code": "LOOKUPTYPE_READ",
+   "resource": "lookuptype",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0038",
+   "code": "LOOKUPTYPE_WRITE",
+   "resource": "lookuptype",
+   "action": "write",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0039",
+   "code": "LOOKUP_DELETE",
+   "resource": "lookup",
+   "action": "delete",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e003a",
+   "code": "LOOKUP_READ",
+   "resource": "lookup",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e003b",
+   "code": "LOOKUP_WRITE",
+   "resource": "lookup",
+   "action": "write",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e003c",
+   "code": "MEMBERSHIP_DRIVES_READ",
+   "resource": "membership-drives",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e003d",
+   "code": "MEMBERSHIP_DRIVES_WRITE",
+   "resource": "membership-drives",
+   "action": "write",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e003e",
+   "code": "MENU_CONFIGURATION_ACCESS",
+   "resource": "menu",
+   "action": "configuration_access",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e003f",
+   "code": "MENU_CORRESPONDENCE_ACCESS",
+   "resource": "menu",
+   "action": "correspondence_access",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0040",
+   "code": "MENU_COURSES_ACCESS",
+   "resource": "menu",
+   "action": "courses_access",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0041",
+   "code": "MENU_EVENTS_ACCESS",
+   "resource": "menu",
+   "action": "events_access",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0042",
+   "code": "MENU_FINANCE_ACCESS",
+   "resource": "menu",
+   "action": "finance_access",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0043",
+   "code": "MENU_MEMBERSHIP_ACCESS",
+   "resource": "menu",
+   "action": "membership_access",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0044",
+   "code": "MENU_REPORTS_ACCESS",
+   "resource": "menu",
+   "action": "reports_access",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0045",
+   "code": "MENU_SETTINGS_ACCESS",
+   "resource": "menu",
+   "action": "settings_access",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0046",
+   "code": "NEW_PERM",
+   "resource": "user",
+   "action": "read",
+   "isActive": false
+  },
+  {
+   "_id": "0000000000000000005e0047",
+   "code": "NEW_PERM1",
+   "resource": "user",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0048",
+   "code": "NEW_PERM2",
+   "resource": "user",
+   "action": "read",
+   "isActive": false
+  },
+  {
+   "_id": "0000000000000000005e0049",
+   "code": "NEW_PERM25",
+   "resource": "user",
+   "action": "read",
+   "isActive": false
+  },
+  {
+   "_id": "0000000000000000005e004a",
+   "code": "NEW_PERM3",
+   "resource": "user",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e004b",
+   "code": "NEW_PERM4",
+   "resource": "user",
+   "action": "read",
+   "isActive": false
+  },
+  {
+   "_id": "0000000000000000005e004c",
+   "code": "NOTIFICATION_CREATE",
+   "resource": "notifications",
+   "action": "create",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e004d",
+   "code": "NOTIFICATION_READ",
+   "resource": "Notification",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e004e",
+   "code": "NOTIFICATION_SEND",
+   "resource": "notifications",
+   "action": "send",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e004f",
+   "code": "NOTIFICATION_UPDATE_STATUS",
+   "resource": "notifications",
+   "action": "update-status",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0050",
+   "code": "ONLY FOR DELETE",
+   "resource": "user",
+   "action": "user",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0051",
+   "code": "PAYMENTS_CREATE",
+   "resource": "payments",
+   "action": "create",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0052",
+   "code": "PAYMENTS_READ",
+   "resource": "payments",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0053",
+   "code": "PAYMENTS_WRITE",
+   "resource": "payments",
+   "action": "write",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0054",
+   "code": "PORTAL_ACCESS",
+   "resource": "portal",
+   "action": "access",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0055",
+   "code": "PORTAL_CREATE",
+   "resource": "portal",
+   "action": "create",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0056",
+   "code": "PORTAL_DELETE",
+   "resource": "portal",
+   "action": "delete",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0057",
+   "code": "PORTAL_PROFILE_READ",
+   "resource": "portal",
+   "action": "profile_read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0058",
+   "code": "PORTAL_PROFILE_WRITE",
+   "resource": "portal",
+   "action": "profile_write",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0059",
+   "code": "PORTAL_READ",
+   "resource": "portal",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e005a",
+   "code": "PORTAL_WRITE",
+   "resource": "portal",
+   "action": "write",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e005b",
+   "code": "PRICING_READ",
+   "resource": "pricing",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e005c",
+   "code": "PRICING_WRITE",
+   "resource": "pricing",
+   "action": "write",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e005d",
+   "code": "PRODUCT_READ",
+   "resource": "product",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e005e",
+   "code": "PRODUCT_TYPE_READ",
+   "resource": "product-type",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e005f",
+   "code": "PRODUCT_WRITE",
+   "resource": "product",
+   "action": "write",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0060",
+   "code": "PROFILE_CREATE",
+   "resource": "profile",
+   "action": "create",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0061",
+   "code": "PROFILE_DELETE",
+   "resource": "profile",
+   "action": "delete",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0062",
+   "code": "PROFILE_READ",
+   "resource": "profile",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0063",
+   "code": "PROFILE_WRITE",
+   "resource": "profile",
+   "action": "write",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0064",
+   "code": "QUERIES_CREATE",
+   "resource": "queries",
+   "action": "create",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0065",
+   "code": "QUERIES_DELETE",
+   "resource": "queries",
+   "action": "delete",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0066",
+   "code": "QUERIES_READ",
+   "resource": "queries",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0067",
+   "code": "QUERIES_WRITE",
+   "resource": "queries",
+   "action": "write",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0068",
+   "code": "RECRUIT_FRIEND_READ",
+   "resource": "Profile.recruit_friend",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0069",
+   "code": "RESOURCES_CREATE",
+   "resource": "resources",
+   "action": "create",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e006a",
+   "code": "RESOURCES_DELETE",
+   "resource": "resources",
+   "action": "delete",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e006b",
+   "code": "RESOURCES_READ",
+   "resource": "resources",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e006c",
+   "code": "RESOURCES_WRITE",
+   "resource": "resources",
+   "action": "write",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e006d",
+   "code": "ROLE_DELETE",
+   "resource": "role",
+   "action": "delete",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e006e",
+   "code": "ROLE_PERMISSION_ASSIGN",
+   "resource": "role",
+   "action": "permission_assign",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e006f",
+   "code": "ROLE_READ",
+   "resource": "role",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0070",
+   "code": "ROLE_USER_READ",
+   "resource": "USER",
+   "action": "READ",
+   "isActive": false
+  },
+  {
+   "_id": "0000000000000000005e0071",
+   "code": "ROLE_WRITE",
+   "resource": "role",
+   "action": "write",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0072",
+   "code": "SUBSCRIPTIONS_CREATE",
+   "resource": "subscriptions",
+   "action": "create",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0073",
+   "code": "SUBSCRIPTIONS_DELETE",
+   "resource": "subscriptions",
+   "action": "delete",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0074",
+   "code": "SUBSCRIPTIONS_READ",
+   "resource": "subscriptions",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0075",
+   "code": "SUBSCRIPTIONS_WRITE",
+   "resource": "subscriptions",
+   "action": "write",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0076",
+   "code": "TEMPLATE_READ",
+   "resource": "templates",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0077",
+   "code": "TENANT_ADMIN",
+   "resource": "tenant",
+   "action": "admin",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0078",
+   "code": "TENANT_DELETE",
+   "resource": "tenant",
+   "action": "delete",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0079",
+   "code": "TENANT_READ",
+   "resource": "tenant",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e007a",
+   "code": "TENANT_WRITE",
+   "resource": "tenant",
+   "action": "write",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e007b",
+   "code": "TEST",
+   "resource": "TEST",
+   "action": "create",
+   "isActive": false
+  },
+  {
+   "_id": "0000000000000000005e007c",
+   "code": "TEST-PER",
+   "resource": "user",
+   "action": "read",
+   "isActive": false
+  },
+  {
+   "_id": "0000000000000000005e007d",
+   "code": "TEST_PER",
+   "resource": "user",
+   "action": "read",
+   "isActive": false
+  },
+  {
+   "_id": "0000000000000000005e007e",
+   "code": "TEST_READ",
+   "resource": "TEST",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e007f",
+   "code": "TEST_VIEW",
+   "resource": "TEST",
+   "action": "write",
+   "isActive": false
+  },
+  {
+   "_id": "0000000000000000005e0080",
+   "code": "TRANSFERREQUESTS_CREATE",
+   "resource": "transferRequests",
+   "action": "create",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0081",
+   "code": "TRANSFERREQUESTS_DELETE",
+   "resource": "transferRequests",
+   "action": "delete",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0082",
+   "code": "TRANSFERREQUESTS_READ",
+   "resource": "transferRequests",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0083",
+   "code": "TRANSFERREQUESTS_WRITE",
+   "resource": "transferRequests",
+   "action": "write",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0084",
+   "code": "USER",
+   "resource": "testing",
+   "action": "Read",
+   "isActive": false
+  },
+  {
+   "_id": "0000000000000000005e0085",
+   "code": "USER_CODE",
+   "resource": "USER",
+   "action": "READ",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0086",
+   "code": "USER_DELETE",
+   "resource": "user",
+   "action": "delete",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0087",
+   "code": "USER_MANAGE_ROLES",
+   "resource": "user",
+   "action": "manage_roles",
+   "isActive": false
+  },
+  {
+   "_id": "0000000000000000005e0088",
+   "code": "USER_READ",
+   "resource": "user",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e0089",
+   "code": "USER_WRITE",
+   "resource": "user",
+   "action": "write",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e008a",
+   "code": "VOTING_CREATE",
+   "resource": "voting",
+   "action": "create",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e008b",
+   "code": "VOTING_READ",
+   "resource": "voting",
+   "action": "read",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e008c",
+   "code": "VOTING_WRITE",
+   "resource": "voting",
+   "action": "write",
+   "isActive": true
+  },
+  {
+   "_id": "0000000000000000005e008d",
+   "code": "XE_READ",
+   "resource": "TEST",
+   "action": "write",
+   "isActive": false
+  }
+ ],
+ "expectedActiveTokens": [
+  "accounts.reports:read",
+  "admin:access",
+  "admin:delete",
+  "admin:read",
+  "admin:write",
+  "api:delete",
+  "api:read",
+  "api:write",
+  "application-payment-links:read",
+  "application-payment-links:write",
+  "application:create",
+  "application:delete",
+  "application:read",
+  "application:write",
+  "audit:read",
+  "changeofcategory:create",
+  "changeofcategory:delete",
+  "changeofcategory:read",
+  "changeofcategory:write",
+  "communication:create",
+  "communication:delete",
+  "communication:read",
+  "communication:write",
+  "crm:access",
+  "crm:member_delete",
+  "crm:member_read",
+  "crm:member_write",
+  "dashboard:read",
+  "events:create",
+  "events:delete",
+  "events:read",
+  "events:write",
+  "issues-complaints:read",
+  "issues-complaints:write",
+  "issues-dataprotection:read",
+  "issues-dataprotection:write",
+  "issues-ftp:read",
+  "issues-ftp:write",
+  "issues-ir:read",
+  "issues-ir:write",
+  "issues-templates:read",
+  "issues-templates:write",
+  "issues:read",
+  "issues:write",
+  "landing_page:read",
+  "lookup:delete",
+  "lookup:read",
+  "lookup:write",
+  "lookuptype:delete",
+  "lookuptype:read",
+  "lookuptype:write",
+  "membership-drives:read",
+  "membership-drives:write",
+  "menu:configuration_access",
+  "menu:correspondence_access",
+  "menu:courses_access",
+  "menu:events_access",
+  "menu:finance_access",
+  "menu:membership_access",
+  "menu:reports_access",
+  "menu:settings_access",
+  "notification:read",
+  "notifications:create",
+  "notifications:send",
+  "notifications:update-status",
+  "payments:create",
+  "payments:read",
+  "payments:write",
+  "portal:access",
+  "portal:create",
+  "portal:delete",
+  "portal:profile_read",
+  "portal:profile_write",
+  "portal:read",
+  "portal:write",
+  "pricing:read",
+  "pricing:write",
+  "product-type:read",
+  "product:read",
+  "product:write",
+  "profile.corn_market_rewards:read",
+  "profile.recruit_friend:read",
+  "profile:create",
+  "profile:delete",
+  "profile:read",
+  "profile:write",
+  "profile_new_graduate:read",
+  "queries:create",
+  "queries:delete",
+  "queries:read",
+  "queries:write",
+  "report.comparison:read",
+  "report.control:read",
+  "report.executive_council:read",
+  "report.live_stats:read",
+  "resources:create",
+  "resources:delete",
+  "resources:read",
+  "resources:write",
+  "role:delete",
+  "role:permission_assign",
+  "role:read",
+  "role:write",
+  "subscriptions:create",
+  "subscriptions:delete",
+  "subscriptions:read",
+  "subscriptions:write",
+  "templates:read",
+  "tenant:admin",
+  "tenant:delete",
+  "tenant:read",
+  "tenant:write",
+  "test:read",
+  "transferrequests:create",
+  "transferrequests:delete",
+  "transferrequests:read",
+  "transferrequests:write",
+  "user:delete",
+  "user:read",
+  "user:user",
+  "user:write",
+  "voting:create",
+  "voting:read",
+  "voting:write"
+ ]
+}
