@@ -44,13 +44,75 @@ const POLICY_VERSION = process.env.POLICY_VERSION || "1.0.0";
  */
 const getPolicyVersion = () => POLICY_VERSION;
 // Part of every decision-cache key (see evaluatePolicy). Phase B / Z9: tenant SU retired.
-const PDP_DECISION_EPOCH = "z9-tenant-su-retired";
+// P0 (PDP tenant invariant): bumped so no decision cached before the universal tenant invariant is reused.
+const PDP_DECISION_EPOCH = "p0-tenant-invariant";
 // Phase B / Z9: SU is no longer a role. A token that still carries it predates the SU -> ASU migration
 // and must not be honoured at all (not even as a tenant wildcard): the user signs in again and gets
 // their current role (ASU). Never a reason to grant anything.
 const RETIRED_ROLE_CODES = Object.freeze(["SU"]);
 const carriesRetiredRole = (roles) =>
   Array.isArray(roles) && roles.some((r) => RETIRED_ROLE_CODES.includes(String(typeof r === "string" ? r : r && r.code).trim().toUpperCase()));
+
+/**
+ * P0 TENANT INVARIANT (owner-approved). The tenant PDP decides only for a request whose target tenant equals
+ * the principal's VERIFIED tenant, for EVERY caller (ASU and non-ASU) and EVERY resource (including `tenant`):
+ *   - target or principal tenant missing/empty  -> DENY MISSING_TENANT_CONTEXT
+ *   - String(target) !== String(principal)      -> DENY TENANT_SCOPE_VIOLATION
+ * There is no platform branch here: platform authority is decided only by the platform evaluator
+ * (middlewares/requirePlatformPermission.js, middlewares/platformTenantAdmin.js) against the explicit
+ * allow-list constants/platformPermissions.js, and Rule 0 below denies the platform namespace in this PDP.
+ *
+ * PDP_TENANT_INVARIANT_MODE (read per call; unknown value -> enforce, fail closed):
+ *   enforce (default) - the invariant denies.
+ *   shadow            - the pre-P0 decision is returned and every invariant violation is logged as
+ *                       pdp.tenant_invariant.shadow: FULL principal and target tenant ids (tenant ids are not
+ *                       secrets or personal data; full ids so two tenants can never collide), resource, action,
+ *                       userType, old decision/reason -> new decision/reason. Never tokens, emails, names, roles or
+ *                       permission lists. (A cross-tenant `tenant` request on the token path is logged here with the
+ *                       invariant reason; under enforce the token entry check reports it as TENANT_MISMATCH.)
+ *                       and a PERMIT the invariant would deny is NOT cached.
+ *   off               - exactly the pre-P0 behaviour (rollback only).
+ * The flag only gates the NEW denials: the ASU own-tenant rule and the token-path TENANT_MISMATCH check for
+ * non-`tenant` resources are enforced in every mode, as before.
+ */
+const TENANT_INVARIANT_MODES = Object.freeze(["off", "shadow", "enforce"]);
+let warnedInvalidInvariantMode = false;
+function tenantInvariantMode() {
+  const raw = process.env.PDP_TENANT_INVARIANT_MODE;
+  if (raw === undefined || raw === "") return "enforce";
+  const mode = String(raw).trim().toLowerCase();
+  if (TENANT_INVARIANT_MODES.includes(mode)) return mode;
+  if (!warnedInvalidInvariantMode) {
+    warnedInvalidInvariantMode = true;
+    console.warn("[PDP] PDP_TENANT_INVARIANT_MODE has an unknown value; treated as enforce");
+  }
+  return "enforce";
+}
+const isBlankTenant = (v) => v === undefined || v === null || String(v).trim() === "";
+/** @returns {null|"MISSING_TENANT_CONTEXT"|"TENANT_SCOPE_VIOLATION"} */
+function tenantInvariantViolation(targetTenantId, principalTenantId) {
+  if (isBlankTenant(targetTenantId) || isBlankTenant(principalTenantId)) return "MISSING_TENANT_CONTEXT";
+  if (String(targetTenantId) !== String(principalTenantId)) return "TENANT_SCOPE_VIOLATION";
+  return null;
+}
+// Log value for a tenant id / short enum: String, capped (a caller-supplied target can be any value).
+const logValue = (v) => (isBlankTenant(v) ? null : String(v).slice(0, 64));
+function logInvariantShadow(ctx, violation, oldDecision) {
+  console.warn("[PDP] tenant-invariant shadow", JSON.stringify({
+    event: "pdp.tenant_invariant.shadow",
+    principalTenantId: logValue(ctx.userTenantId),
+    targetTenantId: logValue(ctx.tenantId),
+    resource: logValue(ctx.resource),
+    action: logValue(ctx.action),
+    userType: logValue(ctx.userType),
+    oldDecision: oldDecision.decision || null,
+    oldReason: oldDecision.reason || null,
+    newDecision: "DENY",
+    newReason: violation,
+    divergent: oldDecision.decision !== "DENY",
+    correlationId: logValue(ctx.correlationId),
+  }));
+}
 
 /**
  * Invalidate cache entries for a specific tenant or all entries
@@ -245,12 +307,12 @@ const evaluatePolicyInternal = async (request) => {
       };
     }
 
-    // Step 4: Apply tenant isolation check (skip for tenant resource as it's handled in resource policy)
-    if (
-      resource !== "tenant" &&
-      context.tenantId &&
-      context.tenantId !== user.tenantId
-    ) {
+    // Step 4: Apply tenant isolation check. P0: no longer skipped for the `tenant` resource (that skip let a
+    // cross-tenant `tenant` request reach applyPolicyRules); "off" restores the pre-P0 skip (rollback only).
+    const invariantMode = tenantInvariantMode();
+    const step4Mismatch = !!context.tenantId && String(context.tenantId) !== String(user.tenantId);
+    // (shadow: a cross-tenant `tenant` request continues to applyPolicyRules, which logs it with old -> new.)
+    if (step4Mismatch && (resource !== "tenant" || invariantMode === "enforce")) {
       return {
         decision: "DENY",
         reason: "TENANT_MISMATCH",
@@ -339,7 +401,12 @@ const evaluatePolicyInternal = async (request) => {
     };
 
     // Step 8: Cache the result (fire and forget - don't wait). No tenant -> no cache key -> not cached.
-    if (cacheKey) {
+    // P0 shadow: a PERMIT the invariant would deny is never cached, so switching shadow -> enforce takes effect
+    // immediately instead of after the cache TTL.
+    const shadowDivergent =
+      result.decision === "PERMIT" &&
+      tenantInvariantViolation(authContext.tenantId, authContext.userTenantId) !== null;
+    if (cacheKey && !shadowDivergent) {
       cache
         .set(cacheKey, result)
         .catch((err) =>
@@ -468,6 +535,27 @@ const applyPolicyRules = async (context) => {
   if (carriesRetiredRole(roles)) {
     return { decision: "DENY", reason: "RETIRED_ROLE_REAUTH_REQUIRED" };
   }
+
+  // Rule 0c (P0 TENANT INVARIANT, see tenantInvariantViolation): every caller, every resource - including
+  // `tenant` - is decided only inside the principal's own verified tenant. Missing either side fails closed.
+  // Ordered after the platform-namespace and retired-SU refusals (their reason codes are pinned) and before
+  // ASU, so ASU (an own-tenant admin) can never be cross-tenant.
+  const invariantViolation = tenantInvariantViolation(tenantId, context.userTenantId);
+  if (invariantViolation) {
+    const mode = tenantInvariantMode();
+    if (mode === "enforce") return { decision: "DENY", reason: invariantViolation };
+    if (mode === "shadow") {
+      const oldDecision = await applyTenantPolicyRules(context);
+      logInvariantShadow(context, invariantViolation, oldDecision);
+      return oldDecision;
+    }
+  }
+  return applyTenantPolicyRules(context);
+};
+
+/** Rules 1-5 (ASU own-tenant rule, then resource / action / permission), reached only after Rules 0-0c. */
+const applyTenantPolicyRules = async (context) => {
+  const { roles, tenantId } = context;
 
   // Rule 1 (Phase B / Z9): ASU own-tenant administrative authority. The legacy tenant SU is retired;
   // ASU is the highest tenant role and this is an explicit tenant-admin rule, not a bypass. Order:
@@ -1141,6 +1229,9 @@ module.exports = {
   getEffectivePermissionsWithHeaders,
   validateToken,
   applyPolicyRules,
+  tenantInvariantMode,
+  tenantInvariantViolation,
+  PDP_DECISION_EPOCH,
   getPolicyVersion,
   invalidateCache,
   cache, // Export cache for management

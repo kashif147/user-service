@@ -47,7 +47,8 @@ string:
    caller's `userType` category (`CRM`/`PORTAL`/`ADMIN`/`GENERAL`) match the permission's category
    (with `COMMUNICATION`/`NOTIFICATION`/`API`/`GENERAL` as shared categories both PORTAL and CRM can
    use)? Also handles the `tenant` resource specially: `ASU` is restricted to
-   `tenantId === userTenantId` (cross-tenant tenant administration is PlatformPrincipal-only, Z6).
+   `tenantId === userTenantId` (cross-tenant tenant administration is PlatformPrincipal-only, Z6;
+   since P0 the universal tenant invariant below already refuses any cross-tenant request first).
 2. `evaluateActionPolicy` — either an exact canonical permission match (`{resource}:{action}`) in the
    caller's `permissions` array, or a fallback minimum role level (`read`:1, `create`/`write`/
    `update`:30, `delete`:60, `admin`:80, `super_admin`:100) via `roleHierarchyService`.
@@ -57,7 +58,14 @@ string:
 **Phase B / Z9: the legacy tenant SU is retired.** Before rules 1-3, in this order: Rule 0 denies every
 platform-namespace request (platform authority = a PlatformPrincipal with the exact permission, decided by
 `middlewares/requirePlatformPermission.js`, never here); Rule 0b refuses any token still carrying the
-retired `SU` role (`RETIRED_ROLE_REAUTH_REQUIRED` - sign in again); then the tenant boundary; then the ASU
+retired `SU` role (`RETIRED_ROLE_REAUTH_REQUIRED` - sign in again); then the tenant boundary (P0 TENANT
+INVARIANT, Rule 0c: for EVERY caller and EVERY resource, `tenant` included, a missing/blank request or
+principal tenant -> `MISSING_TENANT_CONTEXT`, `String(request tenant) !== String(principal tenant)` ->
+`TENANT_SCOPE_VIOLATION`; the token-path entry check in `evaluatePolicyInternal` no longer skips the
+`tenant` resource and returns `TENANT_MISMATCH`; `PDP_TENANT_INVARIANT_MODE=enforce` (default) |
+`shadow` (old decision + `pdp.tenant_invariant.shadow` log with full principal/target tenant ids and old -> new decision, divergent PERMITs not cached) | `off` (pre-P0, rollback
+only); there is no platform branch in this PDP - platform ops are the explicit allow-list
+`constants/platformPermissions.js`, decided by the platform evaluator); then the ASU
 own-tenant administrative rule (`roleHierarchyService.isTenantAdmin()`: ASU + request tenant == the
 actor's own tenant -> PERMIT `ASU_OWN_TENANT_ADMIN`). That PERMIT never overrides the stronger guards
 enforced afterwards by services/models (A14 GLOBAL_DATA_FROZEN, tenant / User ownership immutability,
