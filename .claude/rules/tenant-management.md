@@ -28,17 +28,22 @@ New or changed connections also pass `assertConnectionWritable` (Entra `director
 issuer rule, provisioning/default-role rules); untouched stored connections are grandfathered.
 Responses: every tenant/connection response goes through `helpers/authConnectionView.js` (explicit
 allow-list; appRef / directoryOwnership / application configuration are never returned).
-**PDP P3 field groups** (`helpers/tenantViewAccess.js`): every tenant document a controller returns is then
-reduced per caller - ORG (route guard passed); ORG-BANK `organisationProfile.{iban,bic,bankName,bankAddress}`
-only with a literal token claim `*` | `payments.bank:read` | `tenant:update`; SECURITY
-(`authenticationConnections`, `settings.{passwordPolicy,sessionTimeout,allowSelfRegistration,maxUsers}`,
-`subscription`, `createdBy`, `updatedBy`) only with `*` | `tenant.auth:read`. A platform principal never gets
-ORG-BANK and gets SECURITY only with `platform:tenant:auth-connections:manage:any`. The tenant-chain GET
-auth-connections / connection status / default-role-options routes need `tenant.auth:read` or `*`
-(`requireTenantAuthRead`, local check, not the PDP). Server-side document generation that needs the
-organisation's creditor bank details (profile payment forms) calls
-`GET /internal/tenants/:tenantId/creditor-profile` (outside `/api`, so not gateway-proxied; `x-service-secret`
-= `INTERNAL_TENANT_PROFILE_SECRET`, min 32 chars, unset = 403; `x-tenant-id` must equal the path id).
+**PDP P3 field groups** (`helpers/tenantViewAccess.js`): every tenant document a controller returns is REBUILT
+per caller from explicit allow-lists - `TENANT_ORG_FIELDS` (route guard passed), `TENANT_ORG_BANK_FIELDS`
+(`organisationProfile.{iban,bic,bankName,bankAddress.*}`; literal token claim `*` | `payments.bank:read` |
+`tenant:update`), `TENANT_SECURITY_FIELDS` (`authenticationConnections`, `settings.{passwordPolicy.*,
+sessionTimeout,allowSelfRegistration,maxUsers}`, `subscription.*`, `createdBy`, `updatedBy`; `*` |
+`tenant.auth:read`). A field on none of the lists (new schema field, `__v`, stray data) is returned to nobody -
+add it to a list deliberately. A platform principal never gets ORG-BANK and gets SECURITY only with
+`platform:tenant:auth-connections:manage:any`. The tenant-chain GET auth-connections / connection status /
+default-role-options routes need `tenant.auth:read` or `*` (`requireTenantAuthRead`, local check, not the PDP).
+Server-side document generation that needs the organisation's creditor bank details (profile payment forms) calls
+`GET /internal/tenants/:tenantId/creditor-profile`: outside `/api` (not gateway-proxied), authority = the
+p5-svc-sig/1 signature only (`middlewares/serviceSignatureAuth.js`, operation `tenant_creditor_profile`, caller
+allow-list profile-service, keys `SVC_SIGNING_KEYS_PROFILE_SERVICE`, nonce store `serviceAuthNonces` in this
+service's DB, mode `TENANT_CREDITOR_SERVICE_AUTH_MODE` off = 503 / report|enforce = signature required; any user
+or gateway identity header -> 404). Shared vectors: `contracts/p5-service-signing.v1.json` +
+`contracts/p5-service-signing.tenant-creditor-profile.v1.json` (pinned in `tests/serviceSigningVectors.p3.test.js`).
 
 ## IdP directory vs ProjectShell tenant (sign-in)
 

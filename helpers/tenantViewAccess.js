@@ -1,17 +1,13 @@
 /**
- * PDP rollout P3 (Q3 / review package E.1): field-level redaction of tenant documents per caller.
+ * PDP rollout P3 (Q3 / review package E.1): field-level redaction of tenant documents per caller, by EXPLICIT
+ * ALLOW-LISTS. Every tenant document a controller returns goes through toTenantView (helpers/authConnectionView.js,
+ * the per-connection allow-list) and then tenantViewForCaller / tenantViewsForCaller, which BUILD the response from
+ * the allow-listed field groups the verified caller may see. A field that is in none of the lists below (a new
+ * schema field, an internal marker, __v, anything stored by mistake) is never returned to anyone.
  *
- * toTenantView (helpers/authConnectionView.js) stays the response allow-list for connections; every tenant
- * document a controller returns then goes through tenantViewForCaller / tenantViewsForCaller, which drops the
- * field groups the verified caller may not see:
- *
- *   ORG       everything not listed below                       -> whoever passed the route guard (tenant:read,
- *                                                                   own tenant) - unchanged
- *   ORG-BANK  organisationProfile.{iban, bic, bankName, bankAddress}
- *                                                                -> token permission "*" | payments.bank:read |
- *                                                                   tenant:update (the organisation edit form)
- *   SECURITY  authenticationConnections, settings.{passwordPolicy, sessionTimeout, allowSelfRegistration,
- *             maxUsers}, subscription, createdBy, updatedBy      -> "*" | tenant.auth:read
+ *   ORG       TENANT_ORG_FIELDS        -> whoever passed the route guard (tenant:read, own tenant)
+ *   ORG-BANK  TENANT_ORG_BANK_FIELDS   -> token permission "*" | payments.bank:read | tenant:update
+ *   SECURITY  TENANT_SECURITY_FIELDS   -> "*" | tenant.auth:read
  *
  * Literal token strings from the verified identity (req.ctx.permissions, set by middlewares/auth.js from the
  * gateway-verified headers or the verified Bearer token) - never a query / body flag, never the PDP (the new
@@ -23,6 +19,9 @@
  * platform finance claim); SECURITY only when the principal holds platform:tenant:auth-connections:manage:any
  * (the route's own permission, or evaluated for this request) - read:any / update:any never reach another
  * tenant's connections (Z6).
+ *
+ * Spec format: { field: true } copies that value as stored (a leaf, or an array of strings); { field: { ... } }
+ * recurses into a sub-document with its own allow-list. Nothing is copied by default.
  */
 const { evaluatePlatformPermission } = require("../services/platformAuthorizationService");
 const { verifyProjectShellToken } = require("../middlewares/auth");
@@ -31,9 +30,109 @@ const CONNECTIONS_ANY = "platform:tenant:auth-connections:manage:any";
 const BANK_CLAIMS = Object.freeze(["*", "payments.bank:read", "tenant:update"]);
 const SECURITY_CLAIMS = Object.freeze(["*", "tenant.auth:read"]);
 
-const ORG_BANK_FIELDS = Object.freeze(["iban", "bic", "bankName", "bankAddress"]);
-const SECURITY_SETTINGS_FIELDS = Object.freeze(["passwordPolicy", "sessionTimeout", "allowSelfRegistration", "maxUsers"]);
-const SECURITY_TOP_LEVEL_FIELDS = Object.freeze(["authenticationConnections", "subscription", "createdBy", "updatedBy"]);
+const LEAF = true;
+const TENANT_ORG_FIELDS = Object.freeze({
+  _id: LEAF,
+  name: LEAF,
+  code: LEAF,
+  description: LEAF,
+  domain: LEAF,
+  contactEmail: LEAF,
+  contactPhone: LEAF,
+  address: { street: LEAF, city: LEAF, state: LEAF, zipCode: LEAF, country: LEAF },
+  organisationProfile: {
+    legalName: LEAF,
+    tradingName: LEAF,
+    registrationNumber: LEAF,
+    charityNumber: LEAF,
+    vatNumber: LEAF,
+    website: LEAF,
+    email: LEAF,
+    contactNumber: LEAF,
+    sepaOriginatorIdentificationNumber: LEAF, // printed on every member mandate: organisation detail
+  },
+  branding: {
+    logoUrl: LEAF,
+    logoDarkUrl: LEAF,
+    faviconUrl: LEAF,
+    primaryColor: LEAF,
+    secondaryColor: LEAF,
+    accentColor: LEAF,
+    secondaryBackgroundColor: LEAF,
+    portalTitle: LEAF,
+    emailFooterText: LEAF,
+    letterHeaderUrl: LEAF,
+    letterFooterUrl: LEAF,
+  },
+  regionalSettings: { timezone: LEAF, locale: LEAF, currency: LEAF, dateFormat: LEAF },
+  settings: {
+    // read by subscription-service lifecycle scheduling and the CRM lifecycle settings page
+    lifecycleBatches: {
+      reminder: { generateMode: LEAF, executeMode: LEAF },
+      cancellation: { generateMode: LEAF, executeMode: LEAF },
+      schedule: { dayMode: LEAF },
+      notificationRecipientRoleCodes: LEAF,
+    },
+  },
+  status: LEAF,
+  isActive: LEAF,
+  createdAt: LEAF,
+  updatedAt: LEAF,
+});
+const TENANT_ORG_BANK_FIELDS = Object.freeze({
+  organisationProfile: {
+    bankName: LEAF,
+    bankAddress: {
+      buildingOrHouse: LEAF,
+      streetOrRoad: LEAF,
+      areaOrTown: LEAF,
+      countyCityOrPostCode: LEAF,
+      eircode: LEAF,
+      country: LEAF,
+    },
+    iban: LEAF,
+    bic: LEAF,
+  },
+});
+const TENANT_SECURITY_FIELDS = Object.freeze({
+  // each connection is already reduced to CONNECTION_RESPONSE_FIELDS by toTenantView / toConnectionView
+  authenticationConnections: LEAF,
+  settings: {
+    maxUsers: LEAF,
+    allowSelfRegistration: LEAF,
+    sessionTimeout: LEAF,
+    passwordPolicy: {
+      minLength: LEAF,
+      requireUppercase: LEAF,
+      requireLowercase: LEAF,
+      requireNumbers: LEAF,
+      requireSpecialChars: LEAF,
+    },
+  },
+  subscription: { plan: LEAF, startDate: LEAF, endDate: LEAF, autoRenew: LEAF },
+  createdBy: LEAF,
+  updatedBy: LEAF,
+});
+
+const isPlainObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v) && !(v instanceof Date);
+const asPlain = (v) => (v && typeof v.toObject === "function" ? v.toObject() : v);
+
+/** Copy only the allow-listed fields of `src` (see spec format above) into `dst`. Pure. */
+function pickInto(dst, src, spec) {
+  const from = asPlain(src);
+  if (!isPlainObject(from)) return dst;
+  for (const [key, rule] of Object.entries(spec)) {
+    if (!Object.prototype.hasOwnProperty.call(from, key) || from[key] === undefined) continue;
+    const value = asPlain(from[key]);
+    if (rule === LEAF) {
+      dst[key] = value;
+    } else if (isPlainObject(value)) {
+      const sub = pickInto(isPlainObject(dst[key]) ? dst[key] : {}, value, rule);
+      dst[key] = sub;
+    }
+  }
+  return dst;
+}
 
 function tokenPermissions(req) {
   const p = req && req.ctx && req.ctx.permissions;
@@ -75,23 +174,12 @@ async function resolveTenantViewAccess(req) {
   return { platform: false, canBank: holdsAny(perms, BANK_CLAIMS), canSecurity: holdsAny(perms, SECURITY_CLAIMS) };
 }
 
-/** Drop the groups `access` does not allow from one (already toTenantView-ed) tenant document. Pure. */
+/** Build the response for one (already toTenantView-ed) tenant document from the allowed groups only. Pure. */
 function applyTenantViewAccess(view, { canBank = false, canSecurity = false } = {}) {
   if (!view || typeof view !== "object") return view;
-  const out = { ...view };
-  if (!canBank && out.organisationProfile && typeof out.organisationProfile === "object") {
-    const org = { ...out.organisationProfile };
-    for (const f of ORG_BANK_FIELDS) delete org[f];
-    out.organisationProfile = org;
-  }
-  if (!canSecurity) {
-    for (const f of SECURITY_TOP_LEVEL_FIELDS) delete out[f];
-    if (out.settings && typeof out.settings === "object") {
-      const settings = { ...out.settings };
-      for (const f of SECURITY_SETTINGS_FIELDS) delete settings[f];
-      out.settings = settings;
-    }
-  }
+  const out = pickInto({}, view, TENANT_ORG_FIELDS);
+  if (canBank) pickInto(out, view, TENANT_ORG_BANK_FIELDS);
+  if (canSecurity) pickInto(out, view, TENANT_SECURITY_FIELDS);
   return out;
 }
 
@@ -129,9 +217,10 @@ function requireTenantAuthRead(req, res, next) {
 
 module.exports = {
   CONNECTIONS_ANY,
-  ORG_BANK_FIELDS,
-  SECURITY_SETTINGS_FIELDS,
-  SECURITY_TOP_LEVEL_FIELDS,
+  TENANT_ORG_FIELDS,
+  TENANT_ORG_BANK_FIELDS,
+  TENANT_SECURITY_FIELDS,
+  pickInto,
   resolveTenantViewAccess,
   applyTenantViewAccess,
   tenantViewForCaller,

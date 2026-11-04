@@ -77,11 +77,12 @@ const mockTenantDoc = () => ({
     bankAddress: { areaOrTown: "Dublin" },
     iban: "IE29AIBK93115212345678",
     bic: "AIBKIE2DXXX",
+    sortCodeLegacy: "UNKNOWN-ORG-PROFILE",
   },
-  branding: { primaryColor: "#000000" },
+  branding: { primaryColor: "#000000", trackingPixel: "UNKNOWN-BRANDING" },
   regionalSettings: { timezone: "Europe/Dublin" },
   settings: {
-    lifecycleBatches: { enabled: true },
+    lifecycleBatches: { reminder: { generateMode: "manual", executeMode: "manual" }, notificationRecipientRoleCodes: ["MO"], internalFlag: "drop-me" },
     passwordPolicy: { minLength: 12 },
     sessionTimeout: 24,
     allowSelfRegistration: true,
@@ -93,6 +94,9 @@ const mockTenantDoc = () => ({
   updatedBy: "updater",
   status: "ACTIVE",
   isActive: true,
+  // Unknown / not-allow-listed fields at every level: never returned to anyone (ASU included).
+  __v: 3,
+  internalNotes: "UNKNOWN-TOP-LEVEL",
 });
 jest.mock("../handlers/tenant.handler", () => ({
   getAllTenants: jest.fn(async () => [mockTenantDoc()]),
@@ -108,6 +112,20 @@ jest.mock("../handlers/tenant.handler", () => ({
 }));
 jest.mock("../handlers/entraConnect.handler", () => ({ getConnectionStatus: jest.fn(async () => ({ status: "connected" })) }));
 
+// Signed-route dependencies: env per test and an in-memory nonce store with the same unique semantics.
+const mockNonces = new Set();
+const mockSignDeps = {
+  env: {},
+  storeReady: async () => true,
+  NonceModel: {
+    create: async ({ caller, nonce }) => {
+      const k = `${caller}|${nonce}`;
+      if (mockNonces.has(k)) { const e = new Error("dup"); e.code = 11000; throw e; }
+      mockNonces.add(k);
+    },
+  },
+  logger: { info: () => {}, warn: () => {} },
+};
 const Tenant = require("../models/tenant.model");
 const { applyTenantViewAccess, tenantViewForCaller } = require("../helpers/tenantViewAccess");
 const { toCreditorProfileView } = require("../controllers/internalTenantCreditorProfile.controller");
@@ -119,7 +137,7 @@ beforeAll(async () => {
   app.use(express.json());
   app.use(require("../middlewares/response.mw"));
   app.use("/api", require("../routes/tenant.routes"));
-  app.use("/internal", require("../routes/internalTenantCreditorProfile.routes"));
+  app.use("/internal", require("../routes/internalTenantCreditorProfile.routes").createCreditorProfileRouter(mockSignDeps));
   app.use((err, req, res, next) => res.status(err.status || 500).json({ error: { message: err.message, code: err.code } }));
   await new Promise((r) => (server = app.listen(0, "127.0.0.1", r)));
   port = server.address().port;
@@ -133,7 +151,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   jest.restoreAllMocks();
-  delete process.env.INTERNAL_TENANT_PROFILE_SECRET;
+  mockSignDeps.env = {};
 });
 
 function call(method, p, headers = {}, body) {
@@ -216,7 +234,7 @@ describe("tenant documents per caller (tenant chain, own tenant)", () => {
   test("applyTenantViewAccess is pure and keeps the non-security settings (lifecycleBatches)", () => {
     const doc = mockTenantDoc();
     const out = applyTenantViewAccess(doc, { canBank: false, canSecurity: false });
-    expect(out.settings).toEqual({ lifecycleBatches: { enabled: true } });
+    expect(out.settings).toEqual({ lifecycleBatches: { reminder: { generateMode: "manual", executeMode: "manual" }, notificationRecipientRoleCodes: ["MO"] } });
     expect(out.organisationProfile.sepaOriginatorIdentificationNumber).toBe("IE00ZZZ000000");
     expect(doc.organisationProfile.iban).toBeDefined();
     expect(doc.authenticationConnections).toHaveLength(1);
@@ -271,41 +289,106 @@ describe("authentication-configuration reads need tenant.auth:read", () => {
   });
 });
 
-describe("internal creditor profile (O6 / N3)", () => {
-  const SECRET = "p3-creditor-profile-test-secret-0123456789";
+describe("allow-lists: unknown fields are never returned", () => {
+  test("no caller (tenant:read, bank, auth, ASU, platform) ever sees a field outside the allow-lists", async () => {
+    const callers = [asTenant(["tenant:read"]), asTenant(["payments.bank:read"]), asTenant(["tenant.auth:read"]), asTenant(["*"], ["ASU"]), asPlatform([READ_ANY, CONNECTIONS_ANY])];
+    for (const h of callers) {
+      for (const [method, p, body] of TENANT_DOC_ROUTES) {
+        if (h.authorization && method !== "GET") continue;
+        const r = await call(method, p, h, body);
+        expect(r.status).toBe(200);
+        expect(r.raw).not.toMatch(/UNKNOWN-|drop-me|"__v"|internalNotes|sortCodeLegacy|trackingPixel|internalFlag/);
+      }
+    }
+  });
+  test("an unknown field is returned only through an explicit allow-list entry", () => {
+    const { pickInto, applyTenantViewAccess } = require("../helpers/tenantViewAccess");
+    const doc = mockTenantDoc();
+    expect(applyTenantViewAccess(doc, { canBank: true, canSecurity: true })).not.toHaveProperty("internalNotes");
+    expect(pickInto({}, doc, { internalNotes: true })).toEqual({ internalNotes: "UNKNOWN-TOP-LEVEL" });
+    expect(pickInto({}, doc, { organisationProfile: { sortCodeLegacy: true } })).toEqual({ organisationProfile: { sortCodeLegacy: "UNKNOWN-ORG-PROFILE" } });
+  });
+});
+
+describe("internal creditor profile (O6 / N3): p5-svc-sig/1, caller profile-service", () => {
+  const { canonicalString, signCanonical, sha256Hex } = require("../services/serviceSignatureVerify");
+  const KID = "pr-2026-11";
+  const KEY = "TEST-ONLY-p5-svc-sig-vector-secret-profile-user-0001";
   const url = `/internal/tenants/${A}/creditor-profile`;
+  const enforce = (extra = {}) => ({ TENANT_CREDITOR_SERVICE_AUTH_MODE: "enforce", SVC_SIGNING_KEYS_PROFILE_SERVICE: `${KID}:${KEY}`, ...extra });
+  let nonceSeq = 0;
+  function signed({ target = url, tenant = A, caller = "profile-service", kid = KID, key = KEY, ts = Math.floor(Date.now() / 1000), nonce, method = "GET" } = {}) {
+    const n = nonce || `bm9uY2UtY3JlZGl0b3ItdGVzdC0${String(++nonceSeq).padStart(4, "0")}`;
+    const c = canonicalString({ caller, kid, method, target, tenant, idem: "", bodySha256: sha256Hex(Buffer.alloc(0)), ts: String(ts), nonce: n });
+    return { "x-tenant-id": tenant, "x-svc-version": "1", "x-svc-caller": caller, "x-svc-kid": kid, "x-svc-ts": String(ts), "x-svc-nonce": n, "x-svc-sig": signCanonical(key, c) };
+  }
+  beforeEach(() => mockNonces.clear());
 
-  test("secret unset / short / wrong -> 403 (fail closed)", async () => {
-    expect((await call("GET", url, { "x-service-secret": SECRET, "x-tenant-id": A })).status).toBe(403);
-    process.env.INTERNAL_TENANT_PROFILE_SECRET = "short";
-    expect((await call("GET", url, { "x-service-secret": "short", "x-tenant-id": A })).status).toBe(403);
-    process.env.INTERNAL_TENANT_PROFILE_SECRET = SECRET;
-    expect((await call("GET", url, { "x-service-secret": `${SECRET}x`, "x-tenant-id": A })).status).toBe(403);
-    expect((await call("GET", url, { "x-tenant-id": A })).status).toBe(403);
-    // a user token does not substitute for the service secret
-    expect((await call("GET", url, { ...asTenant(["*"]), "x-tenant-id": A, authorization: "Bearer user" })).status).toBe(403);
+  test("mode off (default) = 503 kill switch, even with a valid signature; nothing read", async () => {
+    mockSignDeps.env = { SVC_SIGNING_KEYS_PROFILE_SERVICE: `${KID}:${KEY}` };
+    const r = await call("GET", url, signed());
+    expect([r.status, r.body.code]).toEqual([503, "CREDITOR_PROFILE_LOOKUP_DISABLED"]);
+    expect(Tenant.findOne).not.toHaveBeenCalled();
   });
 
-  test("tenant id: path must be an id and equal x-tenant-id", async () => {
-    process.env.INTERNAL_TENANT_PROFILE_SECRET = SECRET;
-    expect((await call("GET", url, { "x-service-secret": SECRET, "x-tenant-id": OTHER })).status).toBe(400);
-    expect((await call("GET", url, { "x-service-secret": SECRET })).status).toBe(400);
-    expect((await call("GET", "/internal/tenants/not-an-id/creditor-profile", { "x-service-secret": SECRET, "x-tenant-id": "not-an-id" })).status).toBe(400);
-  });
-
-  test("valid call: ORG + creditor bank fields only; never settings / subscription / connections / createdBy", async () => {
-    process.env.INTERNAL_TENANT_PROFILE_SECRET = SECRET;
-    const r = await call("GET", url, { "x-service-secret": SECRET, "x-tenant-id": A });
+  test.each(["report", "enforce"])("mode %s: a valid signature reads the SIGNED tenant; allow-listed creditor fields only", async (mode) => {
+    mockSignDeps.env = enforce({ TENANT_CREDITOR_SERVICE_AUTH_MODE: mode });
+    const r = await call("GET", url, signed());
     expect(r.status).toBe(200);
     expect(Object.keys(r.body.data).sort()).toEqual(["branding", "code", "name", "organisationProfile", "tenantId"]);
     expect(r.body.data.organisationProfile).toMatchObject({ iban: "IE29AIBK93115212345678", bic: "AIBKIE2DXXX", bankName: "Test Bank", sepaOriginatorIdentificationNumber: "IE00ZZZ000000", legalName: "Org A Ltd" });
-    expect(r.raw).not.toMatch(/passwordPolicy|authenticationConnections|enterprise|creator|updater/);
-    expect(toCreditorProfileView({ ...mockTenantDoc(), organisationProfile: { iban: "X", internalNote: "y" } }).organisationProfile).toEqual({ iban: "X" });
+    expect(r.raw).not.toMatch(/passwordPolicy|authenticationConnections|enterprise|creator|updater|UNKNOWN-/);
+  });
+
+  test.each(["report", "enforce"])("mode %s still REQUIRES a valid signature: missing / bad sig / unknown kid / stale / wrong caller / replay", async (mode) => {
+    mockSignDeps.env = enforce({ TENANT_CREDITOR_SERVICE_AUTH_MODE: mode });
+    const code = async (h) => { const r = await call("GET", url, h); return [r.status, r.body && r.body.code]; };
+    expect(await code({ "x-tenant-id": A })).toEqual([401, "SERVICE_AUTH_REQUIRED"]);
+    expect(await code({ ...signed(), "x-svc-sig": signed({ key: `${KEY}-other-key-material` })["x-svc-sig"] })).toEqual([401, "SERVICE_AUTH_INVALID"]);
+    expect(await code(signed({ kid: "pr-unknown" }))).toEqual([401, "SERVICE_AUTH_UNKNOWN_KID"]);
+    expect(await code(signed({ ts: Math.floor(Date.now() / 1000) - 120 }))).toEqual([401, "SERVICE_AUTH_STALE"]);
+    expect(await code(signed({ caller: "communication-service" }))).toEqual([403, "SERVICE_NOT_ALLOWED"]); // not allowed yet
+    expect(await code(signed({ caller: "account-service" }))).toEqual([403, "SERVICE_NOT_ALLOWED"]);
+    const once = signed();
+    expect((await code(once))[0]).toBe(200);
+    expect(await code(once)).toEqual([401, "SERVICE_AUTH_REPLAY"]);
+    expect(Tenant.findOne).toHaveBeenCalledTimes(1);
+  });
+
+  test("the signature binds the exact path and x-tenant-id: re-targeting or re-tenanting fails", async () => {
+    mockSignDeps.env = enforce();
+    // signed for tenant A, sent with x-tenant-id B
+    expect((await call("GET", url, { ...signed(), "x-tenant-id": OTHER })).body.code).toBe("SERVICE_AUTH_INVALID");
+    // signed for A's path, sent to B's path
+    expect((await call("GET", `/internal/tenants/${OTHER}/creditor-profile`, signed())).body.code).toBe("SERVICE_AUTH_INVALID");
+    // a genuine signature for path B with x-tenant-id A: the handler refuses (path tenant != signed tenant)
+    const r = await call("GET", `/internal/tenants/${OTHER}/creditor-profile`, signed({ target: `/internal/tenants/${OTHER}/creditor-profile`, tenant: A }));
+    expect([r.status, r.body.code]).toEqual([403, "TENANT_MISMATCH"]);
+    expect(Tenant.findOne).not.toHaveBeenCalled();
+  });
+
+  test.each(["off", "report", "enforce"])("mode %s: ANY user / gateway identity header -> 404, even with a valid signature", async (mode) => {
+    mockSignDeps.env = enforce({ TENANT_CREDITOR_SERVICE_AUTH_MODE: mode });
+    for (const extra of [{ authorization: "Bearer user" }, { "x-jwt-verified": "true" }, { "x-auth-source": "gateway" }, { "x-user-id": "u" }, { "x-gateway-signature": "g" }, { "x-service-secret": "s" }]) {
+      const r = await call("GET", url, { ...signed(), ...extra });
+      expect([Object.keys(extra)[0], r.status]).toEqual([Object.keys(extra)[0], 404]);
+    }
+    expect(Tenant.findOne).not.toHaveBeenCalled();
+  });
+
+  test("the shared secret mechanism is gone", () => {
+    const src = ["controllers/internalTenantCreditorProfile.controller.js", "routes/internalTenantCreditorProfile.routes.js", "env.development.template"]
+      .map((f) => fs.readFileSync(path.join(__dirname, "..", f), "utf8")).join("\n");
+    expect(src).not.toMatch(/INTERNAL_TENANT_PROFILE_SECRET|x-service-secret.*===|requireTenantProfileSecret/);
   });
 
   test("mounted outside /api (the gateway proxies only /user-service/{api,auth,pkce}) - never on an /api router", () => {
     const src = fs.readFileSync(path.join(__dirname, "..", "routes", "index.js"), "utf8");
     expect(src).toMatch(/router\.use\("\/internal", require\("\.\/internalTenantCreditorProfile\.routes"\)\)/);
     expect(src).not.toMatch(/router\.use\("\/api", require\("\.\/internalTenantCreditorProfile\.routes"\)\)/);
+  });
+
+  test("creditor view is built from allow-lists (unknown organisation-profile fields dropped)", () => {
+    expect(toCreditorProfileView({ ...mockTenantDoc(), organisationProfile: { iban: "X", internalNote: "y" } }).organisationProfile).toEqual({ iban: "X" });
   });
 });
