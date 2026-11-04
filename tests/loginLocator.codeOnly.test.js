@@ -71,7 +71,9 @@ test("11 no unauthenticated organisation / tenant listing route exists", () => {
       const [, method, routePath, rest] = m;
       if (!/tenant|organi[sz]ation/i.test(routePath)) continue;
       if (/(^|\/)(public|directory|discover|list)(\/|$)/i.test(routePath)) offenders.push(`${file} ${method} ${routePath} (public-looking path)`);
-      const guarded = /requireTenant|authenticate|policy|middleware\(|requirePermission|ensureAuthenticated|verifyToken/.test(rest);
+      // PDP P3: createServiceSignatureAuth (p5-svc-sig/1 verifier, the only authority of the internal
+      // /internal/tenants/:tenantId/creditor-profile read) is an auth middleware too.
+      const guarded = /requireTenant|authenticate|policy|middleware\(|requirePermission|ensureAuthenticated|verifyToken|createServiceSignatureAuth\(/.test(rest);
       if (method === "get" && !guarded) offenders.push(`${file} ${method} ${routePath} (no auth middleware)`);
     }
   }

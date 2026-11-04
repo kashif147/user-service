@@ -133,7 +133,9 @@ jest.mock("../middlewares/auth", () => {
     authenticate: (req, res, next) => {
       const t = req.headers["x-test-tenant"];
       if (t || req.headers["x-test-roles"]) {
-        req.ctx = { tenantId: t, userId: "c00000000000000000000009", roles: JSON.parse(req.headers["x-test-roles"] || "[]") };
+        // PDP P3: the tenant field groups / auth-config reads are decided on literal token claims; the tenant
+        // administrator actors of this suite carry the computed "*" their real token has.
+        req.ctx = { tenantId: t, userId: "c00000000000000000000009", roles: JSON.parse(req.headers["x-test-roles"] || "[]"), permissions: JSON.parse(req.headers["x-test-perms"] || '["*"]') };
       }
       next();
     },

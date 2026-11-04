@@ -261,18 +261,20 @@ describe("start: organizations authority, shared app, server-side state", () => 
     await rejectsCode(start(), "INVALID_DIRECTORY");
   });
 
-  test("A3 routes: tenant admin for start/complete, tenant read for status, own-tenant path guard on all three", () => {
+  test("A3 routes: tenant admin for start/complete, tenant.auth:read for status (PDP P3), own-tenant path guard on all three", () => {
     const src = fs.readFileSync(path.join(__dirname, "..", "routes", "tenant.routes.js"), "utf8");
     for (const [route, perm] of [
       ['"/tenants/:id/auth-connections/:connectionId/connect"', '"admin"'],
       ['"/tenants/:id/auth-connections/:connectionId/connect/complete"', '"admin"'],
-      ['"/tenants/:id/auth-connections/:connectionId/status"', '"read"'],
+      ['"/tenants/:id/auth-connections/:connectionId/status"', null],
     ]) {
       // Z6: the tenant chain is the LAST registration of the path (the platform registration precedes it).
       const block = src.slice(src.lastIndexOf(route), src.indexOf(");", src.lastIndexOf(route)));
       expect(block).toMatch(/requireTenant,/);
       expect(block).toMatch(/requireTenantPathAccess\("id"\)/);
-      expect(block).toContain(`defaultPolicyAdapter.middleware("tenant", ${perm})`);
+      // PDP P3: the status read is the literal tenant.auth:read guard, after the own-tenant path guard.
+      if (perm) expect(block).toContain(`defaultPolicyAdapter.middleware("tenant", ${perm})`);
+      else expect(block.indexOf("requireTenantAuthRead")).toBeGreaterThan(block.indexOf('requireTenantPathAccess("id")'));
     }
   });
 
