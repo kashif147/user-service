@@ -186,15 +186,59 @@ describe("core evaluator (applyPolicyRules): T1-T7 and the owner-required cases"
     }
   });
 
-  test("shadow returns the pre-P0 decision and logs a masked divergence (no roles/permissions/full ids)", async () => {
+  test("shadow returns the pre-P0 decision and logs full principal + target tenant ids, old -> new, and nothing sensitive", async () => {
     const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
-    expect(await withMode("shadow", () => decide({ tenantId: TB }))).toMatchObject({ decision: "PERMIT" });
-    const line = warn.mock.calls.map((c) => c.join(" ")).find((l) => l.includes("pdp.tenant_invariant.shadow"));
-    expect(line).toBeDefined();
-    expect(line).toContain("TENANT_SCOPE_VIOLATION");
-    expect(line).not.toContain(TA);
-    expect(line).not.toContain(TB);
-    expect(line).not.toContain("events:read");
+    const shadowLines = () =>
+      warn.mock.calls
+        .filter((c) => String(c[0]).includes("tenant-invariant shadow"))
+        .map((c) => JSON.parse(c[1]));
+    const sensitive = { roles: ["MO", "ASU_NOT"], permissions: ["events:read", "secret:perm"], email: "someone@example.org", name: "Some Name", token: "eyJ.secret.token" };
+    expect(await withMode("shadow", () => decide({ ...sensitive, tenantId: TB, correlationId: "corr-1" }))).toMatchObject({ decision: "PERMIT" });
+    let [entry] = shadowLines();
+    expect(entry).toEqual({
+      event: "pdp.tenant_invariant.shadow",
+      principalTenantId: TA,
+      targetTenantId: TB,
+      resource: "events",
+      action: "read",
+      userType: "CRM",
+      oldDecision: "PERMIT",
+      oldReason: "POLICY_SATISFIED",
+      newDecision: "DENY",
+      newReason: "TENANT_SCOPE_VIOLATION",
+      divergent: true,
+      correlationId: "corr-1",
+    });
+    const raw = warn.mock.calls.map((c) => c.join(" ")).join("\n");
+    for (const v of ["events:read", "secret:perm", "MO", "someone@example.org", "Some Name", "eyJ.secret.token", "permissions", "roles"]) {
+      expect(raw).not.toContain(v);
+    }
+    // Two tenants differing only in their prefix are distinguishable (no truncation/masking collision).
+    warn.mockClear();
+    const TC = `000000000000${TB.slice(12)}`;
+    await withMode("shadow", () => decide({ tenantId: TC }));
+    [entry] = shadowLines();
+    expect(entry.targetTenantId).toBe(TC);
+    expect(entry.targetTenantId).not.toBe(TB);
+    // Missing context: old -> new recorded, principal id kept, target null.
+    warn.mockClear();
+    await withMode("shadow", () => decide({ tenantId: "" }));
+    [entry] = shadowLines();
+    expect(entry).toMatchObject({ principalTenantId: TA, targetTenantId: null, newReason: "MISSING_TENANT_CONTEXT" });
+    // Own tenant: no shadow line.
+    warn.mockClear();
+    await withMode("shadow", () => decide({}));
+    expect(shadowLines()).toHaveLength(0);
+  });
+
+  test("shadow on the token path: one line per cross-tenant `tenant` decision, with the verified principal tenant", async () => {
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+    const token = sign({ permissions: ["tenant:read"], email: "x@example.org" });
+    expect(await withMode("shadow", () => evaluatePolicy({ token, resource: "tenant", action: "read", context: { tenantId: TB } }))).toMatchObject({ decision: "PERMIT" });
+    const lines = warn.mock.calls.filter((c) => String(c[0]).includes("tenant-invariant shadow")).map((c) => JSON.parse(c[1]));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ principalTenantId: TA, targetTenantId: TB, resource: "tenant", action: "read", oldDecision: "PERMIT", newDecision: "DENY" });
+    expect(warn.mock.calls.map((c) => c.join(" ")).join(" ")).not.toContain("x@example.org");
   });
 });
 

@@ -64,7 +64,12 @@ const carriesRetiredRole = (roles) =>
  *
  * PDP_TENANT_INVARIANT_MODE (read per call; unknown value -> enforce, fail closed):
  *   enforce (default) - the invariant denies.
- *   shadow            - the pre-P0 decision is returned, a divergence is logged (masked ids, no roles/permissions),
+ *   shadow            - the pre-P0 decision is returned and every invariant violation is logged as
+ *                       pdp.tenant_invariant.shadow: FULL principal and target tenant ids (tenant ids are not
+ *                       secrets or personal data; full ids so two tenants can never collide), resource, action,
+ *                       userType, old decision/reason -> new decision/reason. Never tokens, emails, names, roles or
+ *                       permission lists. (A cross-tenant `tenant` request on the token path is logged here with the
+ *                       invariant reason; under enforce the token entry check reports it as TENANT_MISMATCH.)
  *                       and a PERMIT the invariant would deny is NOT cached.
  *   off               - exactly the pre-P0 behaviour (rollback only).
  * The flag only gates the NEW denials: the ASU own-tenant rule and the token-path TENANT_MISMATCH check for
@@ -90,18 +95,22 @@ function tenantInvariantViolation(targetTenantId, principalTenantId) {
   if (String(targetTenantId) !== String(principalTenantId)) return "TENANT_SCOPE_VIOLATION";
   return null;
 }
-const maskId = (v) => (isBlankTenant(v) ? null : `…${String(v).slice(-6)}`);
-function logInvariantShadow(where, ctx, violation) {
+// Log value for a tenant id / short enum: String, capped (a caller-supplied target can be any value).
+const logValue = (v) => (isBlankTenant(v) ? null : String(v).slice(0, 64));
+function logInvariantShadow(ctx, violation, oldDecision) {
   console.warn("[PDP] tenant-invariant shadow", JSON.stringify({
     event: "pdp.tenant_invariant.shadow",
-    where,
-    violation,
-    resource: ctx.resource || null,
-    action: ctx.action || null,
-    userType: ctx.userType || null,
-    targetTenant: maskId(ctx.tenantId),
-    principalTenant: maskId(ctx.userTenantId),
-    correlationId: ctx.correlationId || null,
+    principalTenantId: logValue(ctx.userTenantId),
+    targetTenantId: logValue(ctx.tenantId),
+    resource: logValue(ctx.resource),
+    action: logValue(ctx.action),
+    userType: logValue(ctx.userType),
+    oldDecision: oldDecision.decision || null,
+    oldReason: oldDecision.reason || null,
+    newDecision: "DENY",
+    newReason: violation,
+    divergent: oldDecision.decision !== "DENY",
+    correlationId: logValue(ctx.correlationId),
   }));
 }
 
@@ -302,9 +311,7 @@ const evaluatePolicyInternal = async (request) => {
     // cross-tenant `tenant` request reach applyPolicyRules); "off" restores the pre-P0 skip (rollback only).
     const invariantMode = tenantInvariantMode();
     const step4Mismatch = !!context.tenantId && String(context.tenantId) !== String(user.tenantId);
-    if (step4Mismatch && resource === "tenant" && invariantMode === "shadow") {
-      logInvariantShadow("entry", { resource, action, userType: user.userType, tenantId: context.tenantId, userTenantId: user.tenantId, correlationId: context.correlationId }, "TENANT_SCOPE_VIOLATION");
-    }
+    // (shadow: a cross-tenant `tenant` request continues to applyPolicyRules, which logs it with old -> new.)
     if (step4Mismatch && (resource !== "tenant" || invariantMode === "enforce")) {
       return {
         decision: "DENY",
@@ -537,8 +544,18 @@ const applyPolicyRules = async (context) => {
   if (invariantViolation) {
     const mode = tenantInvariantMode();
     if (mode === "enforce") return { decision: "DENY", reason: invariantViolation };
-    if (mode === "shadow") logInvariantShadow("rules", context, invariantViolation);
+    if (mode === "shadow") {
+      const oldDecision = await applyTenantPolicyRules(context);
+      logInvariantShadow(context, invariantViolation, oldDecision);
+      return oldDecision;
+    }
   }
+  return applyTenantPolicyRules(context);
+};
+
+/** Rules 1-5 (ASU own-tenant rule, then resource / action / permission), reached only after Rules 0-0c. */
+const applyTenantPolicyRules = async (context) => {
+  const { roles, tenantId } = context;
 
   // Rule 1 (Phase B / Z9): ASU own-tenant administrative authority. The legacy tenant SU is retired;
   // ASU is the highest tenant role and this is an explicit tenant-admin rule, not a bypass. Order:

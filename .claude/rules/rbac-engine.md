@@ -63,7 +63,7 @@ INVARIANT, Rule 0c: for EVERY caller and EVERY resource, `tenant` included, a mi
 principal tenant -> `MISSING_TENANT_CONTEXT`, `String(request tenant) !== String(principal tenant)` ->
 `TENANT_SCOPE_VIOLATION`; the token-path entry check in `evaluatePolicyInternal` no longer skips the
 `tenant` resource and returns `TENANT_MISMATCH`; `PDP_TENANT_INVARIANT_MODE=enforce` (default) |
-`shadow` (old decision + masked divergence log, divergent PERMITs not cached) | `off` (pre-P0, rollback
+`shadow` (old decision + `pdp.tenant_invariant.shadow` log with full principal/target tenant ids and old -> new decision, divergent PERMITs not cached) | `off` (pre-P0, rollback
 only); there is no platform branch in this PDP - platform ops are the explicit allow-list
 `constants/platformPermissions.js`, decided by the platform evaluator); then the ASU
 own-tenant administrative rule (`roleHierarchyService.isTenantAdmin()`: ASU + request tenant == the
