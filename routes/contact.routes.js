@@ -4,6 +4,9 @@ const contactController = require("../controllers/contact.controller");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter");
 // Phase B / Z5: platform-owned writes are enforced platform authorization (route-enforce; global mode stays shadow).
 const { requirePlatformPermission } = require("../middlewares/requirePlatformPermission");
+// PDP rollout P2: contact reads are CRM-only (after the PDP check, which sets req.user). Non-ASU callers get
+// the picker projection only (controllers/contact.controller.js).
+const { requireCrmUser } = require("../middlewares/requireCrmUser");
 
 /**
  * Contact API Routes
@@ -16,6 +19,7 @@ const { requirePlatformPermission } = require("../middlewares/requirePlatformPer
 router.get(
   "/contacts",
   defaultPolicyAdapter.middleware("contact", "read"),
+  requireCrmUser,
   contactController.getAllContacts
 );
 
@@ -23,6 +27,7 @@ router.get(
 router.get(
   "/contacts/search",
   defaultPolicyAdapter.middleware("contact", "read"),
+  requireCrmUser,
   contactController.searchContacts
 );
 
@@ -30,6 +35,7 @@ router.get(
 router.get(
   "/contacts/:id",
   defaultPolicyAdapter.middleware("contact", "read"),
+  requireCrmUser,
   contactController.getContactById
 );
 

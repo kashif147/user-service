@@ -1,5 +1,25 @@
 const mongoose = require("mongoose");
 const Contact = require("../models/contact");
+const ContactType = require("../models/contactType");
+
+// PDP rollout P2 (review-package A.5): contacts are global reference data. A caller whose tenant permissions
+// are not "*" (i.e. not ASU) gets the picker projection only - id, names and contact type - never phone,
+// email or address (those stay with ASU, e.g. Configuration -> Solicitors). ASU can ask for the picker view
+// with ?view=picker. ?contactType=<contactType|code> filters server-side for every caller.
+const PICKER_FIELDS = "_id forename surname contactTypeId";
+const FULL_FIELDS = "surname forename contactPhone contactEmail contactAddress contactTypeId isactive createdAt updatedAt";
+const fullViewer = (req) => Array.isArray(req.user?.permissions) && req.user.permissions.includes("*");
+const pickerView = (req) => !fullViewer(req) || req.query?.view === "picker";
+const escapeRegex = (v) => String(v).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** Resolves ?contactType to ContactType ids (matched on contactType or code). null = no filter. */
+async function contactTypeFilter(req) {
+  const raw = req.query?.contactType;
+  if (raw === undefined) return null;
+  if (typeof raw !== "string" || !raw.trim()) return [];
+  const types = await ContactType.find({ isdeleted: { $ne: true }, $or: [{ contactType: raw.trim() }, { code: raw.trim() }] }).select("_id");
+  return types.map((t) => t._id);
+}
 const { AppError } = require("../errors/AppError");
 
 /**
@@ -8,11 +28,13 @@ const { AppError } = require("../errors/AppError");
  */
 const getAllContacts = async (req, res, next) => {
   try {
-    const contacts = await Contact.find({ isdeleted: false })
+    const picker = pickerView(req);
+    const query = { isdeleted: false };
+    const typeIds = await contactTypeFilter(req);
+    if (typeIds) query.contactTypeId = { $in: typeIds };
+    const contacts = await Contact.find(query)
       .populate("contactTypeId", "contactType displayName")
-      .select(
-        "surname forename contactPhone contactEmail contactAddress contactTypeId isactive createdAt updatedAt"
-      )
+      .select(picker ? PICKER_FIELDS : FULL_FIELDS)
       .sort({ surname: 1, forename: 1 });
 
     res.status(200).json({
@@ -41,9 +63,7 @@ const getContactById = async (req, res, next) => {
 
     const contact = await Contact.findOne({ _id: id, isdeleted: false })
       .populate("contactTypeId", "contactType displayName")
-      .select(
-        "surname forename contactPhone contactEmail contactAddress contactTypeId isactive createdAt updatedAt"
-      );
+      .select(pickerView(req) ? PICKER_FIELDS : FULL_FIELDS);
 
     if (!contact) {
       return res.status(200).json({
@@ -257,19 +277,16 @@ const searchContacts = async (req, res, next) => {
     }
 
     const searchTerm = q.trim();
-    const contacts = await Contact.find({
-      isdeleted: false,
-      $or: [
-        { surname: { $regex: searchTerm, $options: "i" } },
-        { forename: { $regex: searchTerm, $options: "i" } },
-        { contactPhone: { $regex: searchTerm, $options: "i" } },
-        { contactEmail: { $regex: searchTerm, $options: "i" } },
-      ],
-    })
+    const picker = pickerView(req);
+    // Picker callers search by name only (searching phone/email would disclose them by probing).
+    const fields = picker ? ["surname", "forename"] : ["surname", "forename", "contactPhone", "contactEmail"];
+    const term = picker ? escapeRegex(searchTerm) : searchTerm;
+    const query = { isdeleted: false, $or: fields.map((f) => ({ [f]: { $regex: term, $options: "i" } })) };
+    const typeIds = await contactTypeFilter(req);
+    if (typeIds) query.contactTypeId = { $in: typeIds };
+    const contacts = await Contact.find(query)
       .populate("contactTypeId", "contactType displayName")
-      .select(
-        "surname forename contactPhone contactEmail contactTypeId isactive"
-      )
+      .select(picker ? PICKER_FIELDS : "surname forename contactPhone contactEmail contactTypeId isactive")
       .sort({ surname: 1, forename: 1 })
       .limit(20);
 
