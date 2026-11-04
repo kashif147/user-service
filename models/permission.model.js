@@ -50,6 +50,14 @@ const PermissionSchema = new mongoose.Schema({
     ],
     required: true,
   },
+  // PDP rollout P1: which caller type a code is meant for (CRM staff, PORTAL members, or BOTH). Optional, no
+  // default: a row without it is "not back-filled". Stored only - the evaluator ignores it until the P4 audience
+  // branch (shadow) / P5 (enforce); see scripts/add-p6-catalogue-permissions.js.
+  audience: {
+    type: String,
+    enum: ["CRM", "PORTAL", "BOTH"],
+    required: false,
+  },
   level: {
     type: Number,
     required: true,

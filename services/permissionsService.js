@@ -35,7 +35,7 @@ class PermissionsService {
       // Load from database
       console.log("Loading permissions from database...");
       const permissions = await Permission.find({ isActive: true })
-        .select("code name resource action level category")
+        .select("code name resource action level category audience")
         .lean();
 
       // Cache the result
