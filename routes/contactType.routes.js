@@ -4,6 +4,8 @@ const contactTypeController = require("../controllers/contactType.controller");
 const { defaultPolicyAdapter } = require("../helpers/policyAdapter");
 // Phase B / Z5: platform-owned writes are enforced platform authorization (route-enforce; global mode stays shadow).
 const { requirePlatformPermission } = require("../middlewares/requirePlatformPermission");
+// PDP rollout P2: contact-type reads are CRM-only (after the PDP check, which sets req.user).
+const { requireCrmUser } = require("../middlewares/requireCrmUser");
 
 /**
  * Contact Type API Routes
@@ -16,6 +18,7 @@ const { requirePlatformPermission } = require("../middlewares/requirePlatformPer
 router.get(
   "/contact-types",
   defaultPolicyAdapter.middleware("contact", "read"),
+  requireCrmUser,
   contactTypeController.getAllContactTypes
 );
 
@@ -23,6 +26,7 @@ router.get(
 router.get(
   "/contact-types/search",
   defaultPolicyAdapter.middleware("contact", "read"),
+  requireCrmUser,
   contactTypeController.searchContactTypes
 );
 
@@ -30,6 +34,7 @@ router.get(
 router.get(
   "/contact-types/:id",
   defaultPolicyAdapter.middleware("contact", "read"),
+  requireCrmUser,
   contactTypeController.getContactTypeById
 );
 
