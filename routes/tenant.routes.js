@@ -22,6 +22,8 @@ const { platformTenantAdmin } = require("../middlewares/platformTenantAdmin");
 // P5 / D6: tenant lifecycle (delete / decommission / status) is platform-only - tenant actors (ASU included) are
 // refused on their own tenant too. See middlewares/tenantLifecycleGuard.js.
 const { refuseTenantLifecycle, refuseTenantLifecycleFields } = require("../middlewares/tenantLifecycleGuard");
+// PDP P3: per-caller tenant field groups + the tenant.auth:read guard (see helpers/tenantViewAccess.js).
+const { requireTenantAuthRead } = require("../helpers/tenantViewAccess");
 const READ_ANY = "platform:tenant:read:any";
 const UPDATE_ANY = "platform:tenant:update:any";
 const DELETE_ANY = "platform:tenant:delete:any";
@@ -166,11 +168,13 @@ router.post(
 );
 
 platform("get", "/tenants/:id/auth-connections", platformTenantAdmin(CONNECTIONS_ANY, { target: "id" }), TenantController.getAuthenticationConnections);
+// PDP P3 (Q3): authentication-configuration reads need tenant.auth:read (or the own-tenant "*"), a literal
+// token check (helpers/tenantViewAccess.js) - tenant:read alone no longer reaches connections.
 router.get(
   "/tenants/:id/auth-connections",
   requireTenant,
   requireTenantPathAccess("id"),
-  defaultPolicyAdapter.middleware("tenant", "read"),
+  requireTenantAuthRead,
   TenantController.getAuthenticationConnections
 );
 
@@ -179,7 +183,7 @@ router.get(
   "/tenants/:id/auth-connections/default-role-options",
   requireTenant,
   requireTenantPathAccess("id"),
-  defaultPolicyAdapter.middleware("tenant", "admin"),
+  requireTenantAuthRead, // PDP P3: tenant.auth:read (was tenant:admin)
   TenantController.getDefaultRoleOptions
 );
 
@@ -239,7 +243,7 @@ router.get(
   "/tenants/:id/auth-connections/:connectionId/status",
   requireTenant,
   requireTenantPathAccess("id"),
-  defaultPolicyAdapter.middleware("tenant", "read"),
+  requireTenantAuthRead, // PDP P3: tenant.auth:read (was tenant:read)
   TenantController.getEntraConnectionStatus
 );
 

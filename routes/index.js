@@ -24,6 +24,8 @@ router.use("/api", require("./internalRoleAccess.routes"));
 router.use("/api", require("./internalMsTokenVerification.routes"));
 // Phase B / Z5 (D4): central platform-auth check - outside /api on purpose (not proxied by the gateway).
 router.use("/internal", require("./internalPlatformAuth.routes"));
+// PDP P3 (O6 / N3): organisation creditor profile for server-side document generation - outside /api too.
+router.use("/internal", require("./internalTenantCreditorProfile.routes"));
 
 // Phase B / Z2: DEV-only platform authorization probe (PLATFORM_AUTHZ_PROBE=on at boot; absent otherwise).
 // Its middleware is per-route, so it changes nothing for any other request.
