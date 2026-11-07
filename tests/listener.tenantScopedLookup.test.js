@@ -66,7 +66,10 @@ const noSideEffects = () => {
 
 const LISTENERS = [
   ["demotion", (p) => demotion.handlePortalMemberDemotion(p, { routingKey: demotion.SUBSCRIPTION_RESIGNED }), () => assignNonMemberRole],
-  ["promotion", (p) => promotion.handlePortalMemberPromotion(p, { routingKey: promotion.SUBSCRIPTION_CURRENT_UPDATED }), () => assignMemberRole],
+  // P5: the M2 tenant contract is exercised on the fallback chain (a non-application origin);
+  // unmarked / application current.updated events are id-in-tenant only - see
+  // tests/subscription.promotion.applicantIdentity.p5.test.js.
+  ["promotion", (p) => promotion.handlePortalMemberPromotion({ ...p, data: { ...p.data, origin: "renewal_batch" } }, { routingKey: promotion.SUBSCRIPTION_CURRENT_UPDATED }), () => assignMemberRole],
 ];
 
 describe.each(LISTENERS)("%s listener", (_name, handle, assignFn) => {
