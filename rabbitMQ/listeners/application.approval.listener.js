@@ -102,6 +102,35 @@ async function findPortalUser({ userId, email, tenantId }) {
 }
 
 
+/**
+ * P5 identity: how the processed event identifies the applicant (profile-service applicantIdentity).
+ *  - "crm_created": source crm_created - the existing resolution (id, tenant-scoped external identity,
+ *    email). Only this explicit origin keeps the email fallback.
+ *  - "verified": source portal_submitter - the grant goes ONLY to the explicit userId resolved in the
+ *    event's tenant. Null, unknown or other-tenant id -> no grant; never external identity or email.
+ *  - "unmarked": no applicantIdentity (published before profile-service sent it, or a retry of such an
+ *    event) - same strict rule as verified, so older events and retries cannot bypass it.
+ * applicantIdentity.pending (IDENTITY_LINK_PENDING) -> no grant, whatever the classification.
+ */
+function classifyApplicant(data) {
+  const ai = data?.applicantIdentity;
+  if (ai && typeof ai === "object" && ai.source === "crm_created") return "crm_created";
+  if (ai && typeof ai === "object" && ai.source === "portal_submitter") return "verified";
+  return "unmarked";
+}
+
+/** The explicit user id in the event's tenant only (no tenantless, external-identity or email lookup). */
+async function findPortalUserByIdInTenant(userId, tenantId) {
+  const id = userId != null ? String(userId).trim() : "";
+  if (!id || !tenantId || !mongoose.Types.ObjectId.isValid(id)) return null;
+  return User.findOne({
+    _id: new mongoose.Types.ObjectId(id),
+    tenantId: String(tenantId),
+    userType: "PORTAL",
+    isActive: true,
+  });
+}
+
 async function handleApplicationApproved(payload) {
   try {
     const data = payload.data || payload;
@@ -121,27 +150,43 @@ async function handleApplicationApproved(payload) {
       return;
     }
 
-    const email =
-      payloadUserEmail ||
-      (effective ? getEmailFromEffective(effective) : null);
-    if (!email && !payloadUserId) {
-      console.warn(
-        "[APPLICATION_APPROVAL_LISTENER] No userId or email in payload, skipping role update:",
-        { applicationId, tenantId }
-      );
+    const classification = classifyApplicant(data);
+    const pending = data?.applicantIdentity?.pending || null;
+    if (pending) {
+      console.log("[APPLICATION_APPROVAL_LISTENER] Applicant identity pending, no role update:", {
+        classification,
+        pending,
+        tenantId,
+        applicationId,
+      });
       return;
     }
 
-    const user = await findPortalUser({
-      userId: payloadUserId,
-      email,
-      tenantId,
-    });
+    let user;
+    if (classification === "crm_created") {
+      const email =
+        payloadUserEmail ||
+        (effective ? getEmailFromEffective(effective) : null);
+      if (!email && !payloadUserId) {
+        console.warn(
+          "[APPLICATION_APPROVAL_LISTENER] No userId or email in payload, skipping role update:",
+          { applicationId, tenantId }
+        );
+        return;
+      }
+      user = await findPortalUser({
+        userId: payloadUserId,
+        email,
+        tenantId,
+      });
+    } else {
+      user = await findPortalUserByIdInTenant(payloadUserId, tenantId);
+    }
 
     if (!user) {
       console.log(
-        "[APPLICATION_APPROVAL_LISTENER] No portal user found for processed application:",
-        { userId: payloadUserId, email: email || "(none)", tenantId, applicationId }
+        "[APPLICATION_APPROVAL_LISTENER] No portal user found for processed application, no role update:",
+        { classification, userId: payloadUserId || null, tenantId, applicationId }
       );
       return;
     }
@@ -173,7 +218,7 @@ async function handleApplicationApproved(payload) {
       "✅ [APPLICATION_APPROVAL_LISTENER] Upgraded user to MEMBER",
       {
         userId: user._id.toString(),
-        email: user.userEmail,
+        classification,
         tenantId: tenantForRole,
         applicationId,
       }
@@ -192,5 +237,6 @@ async function handleApplicationApproved(payload) {
 
 module.exports = {
   APPLICATION_REVIEW_PROCESSED,
+  classifyApplicant,
   handleApplicationApproved,
 };
