@@ -9,6 +9,7 @@
 const mongoose = require("mongoose");
 const User = require("../../models/user.model");
 const { assignMemberRole } = require("../../helpers/roleAssignment");
+const { classifyApplicant } = require("./application.approval.listener");
 
 const SUBSCRIPTION_CURRENT_UPDATED =
   "members.subscription.current.updated.v1";
@@ -36,6 +37,60 @@ function resolveEventTenant(tenantId) {
   if (tenantId === undefined || tenantId === null) return { kind: "absent", tid: null };
   const tid = String(tenantId).trim();
   return tid ? { kind: "present", tid } : { kind: "malformed", tid: null };
+}
+
+/**
+ * P5 identity: which lookup a promotion event may use.
+ *  - resignation.undone / cancellation.undone routing keys: reinstatement of an existing member
+ *    -> "fallback" (existing chain: id in tenant, then email in tenant).
+ *  - current.updated carrying applicantIdentity (application approval, via subscription upsert):
+ *    pending -> "none" (no lookup, no grant); crm_created -> "fallback"; otherwise -> "strict".
+ *  - current.updated without applicantIdentity: a non-application origin set by the
+ *    subscription-service publisher (renewal / reminder / postgrad / graduation / undo / upsert
+ *    with no application), or renewalBatchId (renewal publisher only, also on older events)
+ *    -> "fallback". Anything else - application upserts from before the pass-through, retries,
+ *    unmarked events - -> "strict": explicit userId in the event tenant only, never email.
+ */
+const NON_APPLICATION_ORIGINS = new Set([
+  "profile_upsert",
+  "renewal_batch",
+  "reminder_batch",
+  "postgrad_category_renewal",
+  "ug_graduation_cancellation",
+  "undo_resignation",
+  "undo_cancellation",
+]);
+
+function classifyPromotion(data, routingKey) {
+  if (
+    routingKey === SUBSCRIPTION_RESIGNATION_UNDONE ||
+    routingKey === SUBSCRIPTION_CANCELLATION_UNDONE
+  ) {
+    return "fallback";
+  }
+  const ai = data?.applicantIdentity;
+  if (ai && typeof ai === "object") {
+    if (ai.pending) return "none";
+    return classifyApplicant(data) === "crm_created" ? "fallback" : "strict";
+  }
+  if (typeof data?.origin === "string" && NON_APPLICATION_ORIGINS.has(data.origin)) {
+    return "fallback";
+  }
+  if (data?.renewalBatchId != null && String(data.renewalBatchId).trim() !== "") {
+    return "fallback";
+  }
+  return "strict";
+}
+
+async function findPortalUserByIdInTenant(userId, tenant) {
+  const id = userId != null ? String(userId).trim() : "";
+  if (tenant.kind !== "present" || !id || !mongoose.Types.ObjectId.isValid(id)) return null;
+  return User.findOne({
+    _id: new mongoose.Types.ObjectId(id),
+    tenantId: tenant.tid,
+    userType: "PORTAL",
+    isActive: true,
+  });
 }
 
 async function findPortalUser({ userId, userEmail, tenant }) {
@@ -100,20 +155,29 @@ async function handlePortalMemberPromotion(payload, context) {
     }
     const roleTenantId = tenant.tid;
 
-    const user = await findPortalUser({
-      userId,
-      userEmail,
-      tenant,
-    });
+    const classification = classifyPromotion(data, routingKey);
+    if (classification === "none") {
+      console.log(
+        "[MEMBERSHIP_PROMOTION_LISTENER] Applicant identity pending, no promotion:",
+        { classification, pending: data.applicantIdentity.pending, tenantId: roleTenantId || "(none)", profileId, subscriptionId }
+      );
+      return;
+    }
+
+    const user =
+      classification === "fallback"
+        ? await findPortalUser({ userId, userEmail, tenant })
+        : await findPortalUserByIdInTenant(userId, tenant);
 
     if (!user) {
       console.log(
         "[MEMBERSHIP_PROMOTION_LISTENER] No portal user found for promotion:",
         {
-          userId,
-          userEmail: userEmail || "(none)",
+          classification,
+          userId: userId || null,
           tenantId: roleTenantId || "(none)",
           profileId,
+          subscriptionId,
         }
       );
       return;
@@ -143,8 +207,8 @@ async function handlePortalMemberPromotion(payload, context) {
     await user.save();
 
     console.log("✅ [MEMBERSHIP_PROMOTION_LISTENER] Portal user promoted to MEMBER", {
+      classification,
       userId: user._id.toString(),
-      userEmail: user.userEmail,
       tenantId: tenantForRole,
       profileId,
       reason: routingKey,
@@ -159,6 +223,7 @@ async function handlePortalMemberPromotion(payload, context) {
 }
 
 module.exports = {
+  classifyPromotion,
   resolveEventTenant,
   SUBSCRIPTION_CURRENT_UPDATED,
   SUBSCRIPTION_RESIGNATION_UNDONE,
