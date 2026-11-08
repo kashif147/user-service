@@ -98,11 +98,23 @@ describe("MO (proposed canonical) at the PDP", () => {
   });
 });
 
-describe("SECURITY BLOCKER evidence: MEMBER / NON-MEMBER (PORTAL users) at the PDP", () => {
+describe("MEMBER / NON-MEMBER (PORTAL users) at the PDP: proposed manifest vs live DEV", () => {
   const asPortal = async (roleCode, perms, resource, action) => (await applyPolicyRules({ roles: [roleCode], permissions: perms, resource, action, tenantId: T, userTenantId: T, userType: "PORTAL" })).decision;
-  test("a PORTAL member is PERMITTED communication create / write / delete (campaign send, letters with any member's data, template delete)", async () => {
-    const member = token(role("MEMBER"));
+  const PORTAL_ROLES = ["MEMBER", "NON-MEMBER"];
+  test("contrast (live DEV sets): a PORTAL member is PERMITTED communication create / write / delete and events create / write / delete", async () => {
+    const member = token(FIXTURE.liveRoles.MEMBER);
     for (const act of ["create", "write", "delete"]) expect(await asPortal("MEMBER", member, "communication", act)).toBe("PERMIT");
+    for (const r of PORTAL_ROLES) for (const act of ["create", "write", "delete"]) expect(await asPortal(r, token(FIXTURE.liveRoles[r]), "events", act)).toBe("PERMIT");
+  });
+  test.each(PORTAL_ROLES)("%s (proposed): every staff events / communication action is DENIED (MISSING_PERMISSION, not a category effect)", async (r) => {
+    const perms = token(role(r));
+    for (const act of ["create", "write", "delete"]) expect(await asPortal(r, perms, "events", act)).toBe("DENY");
+    for (const act of ["read", "create", "write", "delete"]) expect(await asPortal(r, perms, "communication", act)).toBe("DENY");
+  });
+  test.each(PORTAL_ROLES)("%s (proposed): events:read and registrations read / create / write are PERMITTED", async (r) => {
+    const perms = token(role(r));
+    expect(await asPortal(r, perms, "events", "read")).toBe("PERMIT");
+    for (const act of ["read", "create", "write"]) expect(await asPortal(r, perms, "registrations", act)).toBe("PERMIT");
   });
   test("a PORTAL member / non-member is PERMITTED portal:write (also gates the CRM payment-form verify / approve / delete routes)", async () => {
     expect(await asPortal("MEMBER", token(role("MEMBER")), "portal", "write")).toBe("PERMIT");

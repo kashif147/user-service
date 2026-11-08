@@ -73,6 +73,13 @@ describe("2026-11-01 owner content decisions", () => {
     expect(byCode.MO.permissions).not.toContain("ISSUES_WRITE");
     expect(byCode.MO.permissions).not.toContain("PAYMENTS_WRITE");
   });
+  test("portal roles (2026-11-08): no staff events / communication codes; EVENTS_READ kept; REGISTRATIONS_* on both", () => {
+    for (const r of ["MEMBER", "NON-MEMBER"]) {
+      const perms = byCode[r].permissions;
+      expect(perms.filter((p) => /^EVENTS_(CREATE|WRITE|DELETE)$|^COMMUNICATION_/.test(p))).toEqual([]);
+      expect(perms).toEqual(expect.arrayContaining(["EVENTS_READ", "REGISTRATIONS_CREATE", "REGISTRATIONS_READ", "REGISTRATIONS_WRITE"]));
+    }
+  });
   test("every code is an ACTIVE DEV catalogue code; no inactive, test-like or duplicate/dead code", () => {
     const cat = new Map(DEV.catalogue.map((c) => [c.code, c]));
     const all = [...new Set(manifest.roles.flatMap((r) => r.permissions))];

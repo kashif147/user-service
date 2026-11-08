@@ -1,5 +1,5 @@
 {
- "source": "DEV user-service permission catalogue (code/resource/action/category only) + DEV MULTIAUTH live REO/MO sets, read-only export 2026-11-01",
+ "source": "DEV user-service permission catalogue (code/resource/action/category only) + DEV MULTIAUTH live REO/MO sets, read-only export 2026-11-01; REGISTRATIONS_CREATE/READ/WRITE rows added from the DEV catalogue after user-service #41 (2026-11-02)",
  "catalogue": [
   {
    "code": "ACCOUNTS.REPORTS_READ",
@@ -734,6 +734,27 @@
    "resource": "Profile.recruit_friend",
    "action": "read",
    "category": "PROFILE",
+   "isActive": true
+  },
+  {
+   "code": "REGISTRATIONS_CREATE",
+   "resource": "registrations",
+   "action": "create",
+   "category": "PORTAL",
+   "isActive": true
+  },
+  {
+   "code": "REGISTRATIONS_READ",
+   "resource": "registrations",
+   "action": "read",
+   "category": "PORTAL",
+   "isActive": true
+  },
+  {
+   "code": "REGISTRATIONS_WRITE",
+   "resource": "registrations",
+   "action": "write",
+   "category": "PORTAL",
    "isActive": true
   },
   {
