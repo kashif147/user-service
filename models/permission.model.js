@@ -50,12 +50,14 @@ const PermissionSchema = new mongoose.Schema({
     ],
     required: true,
   },
-  // PDP rollout P1: which caller type a code is meant for (CRM staff, PORTAL members, or BOTH). Optional, no
-  // default: a row without it is "not back-filled". Stored only - the evaluator ignores it until the P4 audience
-  // branch (shadow) / P5 (enforce); see scripts/add-p6-catalogue-permissions.js.
+  // PDP rollout P1/P5: which caller type a code is meant for (CRM staff, PORTAL members, or BOTH), or LEGACY =
+  // deliberately left on the legacy per-resource category rule (never PDP-audience-scoped: MENU_*, CRM_*, nav and
+  // admin codes...). Optional, no default: a row WITHOUT it is "not back-filled", which PDP_AUDIENCE_MODE=enforce
+  // treats as missing data and DENIES (AUDIENCE_DATA_MISSING) - so LEGACY must be explicit, never inferred.
+  // See services/policyEvaluationService.js and scripts/backfill-permission-audience.js.
   audience: {
     type: String,
-    enum: ["CRM", "PORTAL", "BOTH"],
+    enum: ["CRM", "PORTAL", "BOTH", "LEGACY"],
     required: false,
   },
   level: {

@@ -24,30 +24,40 @@ class PermissionsService {
    * @returns {Promise<Array>} Array of permission objects
    */
   async getAllPermissions() {
+    // P5: a cache-layer failure (Redis down / timeout) is a cache MISS, never a reason to serve the in-code
+    // fallback list - under audience enforcement the fallback means "catalogue unavailable" (deny), so routing
+    // a cache error to it would turn a cache outage into a PDP outage.
+    let cached = null;
     try {
-      // Try to get from cache first
-      const cached = await cache.get(this.permissionsCacheKey);
-      if (cached) {
-        console.log("Permissions loaded from cache");
-        return cached;
-      }
+      cached = await cache.get(this.permissionsCacheKey);
+    } catch (error) {
+      console.warn("Permissions cache read failed; loading from database:", error && error.message);
+    }
+    if (cached) {
+      console.log("Permissions loaded from cache");
+      return cached;
+    }
 
+    let permissions;
+    try {
       // Load from database
       console.log("Loading permissions from database...");
-      const permissions = await Permission.find({ isActive: true })
+      permissions = await Permission.find({ isActive: true })
         .select("code name resource action level category audience")
         .lean();
-
-      // Cache the result
-      await cache.set(this.permissionsCacheKey, permissions, this.cacheTimeout);
-
-      console.log(`Permissions loaded: ${permissions.length} permissions`);
-      return permissions;
     } catch (error) {
       console.error("Error loading permissions:", error);
-      // Return fallback permissions on error
+      // Return fallback permissions on error (tagged source:"fallback"; never cached)
       return this.getFallbackPermissions();
     }
+
+    try {
+      await cache.set(this.permissionsCacheKey, permissions, this.cacheTimeout);
+    } catch (error) {
+      console.warn("Permissions cache write failed (served from database):", error && error.message);
+    }
+    console.log(`Permissions loaded: ${permissions.length} permissions`);
+    return permissions;
   }
 
   /**
@@ -268,6 +278,12 @@ class PermissionsService {
    * @returns {Array} Fallback permissions array
    */
   getFallbackPermissions() {
+    // P5: every fallback row is tagged so the PDP can tell "catalogue unavailable" from catalogue data; under
+    // PDP_AUDIENCE_MODE=enforce a fallback catalogue denies (CATALOGUE_UNAVAILABLE) and never restores access.
+    return this.fallbackPermissionDefinitions().map((p) => ({ ...p, source: "fallback" }));
+  }
+
+  fallbackPermissionDefinitions() {
     return [
       // User permissions
       {
