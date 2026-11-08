@@ -196,3 +196,130 @@ describe("D. DEV snapshot: live MEMBER / NON-MEMBER / MO / REO claim sets (pinne
     expect(got.sort()).toEqual(EXPECTED);
   });
 });
+
+describe("E. off and shadow return IDENTICAL decisions on the full DEV snapshot", () => {
+  test("4 live roles x every active resource:action: applyPolicyRules off === shadow (deep equal)", async () => {
+    mockCatalogue = SNAPSHOT.catalogue.filter((p) => p.isActive);
+    const pairs = [...new Map(mockCatalogue.map((p) => [`${p.resource}:${p.action}`, [p.resource, p.action]])).values()];
+    let compared = 0;
+    for (const [role, def] of Object.entries(SNAPSHOT.roles)) {
+      for (const [resource, action] of pairs) {
+        const c = ctx({ roles: [role], permissions: def.claims, resource, action, userType: def.intendedUserType });
+        delete process.env.PDP_AUDIENCE_MODE;
+        const off = await pdp.applyPolicyRules(c);
+        process.env.PDP_AUDIENCE_MODE = "shadow";
+        const sh = await pdp.applyPolicyRules(c);
+        expect([role, resource, action, sh]).toEqual([role, resource, action, off]);
+        compared += 1;
+      }
+    }
+    expect(compared).toBe(4 * pairs.length);
+    expect(shadowLines()).toHaveLength(45); // the pinned divergences, logged - and nothing returned differently
+  });
+
+  test("enforce falls back to off: identical decisions and no shadow work at all", async () => {
+    mockCatalogue = SNAPSHOT.catalogue.filter((p) => p.isActive);
+    pdp.resetAudienceShadowStats();
+    process.env.PDP_AUDIENCE_MODE = "enforce";
+    const c = ctx({ roles: ["MEMBER"], permissions: SNAPSHOT.roles.MEMBER.claims, resource: "accounts.reports", action: "read", userType: "PORTAL" });
+    const d = await pdp.applyPolicyRules(c);
+    expect(d.decision).toBe("PERMIT"); // legacy; the proposed audience (CRM) would deny
+    expect(shadowLines()).toHaveLength(0);
+    expect(pdp.getAudienceShadowStats().evaluated).toBe(0);
+  });
+});
+
+describe("F. aliases (several codes for one resource:action) get one consistent audience", () => {
+  test("live alias accounts.reports:read (ACCOUNTS.REPORTS_READ + ACCOUNTS_REPORTS): same audience whichever code is held", async () => {
+    mockCatalogue = SNAPSHOT.catalogue.filter((p) => p.isActive && p.resource === "accounts.reports");
+    expect(mockCatalogue.map((p) => p.code).sort()).toEqual(["ACCOUNTS.REPORTS_READ", "ACCOUNTS_REPORTS"]);
+    // Tokens carry resource:action, not the code, so both aliases yield the same claim and the same decision.
+    const portal = await pdp.compareAudienceDecision(ctx({ resource: "accounts.reports", userType: "PORTAL", permissions: ["accounts.reports:read"] }));
+    const crm = await pdp.compareAudienceDecision(ctx({ resource: "accounts.reports", userType: "CRM", permissions: ["accounts.reports:read"] }));
+    expect([portal.newDecision.decision, portal.newDecision.audience, crm.newDecision.decision]).toEqual(["DENY", "CRM", "PERMIT"]);
+  });
+
+  test("an alias missing from the map does not open a gap: the mapped alias's audience governs the resource:action", async () => {
+    mockCatalogue = [
+      { code: "PROFILE_READ", resource: "profile", action: "read", category: "PROFILE" }, // map: CRM
+      { code: "PROFILE_READ_LEGACY_ALIAS", resource: "profile", action: "read", category: "PORTAL" }, // unmapped
+    ];
+    const cmp = await pdp.compareAudienceDecision(ctx({ resource: "profile", userType: "PORTAL", permissions: ["profile:read"] }));
+    expect(cmp.oldDecision.decision).toBe("PERMIT"); // legacy: the PORTAL-category alias lets a portal token through
+    expect(cmp.newDecision).toMatchObject({ decision: "DENY", reason: "AUDIENCE_MISMATCH", audience: "CRM", audienceSource: "map" });
+  });
+
+  test("stored audience on one alias + map on another: both apply (every audience must admit)", async () => {
+    mockCatalogue = [
+      { code: "LOOKUP_READ", resource: "lookup", action: "read", category: "GENERAL" }, // map: BOTH
+      { code: "LOOKUP_READ_X", resource: "lookup", action: "read", category: "GENERAL", audience: "CRM" }, // stored
+    ];
+    const p = await pdp.compareAudienceDecision(ctx({ resource: "lookup", userType: "PORTAL", permissions: ["lookup:read"] }));
+    expect(p.newDecision).toMatchObject({ decision: "DENY", audience: "BOTH+CRM", audienceSource: "map+stored" });
+  });
+});
+
+describe("G. shadow failures and latency are measured (failures are swallowed, the pass is awaited)", () => {
+  const errorLines = () => warnSpy.mock.calls.filter((c) => c[0] === "[PDP] audience shadow error").map((c) => JSON.parse(c[1]));
+  const statsLines = () => warnSpy.mock.calls.filter((c) => c[0] === "[PDP] audience shadow stats").map((c) => JSON.parse(c[1]));
+  beforeEach(() => {
+    mockCatalogue = [{ code: "AUDCRM_READ", resource: "audcrm", action: "read", category: "PORTAL", audience: "CRM" }];
+    pdp.resetAudienceShadowStats();
+    process.env.PDP_AUDIENCE_MODE = "shadow";
+  });
+
+  test("an audience-pass fault (surfacing as RESOURCE_EVALUATION_ERROR) is a counted FAILURE, not a divergence", async () => {
+    const permissionsService = require("../services/permissionsService");
+    const orig = permissionsService.getPermissionsByResource;
+    let calls = 0;
+    permissionsService.getPermissionsByResource = async (r) => { calls += 1; if (calls === 2) throw new Error("boom"); return orig(r); };
+    const d = await pdp.applyPolicyRules(ctx({ resource: "audcrm", userType: "PORTAL", permissions: ["audcrm:read"] }));
+    permissionsService.getPermissionsByResource = orig;
+    expect(d.decision).toBe("PERMIT");
+    expect(shadowLines()).toHaveLength(0);
+    expect(errorLines()).toEqual([expect.objectContaining({ event: "pdp.audience.shadow.error", kind: "evaluation_error", resource: "audcrm", action: "read", failedSoFar: 1 })]);
+    expect(pdp.getAudienceShadowStats()).toMatchObject({ evaluated: 1, failed: 1, divergent: 0 });
+  });
+
+  test("an exception thrown in the shadow pass is counted and logged; the decision is unaffected", async () => {
+    const roleHierarchy = require("../services/roleHierarchyService");
+    const orig = roleHierarchy.isTenantAdmin;
+    let calls = 0;
+    roleHierarchy.isTenantAdmin = (r) => { calls += 1; if (calls === 2) throw new TypeError("x"); return orig(r); };
+    const d = await pdp.applyPolicyRules(ctx({ resource: "audcrm", userType: "PORTAL", permissions: ["audcrm:read"] }));
+    roleHierarchy.isTenantAdmin = orig;
+    expect(d.decision).toBe("PERMIT");
+    expect(errorLines()).toEqual([expect.objectContaining({ kind: "exception", errorName: "TypeError" })]);
+    expect(pdp.getAudienceShadowStats()).toMatchObject({ evaluated: 1, failed: 1 });
+  });
+
+  test("error lines are rate-limited after 20, the count keeps going", async () => {
+    const roleHierarchy = require("../services/roleHierarchyService");
+    const orig = roleHierarchy.isTenantAdmin;
+    let calls = 0;
+    roleHierarchy.isTenantAdmin = (r) => { calls += 1; if (calls % 2 === 0) throw new Error("x"); return orig(r); };
+    for (let i = 0; i < 30; i += 1) await pdp.applyPolicyRules(ctx({ resource: "audcrm", userType: "PORTAL", permissions: ["audcrm:read"] }));
+    roleHierarchy.isTenantAdmin = orig;
+    expect(errorLines()).toHaveLength(20);
+    expect(pdp.getAudienceShadowStats().failed).toBe(30);
+  });
+
+  test("latency of the shadow pass is recorded per evaluation; a stats line every 200 evaluations", async () => {
+    for (let i = 0; i < 200; i += 1) await pdp.applyPolicyRules(ctx({ resource: "audcrm", userType: "CRM", permissions: ["audcrm:read"] }));
+    const s = pdp.getAudienceShadowStats();
+    expect(s.evaluated).toBe(200);
+    expect(Object.values(s.msBuckets).reduce((a, b) => a + b, 0)).toBe(200);
+    expect(s.msMax).toBeGreaterThanOrEqual(0);
+    expect(s.msAvg).toBeGreaterThanOrEqual(0);
+    expect(s.divergent).toBe(200); // CRM caller on a PORTAL-category / CRM-audience row: legacy DENY, proposed PERMIT
+    const lines = statsLines();
+    expect(lines).toHaveLength(1);
+    expect(Object.keys(lines[0]).sort()).toEqual(["divergent", "evaluated", "event", "failed", "msAvg", "msBuckets", "msMax", "msTotal", "since"]);
+  });
+
+  test("off mode: no shadow work, no stats", async () => {
+    delete process.env.PDP_AUDIENCE_MODE;
+    await pdp.applyPolicyRules(ctx({ resource: "audcrm", userType: "CRM", permissions: ["audcrm:read"] }));
+    expect(pdp.getAudienceShadowStats().evaluated).toBe(0);
+  });
+});

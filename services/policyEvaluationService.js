@@ -133,8 +133,12 @@ function logInvariantShadow(ctx, violation, oldDecision) {
  *                   source, tenant ids, correlationId. Never tokens, emails, roles or permission lists. A shadow
  *                   failure is swallowed (logged once) and never changes the returned decision.
  *   anything else, INCLUDING "enforce" -> off, with a one-time warning: enforcement is P5, not this code.
- * Decision-cache note: shadow lines are written on cache misses only (POLICY_CACHE_TTL), so the evidence
- * covers distinct (user, tenant, resource, action) misses. PDP_DECISION_EPOCH is unchanged (decisions are).
+ * Cache hits are never shadow-evaluated, by design: the token path returns a cached decision from this
+ * service's decision cache (POLICY_CACHE_TTL) before applyPolicyRules runs, and on the gateway-header path the
+ * calling service's policy client answers from its own 5-minute cache without reaching this service. A cached
+ * decision is the legacy decision (shadow never changes what is cached), so a hit has nothing new to compare;
+ * coverage is therefore one evaluation per distinct (identity, tenant, resource, action) per cache window, and
+ * pdp.audience.shadow.stats `evaluated` counts exactly those. PDP_DECISION_EPOCH is unchanged (decisions are).
  * The in-code fallback catalogue (permissionsService.getFallbackPermissions) has no audience: P5 item.
  */
 const {
@@ -204,16 +208,99 @@ function logAudienceShadow(ctx, oldDecision, newDecision) {
   }));
 }
 
-let warnedAudienceShadowError = false;
+/**
+ * Shadow observability (failures are swallowed, and the shadow evaluation is awaited on the request path, so
+ * both must be measured, not inferred):
+ *   - a FAILURE is either an exception, or the audience pass reporting RESOURCE_EVALUATION_ERROR where the legacy
+ *     pass did not (evaluateResourcePolicy catches internally, so an audience-code fault surfaces as that reason,
+ *     never as a divergence). Each failure is logged as pdp.audience.shadow.error {resource, action, userType,
+ *     kind, errorName} - the first AUDIENCE_SHADOW_ERROR_LOG_LIMIT per process, then every 100th - and counted.
+ *   - LATENCY of the shadow pass alone (process.hrtime) is accumulated: count, total, max, and buckets.
+ *   - pdp.audience.shadow.stats {evaluated, divergent, failed, ms*} is logged every AUDIENCE_SHADOW_STATS_EVERY
+ *     shadow evaluations or 5 minutes, whichever comes first; getAudienceShadowStats() returns the same snapshot
+ *     for an in-container read during the DEV window.
+ */
+const AUDIENCE_SHADOW_ERROR_LOG_LIMIT = 20;
+const AUDIENCE_SHADOW_STATS_EVERY = 200;
+const AUDIENCE_SHADOW_STATS_MS = 5 * 60 * 1000;
+const LATENCY_BUCKETS_MS = Object.freeze([1, 5, 20, 100]);
+const newShadowStats = () => ({
+  evaluated: 0,
+  divergent: 0,
+  failed: 0,
+  msTotal: 0,
+  msMax: 0,
+  msBuckets: { le1: 0, le5: 0, le20: 0, le100: 0, gt100: 0 },
+  since: new Date().toISOString(),
+});
+let shadowStats = newShadowStats();
+let shadowStatsLoggedAt = Date.now();
+
+function recordShadowLatency(ms) {
+  shadowStats.msTotal += ms;
+  if (ms > shadowStats.msMax) shadowStats.msMax = ms;
+  const b = LATENCY_BUCKETS_MS.find((x) => ms <= x);
+  shadowStats.msBuckets[b === undefined ? "gt100" : `le${b}`] += 1;
+}
+
+function getAudienceShadowStats() {
+  const s = shadowStats;
+  return {
+    ...s,
+    msBuckets: { ...s.msBuckets },
+    msTotal: Math.round(s.msTotal * 1000) / 1000,
+    msMax: Math.round(s.msMax * 1000) / 1000,
+    msAvg: s.evaluated ? Math.round((s.msTotal / s.evaluated) * 1000) / 1000 : 0,
+  };
+}
+
+function resetAudienceShadowStats() {
+  shadowStats = newShadowStats();
+  shadowStatsLoggedAt = Date.now();
+}
+
+function maybeLogShadowStats() {
+  const due = shadowStats.evaluated % AUDIENCE_SHADOW_STATS_EVERY === 0 || Date.now() - shadowStatsLoggedAt >= AUDIENCE_SHADOW_STATS_MS;
+  if (!due) return;
+  shadowStatsLoggedAt = Date.now();
+  console.warn("[PDP] audience shadow stats", JSON.stringify({ event: "pdp.audience.shadow.stats", ...getAudienceShadowStats() }));
+}
+
+function logShadowFailure(ctx, kind, errorName) {
+  shadowStats.failed += 1;
+  const n = shadowStats.failed;
+  if (n > AUDIENCE_SHADOW_ERROR_LOG_LIMIT && n % 100 !== 0) return;
+  console.warn("[PDP] audience shadow error", JSON.stringify({
+    event: "pdp.audience.shadow.error",
+    kind,
+    errorName: logValue(errorName),
+    resource: logValue(ctx.resource),
+    action: logValue(ctx.action),
+    userType: logValue(ctx.userType),
+    failedSoFar: n,
+  }));
+}
+
 /** Shadow: compare the legacy decision with the audience decision; log only a divergence; never throw. */
 async function shadowAudience(context, oldDecision) {
+  const t0 = process.hrtime.bigint();
   try {
     const newDecision = await applyTenantPolicyRules(context, { useAudience: true });
-    if (newDecision.decision !== oldDecision.decision) logAudienceShadow(context, oldDecision, newDecision);
+    if (newDecision.reason === "RESOURCE_EVALUATION_ERROR" && oldDecision.reason !== "RESOURCE_EVALUATION_ERROR") {
+      logShadowFailure(context, "evaluation_error", newDecision.reason);
+    } else if (newDecision.decision !== oldDecision.decision) {
+      shadowStats.divergent += 1;
+      logAudienceShadow(context, oldDecision, newDecision);
+    }
   } catch (err) {
-    if (!warnedAudienceShadowError) {
-      warnedAudienceShadowError = true;
-      console.warn("[PDP] audience shadow evaluation failed (decision unaffected):", err && err.name);
+    logShadowFailure(context, "exception", err && err.name);
+  } finally {
+    try {
+      shadowStats.evaluated += 1;
+      recordShadowLatency(Number(process.hrtime.bigint() - t0) / 1e6);
+      maybeLogShadowStats();
+    } catch (_e) {
+      /* observability must never affect the request */
     }
   }
 }
@@ -1370,6 +1457,8 @@ module.exports = {
   audienceMode,
   audienceDecision,
   compareAudienceDecision,
+  getAudienceShadowStats,
+  resetAudienceShadowStats,
   PDP_DECISION_EPOCH,
   getPolicyVersion,
   invalidateCache,
