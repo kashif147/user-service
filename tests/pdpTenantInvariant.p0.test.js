@@ -116,7 +116,8 @@ describe("flag", () => {
     }
   });
   test("decision-cache epoch was bumped for the new semantics", () => {
-    expect(pdp.PDP_DECISION_EPOCH).toBe("p0-tenant-invariant");
+    // P5: bumped again for the catalogue audience; the audience mode is part of the cache identity.
+    expect(pdp.PDP_DECISION_EPOCH).toBe("p5-audience");
   });
 });
 

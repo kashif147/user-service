@@ -165,22 +165,20 @@ describe("audience is ignored by the evaluator (no behaviour change in P1)", () 
     expect(withAudience).toEqual(without);
   });
 
-  // P4 replaced the P1 guard "the evaluator never reads `audience`": it now reads it, but ONLY on the shadow /
-  // comparison path. The audience rule runs only under options.useAudience, which is set in exactly two places
-  // (shadowAudience, whose result is logged and discarded, and compareAudienceDecision, used by no request path),
-  // and applyPolicyRules always returns the legacy decision. tests/policyEvaluation.audienceShadow.p4.test.js
-  // proves the behaviour; this pins the wiring.
-  test("the evaluator reads `audience` only on the P4 shadow / comparison path (source guard)", () => {
+  // P5: the evaluator reads `audience` on three paths only - shadow (logged, discarded), the comparison harness, and
+  // enforce (PDP_AUDIENCE_MODE=enforce, catalogue only). The committed P4 map is referenced only by the shadow /
+  // comparison decision; the enforce decision never reads it.
+  test("audience wiring: shadow, comparison and catalogue-only enforce; the committed map never reaches enforce (source guard)", () => {
     const src = require("fs").readFileSync(require.resolve("../services/policyEvaluationService"), "utf8");
-    const setters = src.match(/useAudience: true/g) || [];
-    expect(setters).toHaveLength(2);
-    const shadowFn = src.slice(src.indexOf("async function shadowAudience"), src.indexOf("async function compareAudienceDecision"));
-    const compareFn = src.slice(src.indexOf("async function compareAudienceDecision"), src.indexOf("const invalidateCache"));
-    expect(shadowFn).toMatch(/useAudience: true/);
-    expect(compareFn).toMatch(/useAudience: true/);
-    const apply = src.slice(src.indexOf("const applyPolicyRules = async"), src.indexOf("const applyTenantPolicyRules = async"));
-    expect(apply).toMatch(/if \(audienceMode\(\) === "shadow"\) await shadowAudience\(context, decision\);\s*return decision;/);
-    expect(apply).not.toMatch(/useAudience: true/);
-    expect(src).toMatch(/if \(mode === "off" \|\| mode === "shadow"\) return mode;/);
+    expect(src.match(/useAudience: true/g)).toHaveLength(3);
+    const fn = (start, end) => src.slice(src.indexOf(start), src.indexOf(end));
+    expect(fn("async function shadowAudience", "async function compareAudienceDecision")).toMatch(/useAudience: true \}/);
+    expect(fn("const applyPolicyRules = async", "const applyTenantPolicyRules = async")).toMatch(/audMode === "enforce" \? \{ useAudience: true, audienceSource: "catalogue" \} : \{\}/);
+    const enforceFn = fn("function catalogueAudienceDecision", "let audienceEnforceDataLogged");
+    expect(enforceFn.length).toBeGreaterThan(100);
+    expect(enforceFn).not.toMatch(/PROPOSED_AUDIENCE/);
+    expect(src.match(/PROPOSED_AUDIENCE\[/g)).toHaveLength(2); // both inside audienceDecision (shadow / comparison)
+    expect(fn("function audienceDecision", "function catalogueAudienceDecision")).toMatch(/PROPOSED_AUDIENCE\[p\.code\]/);
+    expect(src).toMatch(/if \(AUDIENCE_MODES\.includes\(mode\)\) return mode;/);
   });
 });

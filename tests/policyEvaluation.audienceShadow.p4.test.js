@@ -117,8 +117,8 @@ describe("A. synthetic matrix: shadow never changes the returned decision", () =
   });
 });
 
-describe("B. mode handling (P4 can never enforce)", () => {
-  test.each([[undefined, "off"], ["", "off"], ["off", "off"], ["shadow", "shadow"], [" SHADOW ", "shadow"], ["enforce", "off"], ["ENFORCE", "off"], ["yes", "off"]])(
+describe("B. mode handling (P5: off | shadow | enforce; unset = off; unknown = enforce, fail closed)", () => {
+  test.each([[undefined, "off"], ["", "off"], ["off", "off"], ["shadow", "shadow"], [" SHADOW ", "shadow"], ["enforce", "enforce"], ["ENFORCE", "enforce"], ["yes", "enforce"]])(
     "PDP_AUDIENCE_MODE=%p -> %s",
     (v, m) => {
       if (v === undefined) delete process.env.PDP_AUDIENCE_MODE;
@@ -127,11 +127,11 @@ describe("B. mode handling (P4 can never enforce)", () => {
     },
   );
 
-  test("enforce set by mistake: the legacy decision is returned and nothing is shadow-evaluated", async () => {
+  test("enforce reads the CATALOGUE only: a stored CRM audience denies a PORTAL caller; nothing is shadow-evaluated", async () => {
     mockCatalogue = [{ code: "AUDCRM_READ", resource: "audcrm", action: "read", category: "PORTAL", audience: "CRM" }];
     process.env.PDP_AUDIENCE_MODE = "enforce";
     const d = await pdp.applyPolicyRules(ctx({ resource: "audcrm", userType: "PORTAL", permissions: ["audcrm:read"] }));
-    expect(d.decision).toBe("PERMIT"); // legacy category PORTAL == PORTAL; audience CRM would deny
+    expect(d).toMatchObject({ decision: "DENY", reason: "AUDIENCE_MISMATCH" }); // legacy category PORTAL would permit
     expect(shadowLines()).toHaveLength(0);
   });
 
@@ -217,14 +217,21 @@ describe("E. off and shadow return IDENTICAL decisions on the full DEV snapshot"
     expect(shadowLines()).toHaveLength(45); // the pinned divergences, logged - and nothing returned differently
   });
 
-  test("enforce falls back to off: identical decisions and no shadow work at all", async () => {
+  test("enforce on the NOT back-filled snapshot never permits more than legacy: unclassified rows deny (map not used)", async () => {
     mockCatalogue = SNAPSHOT.catalogue.filter((p) => p.isActive);
     pdp.resetAudienceShadowStats();
     process.env.PDP_AUDIENCE_MODE = "enforce";
-    const c = ctx({ roles: ["MEMBER"], permissions: SNAPSHOT.roles.MEMBER.claims, resource: "accounts.reports", action: "read", userType: "PORTAL" });
-    const d = await pdp.applyPolicyRules(c);
-    expect(d.decision).toBe("PERMIT"); // legacy; the proposed audience (CRM) would deny
-    expect(shadowLines()).toHaveLength(0);
+    const pairs = [...new Map(mockCatalogue.map((p) => [`${p.resource}:${p.action}`, [p.resource, p.action]])).values()];
+    for (const [role, def] of Object.entries(SNAPSHOT.roles)) {
+      for (const [resource, action] of pairs) {
+        const c = ctx({ roles: [role], permissions: def.claims, resource, action, userType: def.intendedUserType });
+        const enforced = await pdp.applyPolicyRules(c);
+        if (enforced.decision !== "PERMIT") continue;
+        // Only rows whose STORED audience is typed (the 9 P1 rows) can permit; never through the committed map.
+        const rows = mockCatalogue.filter((p) => p.resource === resource && p.action === action);
+        expect([role, resource, action, rows.every((r) => r.audience && r.audience !== "LEGACY")]).toEqual([role, resource, action, true]);
+      }
+    }
     expect(pdp.getAudienceShadowStats().evaluated).toBe(0);
   });
 });

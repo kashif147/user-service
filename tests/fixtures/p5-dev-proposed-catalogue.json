@@ -1,0 +1,1256 @@
+{
+ "source": "DEV read-only back-fill dry run 2026-11-08 (scripts/backfill-permission-audience.js --export): the 141 active catalogue rows with their PLANNED audience (73 typed + 68 LEGACY), plus the live MULTIAUTH role claim sets for MEMBER, NON-MEMBER, MO, REO, IRO (deployed issuance). No ids, no user data.",
+ "catalogue": [
+  {
+   "code": "ACCOUNTS_REPORTS",
+   "resource": "accounts.reports",
+   "action": "read",
+   "category": "PORTAL",
+   "audience": "CRM"
+  },
+  {
+   "code": "ACCOUNTS.MEMBER_READ",
+   "resource": "accounts.member",
+   "action": "read",
+   "category": "ACCOUNT",
+   "audience": "BOTH"
+  },
+  {
+   "code": "ACCOUNTS.REPORTS_READ",
+   "resource": "accounts.reports",
+   "action": "read",
+   "category": "ACCOUNT",
+   "audience": "CRM"
+  },
+  {
+   "code": "ADMIN_ACCESS0057",
+   "resource": "admin",
+   "action": "access",
+   "category": "ADMIN",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "ADMIN_DELETE",
+   "resource": "admin",
+   "action": "delete",
+   "category": "ADMIN",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "ADMIN_READ",
+   "resource": "admin",
+   "action": "read",
+   "category": "ADMIN",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "ADMIN_WRITE",
+   "resource": "admin",
+   "action": "write",
+   "category": "ADMIN",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "API_DELETE",
+   "resource": "api",
+   "action": "delete",
+   "category": "API",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "API_READ",
+   "resource": "api",
+   "action": "read",
+   "category": "API",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "API_WRITE",
+   "resource": "api",
+   "action": "write",
+   "category": "API",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "APPLICATION_CREATE",
+   "resource": "application",
+   "action": "create",
+   "category": "PORTAL",
+   "audience": "CRM"
+  },
+  {
+   "code": "APPLICATION_DELETE",
+   "resource": "application",
+   "action": "delete",
+   "category": "PORTAL",
+   "audience": "CRM"
+  },
+  {
+   "code": "APPLICATION_PAYMENT_LINKS_READ",
+   "resource": "application-payment-links",
+   "action": "read",
+   "category": "CRM",
+   "audience": "CRM"
+  },
+  {
+   "code": "APPLICATION_PAYMENT_LINKS_WRITE",
+   "resource": "application-payment-links",
+   "action": "write",
+   "category": "CRM",
+   "audience": "CRM"
+  },
+  {
+   "code": "APPLICATION_READ",
+   "resource": "application",
+   "action": "read",
+   "category": "PORTAL",
+   "audience": "CRM"
+  },
+  {
+   "code": "APPLICATION_WRITE",
+   "resource": "application",
+   "action": "write",
+   "category": "PORTAL",
+   "audience": "CRM"
+  },
+  {
+   "code": "AUDIT_READ",
+   "resource": "audit",
+   "action": "read",
+   "category": "AUDIT",
+   "audience": "CRM"
+  },
+  {
+   "code": "CHANGEOFCATEGORY_CREATE",
+   "resource": "changeOfCategory",
+   "action": "create",
+   "category": "SUBSCRIPTION",
+   "audience": "CRM"
+  },
+  {
+   "code": "CHANGEOFCATEGORY_DELETE",
+   "resource": "changeOfCategory",
+   "action": "delete",
+   "category": "SUBSCRIPTION",
+   "audience": "CRM"
+  },
+  {
+   "code": "CHANGEOFCATEGORY_READ",
+   "resource": "changeOfCategory",
+   "action": "read",
+   "category": "SUBSCRIPTION",
+   "audience": "CRM"
+  },
+  {
+   "code": "CHANGEOFCATEGORY_WRITE",
+   "resource": "changeOfCategory",
+   "action": "write",
+   "category": "SUBSCRIPTION",
+   "audience": "CRM"
+  },
+  {
+   "code": "COMMUNICATION_CREATE",
+   "resource": "communication",
+   "action": "create",
+   "category": "PORTAL",
+   "audience": "CRM"
+  },
+  {
+   "code": "COMMUNICATION_DELETE",
+   "resource": "communication",
+   "action": "delete",
+   "category": "PORTAL",
+   "audience": "CRM"
+  },
+  {
+   "code": "COMMUNICATION_READ",
+   "resource": "communication",
+   "action": "read",
+   "category": "PORTAL",
+   "audience": "BOTH"
+  },
+  {
+   "code": "COMMUNICATION_WRITE",
+   "resource": "communication",
+   "action": "write",
+   "category": "PORTAL",
+   "audience": "CRM"
+  },
+  {
+   "code": "COMPARISON_REPORT_READ",
+   "resource": "REPORT.COMPARISON",
+   "action": "read",
+   "category": "PROFILE",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "CONTACT_READ",
+   "resource": "contact",
+   "action": "read",
+   "category": "CRM",
+   "audience": "CRM"
+  },
+  {
+   "code": "CONTROL_REPORT_READ",
+   "resource": "REPORT.CONTROL",
+   "action": "read",
+   "category": "PROFILE",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "CORN_MARKET_NEW_GRADUATE_READ",
+   "resource": "Profile_new_graduate",
+   "action": "read",
+   "category": "PROFILE",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "CORN_MARKET_REWARDS_READ",
+   "resource": "Profile.corn_market_rewards",
+   "action": "read",
+   "category": "PROFILE",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "CRM_ACCESS",
+   "resource": "crm",
+   "action": "access",
+   "category": "CRM",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "CRM_MEMBER_DELETE",
+   "resource": "crm",
+   "action": "member_delete",
+   "category": "CRM",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "CRM_MEMBER_READ",
+   "resource": "crm",
+   "action": "member_read",
+   "category": "CRM",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "CRM_MEMBER_WRITE",
+   "resource": "crm",
+   "action": "member_write",
+   "category": "CRM",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "DASHBOARD_READ",
+   "resource": "dashboard",
+   "action": "read",
+   "category": "PORTAL",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "DIRECTORY_READ",
+   "resource": "directory",
+   "action": "read",
+   "category": "CRM",
+   "audience": "CRM"
+  },
+  {
+   "code": "EVENTS_CREATE",
+   "resource": "events",
+   "action": "create",
+   "category": "CRM",
+   "audience": "CRM"
+  },
+  {
+   "code": "EVENTS_DELETE",
+   "resource": "events",
+   "action": "delete",
+   "category": "PORTAL",
+   "audience": "CRM"
+  },
+  {
+   "code": "EVENTS_READ",
+   "resource": "events",
+   "action": "read",
+   "category": "CRM",
+   "audience": "BOTH"
+  },
+  {
+   "code": "EVENTS_WRITE",
+   "resource": "events",
+   "action": "write",
+   "category": "CRM",
+   "audience": "CRM"
+  },
+  {
+   "code": "EXECUTIVE_COUNCIL_REPORT_READ",
+   "resource": "report.executive_council",
+   "action": "read",
+   "category": "PROFILE",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "ISSUES_COMPLAINTS_READ",
+   "resource": "issues-complaints",
+   "action": "read",
+   "category": "CRM",
+   "audience": "CRM"
+  },
+  {
+   "code": "ISSUES_COMPLAINTS_WRITE",
+   "resource": "issues-complaints",
+   "action": "write",
+   "category": "CRM",
+   "audience": "CRM"
+  },
+  {
+   "code": "ISSUES_DATAPROTECTION_READ",
+   "resource": "issues-dataprotection",
+   "action": "read",
+   "category": "CRM",
+   "audience": "CRM"
+  },
+  {
+   "code": "ISSUES_DATAPROTECTION_WRITE",
+   "resource": "issues-dataprotection",
+   "action": "write",
+   "category": "CRM",
+   "audience": "CRM"
+  },
+  {
+   "code": "ISSUES_FTP_READ",
+   "resource": "issues-ftp",
+   "action": "read",
+   "category": "CRM",
+   "audience": "CRM"
+  },
+  {
+   "code": "ISSUES_FTP_WRITE",
+   "resource": "issues-ftp",
+   "action": "write",
+   "category": "CRM",
+   "audience": "CRM"
+  },
+  {
+   "code": "ISSUES_IR_READ",
+   "resource": "issues-ir",
+   "action": "read",
+   "category": "CRM",
+   "audience": "CRM"
+  },
+  {
+   "code": "ISSUES_IR_WRITE",
+   "resource": "issues-ir",
+   "action": "write",
+   "category": "CRM",
+   "audience": "CRM"
+  },
+  {
+   "code": "ISSUES_READ",
+   "resource": "issues",
+   "action": "read",
+   "category": "CRM",
+   "audience": "CRM"
+  },
+  {
+   "code": "ISSUES_TEMPLATES_READ",
+   "resource": "issues-templates",
+   "action": "read",
+   "category": "CRM",
+   "audience": "CRM"
+  },
+  {
+   "code": "ISSUES_TEMPLATES_WRITE",
+   "resource": "issues-templates",
+   "action": "write",
+   "category": "CRM",
+   "audience": "CRM"
+  },
+  {
+   "code": "ISSUES_WRITE",
+   "resource": "issues",
+   "action": "write",
+   "category": "CRM",
+   "audience": "CRM"
+  },
+  {
+   "code": "LANDING_PAGE_READ",
+   "resource": "landing_page",
+   "action": "read",
+   "category": "PROFILE",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "LIVE_STATS_REPORT_READ",
+   "resource": "report.live_stats",
+   "action": "read",
+   "category": "PROFILE",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "LOOKUP_DELETE",
+   "resource": "lookup",
+   "action": "delete",
+   "category": "GENERAL",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "LOOKUP_READ",
+   "resource": "lookup",
+   "action": "read",
+   "category": "GENERAL",
+   "audience": "BOTH"
+  },
+  {
+   "code": "LOOKUP_WRITE",
+   "resource": "lookup",
+   "action": "write",
+   "category": "GENERAL",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "LOOKUPTYPE_DELETE",
+   "resource": "lookuptype",
+   "action": "delete",
+   "category": "GENERAL",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "LOOKUPTYPE_READ",
+   "resource": "lookuptype",
+   "action": "read",
+   "category": "GENERAL",
+   "audience": "BOTH"
+  },
+  {
+   "code": "LOOKUPTYPE_WRITE",
+   "resource": "lookuptype",
+   "action": "write",
+   "category": "GENERAL",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "MEMBERSHIP_DRIVES_READ",
+   "resource": "membership-drives",
+   "action": "read",
+   "category": "CRM",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "MEMBERSHIP_DRIVES_WRITE",
+   "resource": "membership-drives",
+   "action": "write",
+   "category": "CRM",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "MENU_CONFIGURATION_ACCESS",
+   "resource": "menu",
+   "action": "configuration_access",
+   "category": "ADMIN",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "MENU_CORRESPONDENCE_ACCESS",
+   "resource": "menu",
+   "action": "correspondence_access",
+   "category": "PORTAL",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "MENU_COURSES_ACCESS",
+   "resource": "menu",
+   "action": "courses_access",
+   "category": "PORTAL",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "MENU_EVENTS_ACCESS",
+   "resource": "menu",
+   "action": "events_access",
+   "category": "PORTAL",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "MENU_FINANCE_ACCESS",
+   "resource": "menu",
+   "action": "finance_access",
+   "category": "FINANCIAL",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "MENU_MEMBERSHIP_ACCESS",
+   "resource": "menu",
+   "action": "membership_access",
+   "category": "PORTAL",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "MENU_REPORTS_ACCESS",
+   "resource": "menu",
+   "action": "reports_access",
+   "category": "PORTAL",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "MENU_SETTINGS_ACCESS",
+   "resource": "menu",
+   "action": "settings_access",
+   "category": "PORTAL",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "NEW_PERM1",
+   "resource": "user",
+   "action": "read",
+   "category": "USER",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "NEW_PERM3",
+   "resource": "user",
+   "action": "read",
+   "category": "USER",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "NOTIFICATION_CREATE",
+   "resource": "notifications",
+   "action": "create",
+   "category": "COMMUNICATION",
+   "audience": "CRM"
+  },
+  {
+   "code": "NOTIFICATION_READ",
+   "resource": "Notification",
+   "action": "read",
+   "category": "PORTAL",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "NOTIFICATION_SEND",
+   "resource": "notifications",
+   "action": "send",
+   "category": "COMMUNICATION",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "NOTIFICATION_UPDATE_STATUS",
+   "resource": "notifications",
+   "action": "update-status",
+   "category": "COMMUNICATION",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "ONLY FOR DELETE",
+   "resource": "user",
+   "action": "user",
+   "category": "USER",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "PAYMENTS_CREATE",
+   "resource": "payments",
+   "action": "create",
+   "category": "FINANCIAL",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "PAYMENTS_READ",
+   "resource": "payments",
+   "action": "read",
+   "category": "FINANCIAL",
+   "audience": "CRM"
+  },
+  {
+   "code": "PAYMENTS_WRITE",
+   "resource": "payments",
+   "action": "write",
+   "category": "FINANCIAL",
+   "audience": "CRM"
+  },
+  {
+   "code": "PAYMENTS.BANK_READ",
+   "resource": "payments.bank",
+   "action": "read",
+   "category": "CRM",
+   "audience": "CRM"
+  },
+  {
+   "code": "PORTAL_ACCESS",
+   "resource": "portal",
+   "action": "access",
+   "category": "PORTAL",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "PORTAL_CREATE",
+   "resource": "portal",
+   "action": "create",
+   "category": "PORTAL",
+   "audience": "PORTAL"
+  },
+  {
+   "code": "PORTAL_DELETE",
+   "resource": "portal",
+   "action": "delete",
+   "category": "PORTAL",
+   "audience": "PORTAL"
+  },
+  {
+   "code": "PORTAL_PROFILE_READ",
+   "resource": "portal",
+   "action": "profile_read",
+   "category": "PORTAL",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "PORTAL_PROFILE_WRITE",
+   "resource": "portal",
+   "action": "profile_write",
+   "category": "PORTAL",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "PORTAL_READ",
+   "resource": "portal",
+   "action": "read",
+   "category": "PORTAL",
+   "audience": "PORTAL"
+  },
+  {
+   "code": "PORTAL_WRITE",
+   "resource": "portal",
+   "action": "write",
+   "category": "PORTAL",
+   "audience": "PORTAL"
+  },
+  {
+   "code": "PRICING_READ",
+   "resource": "pricing",
+   "action": "read",
+   "category": "CRM",
+   "audience": "CRM"
+  },
+  {
+   "code": "PRICING_WRITE",
+   "resource": "pricing",
+   "action": "write",
+   "category": "CRM",
+   "audience": "CRM"
+  },
+  {
+   "code": "PRODUCT_READ",
+   "resource": "product",
+   "action": "read",
+   "category": "PORTAL",
+   "audience": "BOTH"
+  },
+  {
+   "code": "PRODUCT_TYPE_READ",
+   "resource": "product-type",
+   "action": "read",
+   "category": "CRM",
+   "audience": "CRM"
+  },
+  {
+   "code": "PRODUCT_WRITE",
+   "resource": "product",
+   "action": "write",
+   "category": "CRM",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "PROFILE_CREATE",
+   "resource": "profile",
+   "action": "create",
+   "category": "PROFILE",
+   "audience": "CRM"
+  },
+  {
+   "code": "PROFILE_DELETE",
+   "resource": "profile",
+   "action": "delete",
+   "category": "PROFILE",
+   "audience": "CRM"
+  },
+  {
+   "code": "PROFILE_READ",
+   "resource": "profile",
+   "action": "read",
+   "category": "PROFILE",
+   "audience": "CRM"
+  },
+  {
+   "code": "PROFILE_WRITE",
+   "resource": "profile",
+   "action": "write",
+   "category": "PROFILE",
+   "audience": "CRM"
+  },
+  {
+   "code": "QUERIES_CREATE",
+   "resource": "queries",
+   "action": "create",
+   "category": "PORTAL",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "QUERIES_DELETE",
+   "resource": "queries",
+   "action": "delete",
+   "category": "PORTAL",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "QUERIES_READ",
+   "resource": "queries",
+   "action": "read",
+   "category": "PORTAL",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "QUERIES_WRITE",
+   "resource": "queries",
+   "action": "write",
+   "category": "PORTAL",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "RECRUIT_FRIEND_READ",
+   "resource": "Profile.recruit_friend",
+   "action": "read",
+   "category": "PROFILE",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "REGISTRATIONS_CREATE",
+   "resource": "registrations",
+   "action": "create",
+   "category": "PORTAL",
+   "audience": "PORTAL"
+  },
+  {
+   "code": "REGISTRATIONS_READ",
+   "resource": "registrations",
+   "action": "read",
+   "category": "PORTAL",
+   "audience": "PORTAL"
+  },
+  {
+   "code": "REGISTRATIONS_WRITE",
+   "resource": "registrations",
+   "action": "write",
+   "category": "PORTAL",
+   "audience": "PORTAL"
+  },
+  {
+   "code": "REPORTING.FINANCE_READ",
+   "resource": "reporting.finance",
+   "action": "read",
+   "category": "CRM",
+   "audience": "CRM"
+  },
+  {
+   "code": "REPORTING.LISTINGS_READ",
+   "resource": "reporting.listings",
+   "action": "read",
+   "category": "CRM",
+   "audience": "CRM"
+  },
+  {
+   "code": "REPORTING.STATISTICS_READ",
+   "resource": "reporting.statistics",
+   "action": "read",
+   "category": "CRM",
+   "audience": "CRM"
+  },
+  {
+   "code": "REPORTING.TEMPLATES_READ",
+   "resource": "reporting.templates",
+   "action": "read",
+   "category": "CRM",
+   "audience": "CRM"
+  },
+  {
+   "code": "REPORTING.TEMPLATES_WRITE",
+   "resource": "reporting.templates",
+   "action": "write",
+   "category": "CRM",
+   "audience": "CRM"
+  },
+  {
+   "code": "RESOURCES_CREATE",
+   "resource": "resources",
+   "action": "create",
+   "category": "PORTAL",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "RESOURCES_DELETE",
+   "resource": "resources",
+   "action": "delete",
+   "category": "PORTAL",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "RESOURCES_READ",
+   "resource": "resources",
+   "action": "read",
+   "category": "PORTAL",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "RESOURCES_WRITE",
+   "resource": "resources",
+   "action": "write",
+   "category": "PORTAL",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "ROLE_DELETE",
+   "resource": "role",
+   "action": "delete",
+   "category": "ROLE",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "ROLE_PERMISSION_ASSIGN",
+   "resource": "role",
+   "action": "permission_assign",
+   "category": "ROLE",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "ROLE_READ",
+   "resource": "role",
+   "action": "read",
+   "category": "ROLE",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "ROLE_WRITE",
+   "resource": "role",
+   "action": "write",
+   "category": "ROLE",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "SUBSCRIPTIONS_CREATE",
+   "resource": "subscriptions",
+   "action": "create",
+   "category": "SUBSCRIPTION",
+   "audience": "CRM"
+  },
+  {
+   "code": "SUBSCRIPTIONS_DELETE",
+   "resource": "subscriptions",
+   "action": "delete",
+   "category": "SUBSCRIPTION",
+   "audience": "CRM"
+  },
+  {
+   "code": "SUBSCRIPTIONS_READ",
+   "resource": "subscriptions",
+   "action": "read",
+   "category": "SUBSCRIPTION",
+   "audience": "CRM"
+  },
+  {
+   "code": "SUBSCRIPTIONS_WRITE",
+   "resource": "subscriptions",
+   "action": "write",
+   "category": "SUBSCRIPTION",
+   "audience": "CRM"
+  },
+  {
+   "code": "TEMPLATE_READ",
+   "resource": "templates",
+   "action": "read",
+   "category": "COMMUNICATION",
+   "audience": "CRM"
+  },
+  {
+   "code": "TENANT_ADMIN",
+   "resource": "tenant",
+   "action": "admin",
+   "category": "TENANT",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "TENANT_DELETE",
+   "resource": "tenant",
+   "action": "delete",
+   "category": "TENANT",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "TENANT_READ",
+   "resource": "tenant",
+   "action": "read",
+   "category": "TENANT",
+   "audience": "CRM"
+  },
+  {
+   "code": "TENANT_WRITE",
+   "resource": "tenant",
+   "action": "write",
+   "category": "TENANT",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "TENANT.AUTH_READ",
+   "resource": "tenant.auth",
+   "action": "read",
+   "category": "CRM",
+   "audience": "CRM"
+  },
+  {
+   "code": "TEST_READ",
+   "resource": "TEST",
+   "action": "read",
+   "category": "PORTAL",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "TRANSFERREQUESTS_CREATE",
+   "resource": "transferRequests",
+   "action": "create",
+   "category": "SUBSCRIPTION",
+   "audience": "CRM"
+  },
+  {
+   "code": "TRANSFERREQUESTS_DELETE",
+   "resource": "transferRequests",
+   "action": "delete",
+   "category": "SUBSCRIPTION",
+   "audience": "CRM"
+  },
+  {
+   "code": "TRANSFERREQUESTS_READ",
+   "resource": "transferRequests",
+   "action": "read",
+   "category": "SUBSCRIPTION",
+   "audience": "CRM"
+  },
+  {
+   "code": "TRANSFERREQUESTS_WRITE",
+   "resource": "transferRequests",
+   "action": "write",
+   "category": "SUBSCRIPTION",
+   "audience": "CRM"
+  },
+  {
+   "code": "USER_CODE",
+   "resource": "USER",
+   "action": "READ",
+   "category": "SUBSCRIPTION",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "USER_DELETE",
+   "resource": "user",
+   "action": "delete",
+   "category": "USER",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "USER_READ",
+   "resource": "user",
+   "action": "read",
+   "category": "USER",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "USER_WRITE",
+   "resource": "user",
+   "action": "write",
+   "category": "USER",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "VOTING_CREATE",
+   "resource": "voting",
+   "action": "create",
+   "category": "PORTAL",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "VOTING_READ",
+   "resource": "voting",
+   "action": "read",
+   "category": "PORTAL",
+   "audience": "LEGACY"
+  },
+  {
+   "code": "VOTING_WRITE",
+   "resource": "voting",
+   "action": "write",
+   "category": "PORTAL",
+   "audience": "LEGACY"
+  }
+ ],
+ "roles": {
+  "MEMBER": {
+   "intendedUserType": "PORTAL",
+   "claims": [
+    "account_payment",
+    "account_read",
+    "account_transaction_read",
+    "accounts.reports:read",
+    "application:read",
+    "changeofcategory:create",
+    "changeofcategory:delete",
+    "changeofcategory:read",
+    "changeofcategory:write",
+    "dashboard:read",
+    "events:read",
+    "lookup:read",
+    "lookuptype:read",
+    "notification:read",
+    "payments:create",
+    "payments:read",
+    "payments:write",
+    "portal:access",
+    "portal:create",
+    "portal:delete",
+    "portal:profile_read",
+    "portal:profile_write",
+    "portal:read",
+    "portal:write",
+    "profile:create",
+    "profile:delete",
+    "profile:read",
+    "profile:write",
+    "queries:create",
+    "queries:delete",
+    "queries:read",
+    "queries:write",
+    "registrations:create",
+    "registrations:read",
+    "registrations:write",
+    "resources:create",
+    "resources:delete",
+    "resources:read",
+    "resources:write",
+    "subscriptions:create",
+    "subscriptions:delete",
+    "subscriptions:read",
+    "subscriptions:write",
+    "transferrequests:create",
+    "transferrequests:delete",
+    "transferrequests:read",
+    "transferrequests:write",
+    "voting:create",
+    "voting:read",
+    "voting:write"
+   ]
+  },
+  "NON-MEMBER": {
+   "intendedUserType": "PORTAL",
+   "claims": [
+    "accounts.reports:read",
+    "application:create",
+    "application:delete",
+    "application:read",
+    "application:write",
+    "dashboard:read",
+    "events:read",
+    "lookup:read",
+    "lookuptype:read",
+    "notification:read",
+    "portal:create",
+    "portal:delete",
+    "portal:read",
+    "portal:write",
+    "product:read",
+    "profile:create",
+    "profile:delete",
+    "profile:read",
+    "profile:write",
+    "registrations:create",
+    "registrations:read",
+    "registrations:write",
+    "resources:create",
+    "resources:delete",
+    "resources:read",
+    "resources:write",
+    "subscriptions:create",
+    "subscriptions:delete",
+    "subscriptions:read",
+    "subscriptions:write"
+   ]
+  },
+  "MO": {
+   "intendedUserType": "CRM",
+   "claims": [
+    "accounts.reports:read",
+    "admin:access",
+    "admin:delete",
+    "admin:read",
+    "admin:write",
+    "api:delete",
+    "api:read",
+    "api:write",
+    "application-payment-links:read",
+    "application-payment-links:write",
+    "application:create",
+    "application:delete",
+    "application:read",
+    "application:write",
+    "audit:read",
+    "changeofcategory:create",
+    "changeofcategory:delete",
+    "changeofcategory:read",
+    "changeofcategory:write",
+    "communication:create",
+    "communication:delete",
+    "communication:read",
+    "communication:write",
+    "crm:access",
+    "crm:member_delete",
+    "crm:member_read",
+    "crm:member_write",
+    "dashboard:read",
+    "events:create",
+    "events:delete",
+    "events:read",
+    "events:write",
+    "issues-complaints:read",
+    "issues-complaints:write",
+    "landing_page:read",
+    "lookup:delete",
+    "lookup:read",
+    "lookup:write",
+    "lookuptype:delete",
+    "lookuptype:read",
+    "lookuptype:write",
+    "menu:configuration_access",
+    "menu:correspondence_access",
+    "menu:courses_access",
+    "menu:events_access",
+    "menu:finance_access",
+    "menu:membership_access",
+    "menu:reports_access",
+    "menu:settings_access",
+    "notification:read",
+    "notifications:create",
+    "notifications:send",
+    "notifications:update-status",
+    "payments:create",
+    "payments:read",
+    "payments:write",
+    "portal:access",
+    "portal:create",
+    "portal:delete",
+    "portal:profile_read",
+    "portal:profile_write",
+    "portal:read",
+    "portal:write",
+    "profile.corn_market_rewards:read",
+    "profile.recruit_friend:read",
+    "profile:create",
+    "profile:delete",
+    "profile:read",
+    "profile:write",
+    "profile_new_graduate:read",
+    "queries:create",
+    "queries:delete",
+    "queries:read",
+    "queries:write",
+    "report.comparison:read",
+    "report.control:read",
+    "report.executive_council:read",
+    "report.live_stats:read",
+    "resources:create",
+    "resources:delete",
+    "resources:read",
+    "resources:write",
+    "role:delete",
+    "role:permission_assign",
+    "role:read",
+    "role:write",
+    "subscriptions:create",
+    "subscriptions:delete",
+    "subscriptions:read",
+    "subscriptions:write",
+    "templates:read",
+    "tenant:delete",
+    "tenant:read",
+    "tenant:write",
+    "test:read",
+    "transferrequests:create",
+    "transferrequests:delete",
+    "transferrequests:read",
+    "transferrequests:write",
+    "user:delete",
+    "user:read",
+    "user:user",
+    "user:write",
+    "voting:create",
+    "voting:read",
+    "voting:write"
+   ]
+  },
+  "REO": {
+   "intendedUserType": "CRM",
+   "claims": [
+    "application-payment-links:read",
+    "changeofcategory:create",
+    "changeofcategory:read",
+    "events:create",
+    "events:read",
+    "events:write",
+    "issues-templates:read",
+    "issues-templates:write",
+    "issues:read",
+    "issues:write",
+    "landing_page:read",
+    "lookup:read",
+    "lookuptype:delete",
+    "lookuptype:read",
+    "menu:configuration_access",
+    "menu:finance_access",
+    "menu:membership_access",
+    "menu:reports_access",
+    "notification:read",
+    "payments:read",
+    "portal:read",
+    "pricing:read",
+    "pricing:write",
+    "product-type:read",
+    "product:write",
+    "profile:read",
+    "report.comparison:read",
+    "report.control:read",
+    "report.executive_council:read",
+    "role:read",
+    "subscriptions:read",
+    "subscriptions:write",
+    "tenant:delete",
+    "tenant:write",
+    "transferrequests:create",
+    "transferrequests:read",
+    "transferrequests:write"
+   ]
+  },
+  "IRO": {
+   "intendedUserType": "CRM",
+   "claims": [
+    "accounts.reports:read",
+    "events:create",
+    "events:read",
+    "issues-complaints:read",
+    "issues-complaints:write",
+    "issues-ftp:read",
+    "issues-ftp:write",
+    "issues-ir:read",
+    "issues-ir:write",
+    "lookup:read",
+    "lookuptype:read",
+    "membership-drives:read",
+    "membership-drives:write",
+    "notification:read"
+   ]
+  }
+ }
+}

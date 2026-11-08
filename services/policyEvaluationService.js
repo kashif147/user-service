@@ -45,7 +45,7 @@ const POLICY_VERSION = process.env.POLICY_VERSION || "1.0.0";
 const getPolicyVersion = () => POLICY_VERSION;
 // Part of every decision-cache key (see evaluatePolicy). Phase B / Z9: tenant SU retired.
 // P0 (PDP tenant invariant): bumped so no decision cached before the universal tenant invariant is reused.
-const PDP_DECISION_EPOCH = "p0-tenant-invariant";
+const PDP_DECISION_EPOCH = "p5-audience"; // P5: catalogue audience; the mode is added per call (decisionEpoch)
 // Phase B / Z9: SU is no longer a role. A token that still carries it predates the SU -> ASU migration
 // and must not be honoured at all (not even as a tenant wildcard): the user signs in again and gets
 // their current role (ASU). Never a reason to grant anything.
@@ -115,31 +115,38 @@ function logInvariantShadow(ctx, violation, oldDecision) {
 }
 
 /**
- * P4 PERMISSION AUDIENCE - SHADOW ONLY (bounded-pdp-implementation-proposal §1 P4).
+ * P4/P5 PERMISSION AUDIENCE (bounded-pdp-implementation-proposal §1 P4, P5).
  *
- * Proposed rule (evaluated in shadow, never returned): for the EXACT resource:action requested, if its active
- * catalogue row(s) carry an audience (stored `audience`, else constants/permissionAudience.js), the caller's
- * verified userType must be admitted by EVERY such audience (CRM -> CRM; PORTAL/MEMBER -> PORTAL; BOTH -> both;
- * SYSTEM / missing -> none), otherwise DENY AUDIENCE_MISMATCH. That replaces the legacy per-resource category
- * rule for that action only. No exact row, or no audience on it -> the legacy category rule, unchanged. It
- * runs at the place of the category rule, after the "holds a permission on this resource" gate, so it can
- * never skip that gate or the action / permission stages.
+ * Audience rule: for the EXACT resource:action requested, the caller's verified userType must be admitted by the
+ * code's audience (CRM -> CRM; PORTAL/MEMBER -> PORTAL; BOTH -> both; SYSTEM / missing -> none), otherwise DENY
+ * AUDIENCE_MISMATCH. It replaces the legacy per-resource category rule for that action only, at the category
+ * rule's position - after the "holds a permission on this resource" gate and before the action / exact-permission
+ * stages, so it can never skip them. Rules 0-1 (platform namespace, retired SU, tenant invariant, ASU own-tenant
+ * admin) run before it and are unchanged in every mode.
  *
  * PDP_AUDIENCE_MODE (read per call):
- *   off (default) - the audience is ignored (exactly today's behaviour).
- *   shadow        - the legacy decision is computed and RETURNED (and cached) as today; the audience decision
- *                   is computed alongside and, only when the FINAL decisions differ, logged as
- *                   pdp.audience.shadow: resource, action, userType, old/new decision + reason, audience
- *                   source, tenant ids, correlationId. Never tokens, emails, roles or permission lists. A shadow
- *                   failure is swallowed (logged once) and never changes the returned decision.
- *   anything else, INCLUDING "enforce" -> off, with a one-time warning: enforcement is P5, not this code.
- * Cache hits are never shadow-evaluated, by design: the token path returns a cached decision from this
- * service's decision cache (POLICY_CACHE_TTL) before applyPolicyRules runs, and on the gateway-header path the
- * calling service's policy client answers from its own 5-minute cache without reaching this service. A cached
- * decision is the legacy decision (shadow never changes what is cached), so a hit has nothing new to compare;
- * coverage is therefore one evaluation per distinct (identity, tenant, resource, action) per cache window, and
- * pdp.audience.shadow.stats `evaluated` counts exactly those. PDP_DECISION_EPOCH is unchanged (decisions are).
- * The in-code fallback catalogue (permissionsService.getFallbackPermissions) has no audience: P5 item.
+ *   off (unset / "")  the audience is ignored (legacy category rule).
+ *   shadow            the legacy decision is RETURNED (and cached); the PROPOSED audience decision (stored catalogue
+ *                     audience, else constants/permissionAudience.js; stored LEGACY = legacy rule) is computed
+ *                     alongside and logged as pdp.audience.shadow only when the final decisions differ.
+ *   enforce           the CATALOGUE-ONLY audience decision is returned (catalogueAudienceDecision): the committed
+ *                     map is never consulted. Per exact resource:action, over the active rows:
+ *                       all rows LEGACY                      -> legacy category rule (deliberate)
+ *                       all rows one typed value             -> the audience rule
+ *                       any row with no audience             -> DENY AUDIENCE_DATA_MISSING   (not back-filled)
+ *                       any row with an unknown value        -> DENY AUDIENCE_DATA_INVALID
+ *                       rows disagree (incl. LEGACY + typed) -> DENY AUDIENCE_ALIAS_CONFLICT
+ *                       no row for the exact action          -> DENY AUDIENCE_DATA_MISSING
+ *                       the in-code fallback catalogue       -> DENY CATALOGUE_UNAVAILABLE (fallback rows are
+ *                                                               tagged source:"fallback" by permissionsService)
+ *                     None of these can fall back to the broader legacy rule; each data-quality denial is logged
+ *                     as pdp.audience.enforce.data (rate-limited).
+ *   anything else     -> enforce, with a one-time warning (fail closed; same as PDP_TENANT_INVARIANT_MODE).
+ * Decision cache: the mode is part of the token-path cache identity (see decisionEpoch()), so switching mode in either
+ * direction never reads back a decision cached under the other mode. Calling services' policy clients keep their own
+ * in-memory 5-minute caches and must be recreated on every switch (rollout procedure).
+ * Cache hits are never shadow-evaluated: the token path answers from its decision cache before applyPolicyRules,
+ * and the calling services' policy clients answer from their own caches without reaching this service.
  */
 const {
   PROPOSED_AUDIENCE,
@@ -147,30 +154,44 @@ const {
   audienceAdmits,
 } = require("../constants/permissionAudience");
 
+const AUDIENCE_MODES = Object.freeze(["off", "shadow", "enforce"]);
+const CATALOGUE_AUDIENCE_VALUES = Object.freeze(["CRM", "PORTAL", "BOTH", "LEGACY"]);
+const AUDIENCE_DATA_REASONS = Object.freeze([
+  "AUDIENCE_DATA_MISSING",
+  "AUDIENCE_DATA_INVALID",
+  "AUDIENCE_ALIAS_CONFLICT",
+  "CATALOGUE_UNAVAILABLE",
+]);
+
 let warnedAudienceMode = false;
 function audienceMode() {
   const raw = process.env.PDP_AUDIENCE_MODE;
   if (raw === undefined || raw === "") return "off";
   const mode = String(raw).trim().toLowerCase();
-  if (mode === "off" || mode === "shadow") return mode;
+  if (AUDIENCE_MODES.includes(mode)) return mode;
   if (!warnedAudienceMode) {
     warnedAudienceMode = true;
-    console.warn("[PDP] PDP_AUDIENCE_MODE supports off|shadow only (enforce is P5); treated as off");
+    console.warn("[PDP] PDP_AUDIENCE_MODE has an unknown value; treated as enforce (fail closed)");
   }
-  return "off";
+  return "enforce";
 }
 
+const exactRows = (resourcePermissions, action) =>
+  (resourcePermissions || []).filter(
+    (p) => p && p.action && String(p.action).toLowerCase() === String(action || "").toLowerCase(),
+  );
+
 /**
- * Proposed audience decision for one request, from the resource's catalogue rows.
+ * SHADOW / comparison: PROPOSED audience decision (stored typed audience, else the committed map; stored LEGACY =
+ * deliberately legacy and contributes nothing). Never used to return a decision.
  * @returns {null|{decision, reason, audience, source}} null -> no audience applies (legacy category rule).
  */
 function audienceDecision(resourcePermissions, action, userType) {
-  const exact = (resourcePermissions || []).filter(
-    (p) => p && p.action && String(p.action).toLowerCase() === String(action || "").toLowerCase(),
-  );
+  const exact = exactRows(resourcePermissions, action);
   const audiences = [];
   const sources = new Set();
   for (const p of exact) {
+    if (p.audience === "LEGACY") continue;
     if (p.audience) {
       audiences.push(p.audience);
       sources.add("stored");
@@ -188,6 +209,53 @@ function audienceDecision(resourcePermissions, action, userType) {
   return admitted
     ? { decision: "PERMIT", reason: "AUDIENCE_GRANTED", audience, source }
     : { decision: "DENY", reason: "AUDIENCE_MISMATCH", audience, source };
+}
+
+/**
+ * ENFORCE: catalogue-only audience decision (see the table above). Never reads the committed map.
+ * @returns {null|{decision, reason, audience, source}} null -> every exact row is LEGACY (legacy category rule).
+ */
+function catalogueAudienceDecision(resourcePermissions, action, userType) {
+  const rows = resourcePermissions || [];
+  const deny = (reason, audience = null) => ({ decision: "DENY", reason, audience, source: "catalogue" });
+  if (rows.some((p) => p && p.source === "fallback")) return deny("CATALOGUE_UNAVAILABLE");
+  const exact = exactRows(rows, action);
+  if (exact.length === 0) return deny("AUDIENCE_DATA_MISSING");
+  const values = exact.map((p) => (p.audience == null || p.audience === "" ? null : String(p.audience)));
+  if (values.some((v) => v === null)) return deny("AUDIENCE_DATA_MISSING");
+  if (values.some((v) => !CATALOGUE_AUDIENCE_VALUES.includes(v))) return deny("AUDIENCE_DATA_INVALID");
+  const uniq = [...new Set(values)];
+  if (uniq.length > 1) return deny("AUDIENCE_ALIAS_CONFLICT", uniq.sort().join("+"));
+  if (uniq[0] === "LEGACY") return null;
+  const cls = audienceClassOf(userType);
+  return audienceAdmits(uniq[0], cls)
+    ? { decision: "PERMIT", reason: "AUDIENCE_GRANTED", audience: uniq[0], source: "catalogue" }
+    : deny("AUDIENCE_MISMATCH", uniq[0]);
+}
+
+let audienceEnforceDataLogged = 0;
+function logAudienceEnforceData(ctx, aud) {
+  audienceEnforceDataLogged += 1;
+  if (audienceEnforceDataLogged > 20 && audienceEnforceDataLogged % 100 !== 0) return;
+  console.warn("[PDP] audience enforce data", JSON.stringify({
+    event: "pdp.audience.enforce.data",
+    reason: aud.reason,
+    audience: aud.audience || null,
+    resource: logValue(ctx.resource),
+    action: logValue(ctx.action),
+    userType: logValue(ctx.userType),
+    countSoFar: audienceEnforceDataLogged,
+  }));
+}
+
+/** Test / operations hook: restart the enforce data-quality log rate limit. */
+function resetAudienceEnforceDataLog() {
+  audienceEnforceDataLogged = 0;
+}
+
+/** Part of the token-path decision-cache identity: semantics epoch + audience mode (decisions differ per mode). */
+function decisionEpoch() {
+  return `${PDP_DECISION_EPOCH}|aud:${audienceMode()}`;
 }
 
 function logAudienceShadow(ctx, oldDecision, newDecision) {
@@ -309,9 +377,9 @@ async function shadowAudience(context, oldDecision) {
  * Old vs proposed decision for one context, without logging and regardless of PDP_AUDIENCE_MODE. Used by the
  * read-only comparison harness and tests; never by a request path.
  */
-async function compareAudienceDecision(context) {
+async function compareAudienceDecision(context, { source = "proposed" } = {}) {
   const oldDecision = await applyTenantPolicyRules(context);
-  const newDecision = await applyTenantPolicyRules(context, { useAudience: true });
+  const newDecision = await applyTenantPolicyRules(context, { useAudience: true, audienceSource: source });
   return { oldDecision, newDecision, divergent: oldDecision.decision !== newDecision.decision };
 }
 
@@ -555,7 +623,7 @@ const evaluatePolicyInternal = async (request) => {
         JSON.stringify({
           // Phase B / Z9 decision epoch: no decision cached before the tenant-SU retirement (e.g. a
           // legacy SU PERMIT) can ever be read back - bump when PDP semantics change.
-          pdp: PDP_DECISION_EPOCH,
+          pdp: decisionEpoch(),
           id: user.id,
           tenantId: user.tenantId,
           userType: user.userType || null,
@@ -742,17 +810,20 @@ const applyPolicyRules = async (context) => {
   // Ordered after the platform-namespace and retired-SU refusals (their reason codes are pinned) and before
   // ASU, so ASU (an own-tenant admin) can never be cross-tenant.
   const invariantViolation = tenantInvariantViolation(tenantId, context.userTenantId);
+  const audMode = audienceMode();
+  // P5: enforce returns the catalogue-only audience decision; off / shadow return the legacy decision.
+  const tenantRuleOptions = audMode === "enforce" ? { useAudience: true, audienceSource: "catalogue" } : {};
   let decision;
   if (invariantViolation) {
     const mode = tenantInvariantMode();
     if (mode === "enforce") return { decision: "DENY", reason: invariantViolation };
-    decision = await applyTenantPolicyRules(context);
+    decision = await applyTenantPolicyRules(context, tenantRuleOptions);
     if (mode === "shadow") logInvariantShadow(context, invariantViolation, decision);
   } else {
-    decision = await applyTenantPolicyRules(context);
+    decision = await applyTenantPolicyRules(context, tenantRuleOptions);
   }
   // P4: audience shadow - observes only; the returned decision is always the legacy one.
-  if (audienceMode() === "shadow") await shadowAudience(context, decision);
+  if (audMode === "shadow") await shadowAudience(context, decision);
   return decision;
 };
 
@@ -928,7 +999,13 @@ const evaluateResourcePolicy = async (context, options = {}) => {
     // P4 (shadow / comparison only): the proposed audience rule for the exact action replaces the category
     // rule below; no audience on the exact row -> the category rule, unchanged.
     if (options.useAudience) {
-      const aud = audienceDecision(resourcePermissions, context.action, userType);
+      const aud =
+        options.audienceSource === "catalogue"
+          ? catalogueAudienceDecision(resourcePermissions, context.action, userType)
+          : audienceDecision(resourcePermissions, context.action, userType);
+      if (aud && options.audienceSource === "catalogue" && AUDIENCE_DATA_REASONS.includes(aud.reason)) {
+        logAudienceEnforceData(context, aud);
+      }
       if (aud) {
         return aud.decision === "PERMIT"
           ? { decision: "PERMIT", reason: "RESOURCE_ACCESS_GRANTED", audience: aud.audience, audienceSource: aud.source }
@@ -1456,7 +1533,11 @@ module.exports = {
   tenantInvariantViolation,
   audienceMode,
   audienceDecision,
+  catalogueAudienceDecision,
   compareAudienceDecision,
+  decisionEpoch,
+  resetAudienceEnforceDataLog,
+  AUDIENCE_DATA_REASONS,
   getAudienceShadowStats,
   resetAudienceShadowStats,
   PDP_DECISION_EPOCH,
