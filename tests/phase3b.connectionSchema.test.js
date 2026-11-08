@@ -133,7 +133,10 @@ jest.mock("../middlewares/auth", () => {
     ...actual,
     tenantContextWarn: (req, res, next) => next(),
     authenticate: (req, res, next) => {
-      req.ctx = { tenantId: A, userId: "c00000000000000000000009", roles: ["SU"] };
+      // PDP P3: tenant field groups are decided on literal token claims (helpers/tenantViewAccess.js); the tenant
+      // administrator's real token carries the computed "*", which keeps authenticationConnections in the views
+      // whose allow-list this suite checks. Redaction itself: tests/tenantViewAccess.p3.test.js.
+      req.ctx = { tenantId: A, userId: "c00000000000000000000009", roles: ["SU"], permissions: ["*"] };
       next();
     },
   };
@@ -148,7 +151,13 @@ beforeAll(async () => {
   // P5 / D6: PUT /tenants/:id/status is platform-only (tenant actors are refused by middlewares/tenantLifecycleGuard.js,
   // covered by tests/tenantLifecycle.p5.test.js). The controller itself is still served to platform principals, so its
   // behaviour is exercised here through a direct mount.
-  app.put("/direct/tenants/:id/status", require("../controllers/tenant.controller").updateTenantStatus);
+  // PDP P3: the direct mount has no authenticate; give it the same tenant-admin identity as the router mock so
+  // the per-caller tenant view keeps the connections this suite checks (fail closed without an identity).
+  app.put(
+    "/direct/tenants/:id/status",
+    (req, res, next) => ((req.ctx = { tenantId: A, userId: "c00000000000000000000009", roles: ["SU"], permissions: ["*"] }), next()),
+    require("../controllers/tenant.controller").updateTenantStatus
+  );
   app.use("/api", require("../routes/tenant.routes"));
   app.use((err, req, res, next) => res.status(err.status || 500).json({ error: { message: err.message } }));
   await new Promise((r) => (server = app.listen(0, r)));

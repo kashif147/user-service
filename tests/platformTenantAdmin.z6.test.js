@@ -225,7 +225,10 @@ test("stale revision / disabled / binding lost / no permission -> 403; final (no
 
 // ── tenant actors unchanged ──────────────────────────────────────────────────
 test("legacy SU '*' / ASU / ordinary users: unchanged tenant chain - own tenant only, never req.platform, no platform audit", async () => {
-  for (const [roles, perms] of [[["SU"], ["*"]], [["ASU"], ["tenant:admin"]], [["MO"], ["tenant:read"]]]) {
+  // PDP P3: the three authentication-configuration reads need tenant.auth:read or "*" (helpers/tenantViewAccess.js
+  // requireTenantAuthRead); ASU's real token is the computed "*", added as its own actor.
+  const AUTH_CONFIG_READS = new Set([`/api/tenants/${B}/auth-connections`, `/api/tenants/${B}/auth-connections/default-role-options`, `/api/tenants/${B}/auth-connections/${C}/status`]);
+  for (const [roles, perms] of [[["SU"], ["*"]], [["ASU"], ["*"]], [["ASU"], ["tenant:admin"]], [["MO"], ["tenant:read"]]]) {
     for (const [method, url] of Z6) {
       if (url === "/api/tenants") continue;
       const other = await request(method, url, asTenant(roles, perms));
@@ -234,6 +237,10 @@ test("legacy SU '*' / ASU / ordinary users: unchanged tenant chain - own tenant 
       if ((method === "DELETE" && url === `/api/tenants/${B}`) || (method === "PUT" && url === `/api/tenants/${B}/status`)) {
         // P5 / D6: tenant lifecycle is platform-only - no tenant actor (ASU, legacy SU "*", ordinary) on its own tenant
         expect({ roles, method, url, status: own.status, code: own.body?.error?.code }).toEqual({ roles, method, url, status: 403, code: "TENANT_LIFECYCLE_PLATFORM_ONLY" });
+        continue;
+      }
+      if (method === "GET" && AUTH_CONFIG_READS.has(url) && !perms.includes("*") && !perms.includes("tenant.auth:read")) {
+        expect({ roles, url, status: own.status, code: own.body?.error?.code }).toEqual({ roles, url, status: 403, code: "TENANT_AUTH_READ_REQUIRED" });
         continue;
       }
       expect({ roles, method, url, status: own.status, platform: own.body.platform }).toEqual({ roles, method, url, status: 200, platform: null });
@@ -387,7 +394,9 @@ test("no generic platform business-data bypass: req.platform is set only by the 
   // (Object.defineProperty(req, "platform", ...) in requirePlatformPermission.js / platformTenantAdmin.js).
   // Phase B / P1: the provisioning controller reads req.platform.pid (actor of a run) - every route reaching it is
   // requirePlatformPermission("platform:provisioning:admin", route-enforce); it is not a business-data bypass.
-  expect(hits.sort()).toEqual(["controllers/provisioning.controller.js", "controllers/tenant.controller.js", "routes/platformProbe.routes.js", "services/platformAuditService.js"]);
+  // PDP P3: helpers/tenantViewAccess.js (the tenant controller's response redaction) reads req.platform only to
+  // REMOVE field groups from a platform principal's tenant view (never ORG-BANK; SECURITY only with CONNECTIONS_ANY).
+  expect(hits.sort()).toEqual(["controllers/provisioning.controller.js", "controllers/tenant.controller.js", "helpers/tenantViewAccess.js", "routes/platformProbe.routes.js", "services/platformAuditService.js"]);
   const guard = stripComments(fs.readFileSync(path.join(ROOT, "middlewares", "platformTenantAdmin.js"), "utf8"));
   expect(guard).not.toMatch(/x-target-tenant-id|req\.body(?!\?\.status)|req\.query|ctx\.tenantId\s*=[^=]/); // the body is read only for the status-change label
   const routes = stripComments(fs.readFileSync(path.join(ROOT, "routes", "tenant.routes.js"), "utf8"));

@@ -36,7 +36,8 @@ jest.mock("../middlewares/auth", () => {
     authenticate: (req, res, next) => {
       mockCalls.push("authenticate");
       const t = req.headers["x-test-tenant"];
-      if (t) req.ctx = { tenantId: t, userId: "6a00000000000000000000c1", roles: JSON.parse(req.headers["x-test-roles"] || "[]") };
+      // PDP P3: literal token claims decide tenant field groups / auth-config reads; the actors here carry "*".
+      if (t) req.ctx = { tenantId: t, userId: "6a00000000000000000000c1", roles: JSON.parse(req.headers["x-test-roles"] || "[]"), permissions: ["*"] };
       next();
     },
     tenantContextWarn: (req, res, next) => (mockCalls.push("tenantContextWarn"), next()),
@@ -45,6 +46,11 @@ jest.mock("../middlewares/auth", () => {
       return (req, res, next) => (mockCalls.push(`pathGuard:${param}`), mw(req, res, next));
     },
   };
+});
+// PDP P3: the auth-config reads use the local tenant.auth:read guard instead of the PDP; recorded like a policy step.
+jest.mock("../helpers/tenantViewAccess", () => {
+  const actual = jest.requireActual("../helpers/tenantViewAccess");
+  return { ...actual, requireTenantAuthRead: (req, res, next) => (mockCalls.push("policy:tenant.auth:read"), actual.requireTenantAuthRead(req, res, next)) };
 });
 jest.mock("../helpers/policyAdapter", () => ({
   defaultPolicyAdapter: {
@@ -212,7 +218,7 @@ const B2 = [
   ["PATCH", "/regional-settings", "policy:tenant:update", null],
   ["POST", "/branding/assets", "policy:tenant:update", null],
   ["POST", "/auth-connections", "policy:tenant:admin", "addAuthenticationConnection"],
-  ["GET", "/auth-connections", "policy:tenant:read", "getAuthenticationConnections"],
+  ["GET", "/auth-connections", "policy:tenant.auth:read", "getAuthenticationConnections"], // PDP P3
   ["PUT", "/auth-connections/c1", "policy:tenant:admin", "updateAuthenticationConnection"],
   ["DELETE", "/auth-connections/c1", "policy:tenant:admin", "removeAuthenticationConnection"],
 ];
@@ -341,8 +347,8 @@ describe("A16 SU closure: per-tenant SU is tenant-scoped on every /tenants/:id(*
     ["POST", "/auth-connections/c1/connect/complete", "policy:tenant:admin", "id"],
     ["POST", "/auth-connections/c1/test", "policy:tenant:admin", "id"],
     ["POST", "/auth-connections/c1/disconnect", "policy:tenant:admin", "id"],
-    ["GET", "/auth-connections/c1/status", "policy:tenant:read", "id"],
-    ["GET", "/auth-connections/default-role-options", "policy:tenant:read", "id"],
+    ["GET", "/auth-connections/c1/status", "policy:tenant.auth:read", "id"], // PDP P3
+    ["GET", "/auth-connections/default-role-options", "policy:tenant.auth:read", "id"], // PDP P3
   ];
   const CASES = [];
   for (const caller of [MULTIAUTH, DEVTENANTB]) {
