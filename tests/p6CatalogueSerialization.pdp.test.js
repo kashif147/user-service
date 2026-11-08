@@ -165,8 +165,22 @@ describe("audience is ignored by the evaluator (no behaviour change in P1)", () 
     expect(withAudience).toEqual(without);
   });
 
-  test("the evaluator never reads `audience` (source guard)", () => {
+  // P4 replaced the P1 guard "the evaluator never reads `audience`": it now reads it, but ONLY on the shadow /
+  // comparison path. The audience rule runs only under options.useAudience, which is set in exactly two places
+  // (shadowAudience, whose result is logged and discarded, and compareAudienceDecision, used by no request path),
+  // and applyPolicyRules always returns the legacy decision. tests/policyEvaluation.audienceShadow.p4.test.js
+  // proves the behaviour; this pins the wiring.
+  test("the evaluator reads `audience` only on the P4 shadow / comparison path (source guard)", () => {
     const src = require("fs").readFileSync(require.resolve("../services/policyEvaluationService"), "utf8");
-    expect(src).not.toMatch(/audience/);
+    const setters = src.match(/useAudience: true/g) || [];
+    expect(setters).toHaveLength(2);
+    const shadowFn = src.slice(src.indexOf("async function shadowAudience"), src.indexOf("async function compareAudienceDecision"));
+    const compareFn = src.slice(src.indexOf("async function compareAudienceDecision"), src.indexOf("const invalidateCache"));
+    expect(shadowFn).toMatch(/useAudience: true/);
+    expect(compareFn).toMatch(/useAudience: true/);
+    const apply = src.slice(src.indexOf("const applyPolicyRules = async"), src.indexOf("const applyTenantPolicyRules = async"));
+    expect(apply).toMatch(/if \(audienceMode\(\) === "shadow"\) await shadowAudience\(context, decision\);\s*return decision;/);
+    expect(apply).not.toMatch(/useAudience: true/);
+    expect(src).toMatch(/if \(mode === "off" \|\| mode === "shadow"\) return mode;/);
   });
 });
