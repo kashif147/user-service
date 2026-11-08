@@ -391,10 +391,6 @@
       "permissions": [
         "ACCOUNTS.REPORTS_READ",
         "APPLICATION_READ",
-        "CHANGEOFCATEGORY_CREATE",
-        "CHANGEOFCATEGORY_DELETE",
-        "CHANGEOFCATEGORY_READ",
-        "CHANGEOFCATEGORY_WRITE",
         "DASHBOARD_READ",
         "EVENTS_READ",
         "LOOKUPTYPE_READ",
@@ -414,28 +410,9 @@
         "PROFILE_DELETE",
         "PROFILE_READ",
         "PROFILE_WRITE",
-        "QUERIES_CREATE",
-        "QUERIES_DELETE",
-        "QUERIES_READ",
-        "QUERIES_WRITE",
         "REGISTRATIONS_CREATE",
         "REGISTRATIONS_READ",
-        "REGISTRATIONS_WRITE",
-        "RESOURCES_CREATE",
-        "RESOURCES_DELETE",
-        "RESOURCES_READ",
-        "RESOURCES_WRITE",
-        "SUBSCRIPTIONS_CREATE",
-        "SUBSCRIPTIONS_DELETE",
-        "SUBSCRIPTIONS_READ",
-        "SUBSCRIPTIONS_WRITE",
-        "TRANSFERREQUESTS_CREATE",
-        "TRANSFERREQUESTS_DELETE",
-        "TRANSFERREQUESTS_READ",
-        "TRANSFERREQUESTS_WRITE",
-        "VOTING_CREATE",
-        "VOTING_READ",
-        "VOTING_WRITE"
+        "REGISTRATIONS_WRITE"
       ]
     },
     {
@@ -469,6 +446,7 @@
         "CRM_MEMBER_READ",
         "CRM_MEMBER_WRITE",
         "DASHBOARD_READ",
+        "DIRECTORY_READ",
         "EVENTS_CREATE",
         "EVENTS_READ",
         "EVENTS_WRITE",
@@ -507,8 +485,7 @@
         "TENANT_READ",
         "TRANSFERREQUESTS_CREATE",
         "TRANSFERREQUESTS_READ",
-        "TRANSFERREQUESTS_WRITE",
-        "USER_READ"
+        "TRANSFERREQUESTS_WRITE"
       ]
     },
     {
@@ -541,15 +518,7 @@
         "PROFILE_WRITE",
         "REGISTRATIONS_CREATE",
         "REGISTRATIONS_READ",
-        "REGISTRATIONS_WRITE",
-        "RESOURCES_CREATE",
-        "RESOURCES_DELETE",
-        "RESOURCES_READ",
-        "RESOURCES_WRITE",
-        "SUBSCRIPTIONS_CREATE",
-        "SUBSCRIPTIONS_DELETE",
-        "SUBSCRIPTIONS_READ",
-        "SUBSCRIPTIONS_WRITE"
+        "REGISTRATIONS_WRITE"
       ]
     },
     {

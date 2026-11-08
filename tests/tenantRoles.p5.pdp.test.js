@@ -75,7 +75,11 @@ describe("REO (proposed canonical) at the PDP", () => {
 describe("MO (proposed canonical) at the PDP", () => {
   const mo = () => token(role("MO"));
   const live = () => token(FIXTURE.liveRoles.MO);
-  const KEPT = [["portal", "read"], ["portal", "write"], ["portal", "create"], ["communication", "read"], ["communication", "write"], ["communication", "create"], ["events", "read"], ["events", "write"], ["events", "create"], ["issues-complaints", "read"], ["issues-complaints", "write"], ["application-payment-links", "write"], ["application-payment-links", "read"], ["payments", "read"], ["audit", "read"], ["lookup", "read"], ["user", "read"]];
+  const KEPT = [["portal", "read"], ["portal", "write"], ["portal", "create"], ["communication", "read"], ["communication", "write"], ["communication", "create"], ["events", "read"], ["events", "write"], ["events", "create"], ["issues-complaints", "read"], ["issues-complaints", "write"], ["application-payment-links", "write"], ["application-payment-links", "read"], ["payments", "read"], ["audit", "read"], ["lookup", "read"]];
+  test("USER_READ removed / DIRECTORY_READ added (owner 2026-11-02): proposed MO is PERMITTED directory:read", async () => {
+    expect(mo()).not.toEqual(expect.arrayContaining(["user:read"]));
+    expect(await decide("MO", mo(), "directory", "read")).toBe("PERMIT");
+  });
   test.each(KEPT)("%s:%s - kept Membership Officer capability: same decision as the live MO (no regression)", async (res, act) => {
     const was = await decide("MO", live(), res, act);
     if (was === "PERMIT") expect(await decide("MO", mo(), res, act)).toBe("PERMIT");

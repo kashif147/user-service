@@ -68,10 +68,18 @@ describe("2026-11-01 owner content decisions", () => {
     expect(byCode.REO.permissions).toEqual(expect.arrayContaining(["PRODUCT_READ", "APPLICATION_READ", "CRM_MEMBER_READ", "CRM_ACCESS", "TENANT_READ"]));
     expect(byCode.REO.permissions.filter((p) => !/_(READ|ACCESS)$/.test(p))).toEqual([]);
   });
-  test("MO: approved reads present; ISSUES_WRITE NOT approved; PAYMENTS_WRITE stays removed; USER_READ provisional", () => {
-    expect(byCode.MO.permissions).toEqual(expect.arrayContaining(["ISSUES_READ", "PRODUCT_READ", "PRODUCT_TYPE_READ", "PRICING_READ", "USER_READ"]));
+  test("MO: approved reads present; ISSUES_WRITE NOT approved; PAYMENTS_WRITE stays removed; USER_READ removed, DIRECTORY_READ added (2026-11-02)", () => {
+    expect(byCode.MO.permissions).toEqual(expect.arrayContaining(["ISSUES_READ", "PRODUCT_READ", "PRODUCT_TYPE_READ", "PRICING_READ", "DIRECTORY_READ"]));
+    expect(byCode.MO.permissions).not.toContain("USER_READ");
     expect(byCode.MO.permissions).not.toContain("ISSUES_WRITE");
     expect(byCode.MO.permissions).not.toContain("PAYMENTS_WRITE");
+  });
+  test("portal roles: none of the 23 reviewed family codes (QUERIES / VOTING / RESOURCES / TRANSFERREQUESTS / CHANGEOFCATEGORY / SUBSCRIPTIONS); MEMBER 24, NON-MEMBER 22", () => {
+    for (const r of ["MEMBER", "NON-MEMBER"]) {
+      expect(byCode[r].permissions.filter((p) => /^(QUERIES|VOTING|RESOURCES|TRANSFERREQUESTS|CHANGEOFCATEGORY|SUBSCRIPTIONS)_/.test(p))).toEqual([]);
+    }
+    expect(byCode.MEMBER.permissions).toHaveLength(24);
+    expect(byCode["NON-MEMBER"].permissions).toHaveLength(22);
   });
   test("portal roles (2026-11-08): no staff events / communication codes; EVENTS_READ kept; REGISTRATIONS_* on both", () => {
     for (const r of ["MEMBER", "NON-MEMBER"]) {

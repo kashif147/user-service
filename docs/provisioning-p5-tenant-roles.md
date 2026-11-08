@@ -20,7 +20,7 @@ content decisions are complete. Without it, `ensureTenantRoles` fails closed (`M
 
 ## 1a. Canonical content — `config/tenantRoles.v1.json` (PROVISIONAL, HELD — do not merge)
 
-- sha256 **e440255eaed2cbcd4aa2e1a04998d212bc6f8637a7a95ff74a6c0b0e86576cdd** — provisional: it changes until the
+- sha256 **93b75171b7d7b8686e550b4175b32c70024f7910838197554de739ef0b879ca7** — provisional: it changes until the
   portal authorization remediation and the owner's content decisions close.
 - 24 roles (NOTIFIER and AI excluded, no SU). Categories:
 
@@ -36,13 +36,15 @@ content decisions are complete. Without it, `ensureTenantRoles` fails closed (`M
     **TENANT_READ is conditional** — do not rely on it until the PDP category rule is fixed (today the category rule
     denies `tenant:read` to every non-ASU CRM role).
   - MO: ISSUES_READ, PRODUCT_READ, PRODUCT_TYPE_READ, PRICING_READ approved; **ISSUES_WRITE not approved** (it would
-    allow any issue type; complaint creation needs a narrower design); USER_READ kept provisionally (to be proven);
+    allow any issue type; complaint creation needs a narrower design); USER_READ removed and DIRECTORY_READ added (owner 2026-11-02);
     PAYMENTS_WRITE stays removed.
   - **MEMBER / NON-MEMBER: NOT FROZEN** — carried with dead legacy codes dropped, pending the portal
     tenant/object authorization security remediation. 2026-11-08: EVENTS_CREATE / EVENTS_WRITE / EVENTS_DELETE removed
     from both (EVENTS_READ kept), REGISTRATIONS_CREATE / REGISTRATIONS_READ / REGISTRATIONS_WRITE added to both, and
     COMMUNICATION_CREATE / _WRITE / _DELETE / _READ removed from MEMBER (no member flow uses a user session on
-    communication-service; the own-letter fetch is internal).
+    communication-service; the own-letter fetch is internal). The 23 reviewed permission-family codes
+    (QUERIES / VOTING / RESOURCES / TRANSFERREQUESTS / CHANGEOFCATEGORY / SUBSCRIPTIONS, classified UNUSED, CRM_STAFF or
+    UNSAFE_FOR_PORTAL) removed from both (owner 2026-11-02): MEMBER 24, NON-MEMBER 22.
   - No inactive, test-like or duplicate/dead catalogue code is referenced.
 - Tests: `tests/tenantRoles.p5.committedManifest.test.js`, `tests/tenantRoles.p5.pdp.test.js` (fixture
   `tests/fixtures/p5-dev-permission-catalogue.json`: DEV catalogue codes/categories + live REO/MO/MEMBER/NON-MEMBER

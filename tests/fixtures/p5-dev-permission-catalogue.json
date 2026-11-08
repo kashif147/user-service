@@ -1,5 +1,5 @@
 {
- "source": "DEV user-service permission catalogue (code/resource/action/category only) + DEV MULTIAUTH live REO/MO sets, read-only export 2026-11-01; REGISTRATIONS_CREATE/READ/WRITE rows added from the DEV catalogue after user-service #41 (2026-11-02)",
+ "source": "DEV user-service permission catalogue (code/resource/action/category only) + DEV MULTIAUTH live REO/MO sets, read-only export 2026-11-01; REGISTRATIONS_CREATE/READ/WRITE and DIRECTORY_READ rows added from the DEV catalogue after user-service #41 (2026-11-02)",
  "catalogue": [
   {
    "code": "ACCOUNTS.REPORTS_READ",
@@ -238,6 +238,13 @@
    "action": "READ",
    "category": "FINANCIAL",
    "isActive": false
+  },
+  {
+   "code": "DIRECTORY_READ",
+   "resource": "directory",
+   "action": "read",
+   "category": "CRM",
+   "isActive": true
   },
   {
    "code": "EVENTS_CREATE",
