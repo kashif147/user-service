@@ -45,6 +45,10 @@ class AuthController {
     } catch (error) {
       console.log("❌ Token refresh failed:", error.message);
 
+      // Deliberate refusals carry their own fixed public status and code (P7: 403 USER_TYPE_INVALID
+      // when the stored user type is missing or unknown under ROLE_CLASS_MODE=enforce; no token).
+      if (error instanceof AppError) return next(error);
+
       // Handle specific error types
       if (
         error.message.includes("Invalid refresh token") ||

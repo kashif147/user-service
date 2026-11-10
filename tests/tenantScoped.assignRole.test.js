@@ -28,13 +28,13 @@ const ID = {
   otherTenantUser: "d00000000000000000000001",
 };
 const mockRoleRows = [
-  { _id: ID.su, tenantId: A, code: "SU", isSystemRole: false, isActive: true, permissions: [] },
-  { _id: ID.asu, tenantId: A, code: " asu ", isSystemRole: false, isActive: true, permissions: [] },
-  { _id: ID.sys, tenantId: A, code: "GS", isSystemRole: true, isActive: true, permissions: [] },
-  { _id: ID.ord1, tenantId: A, code: "BRO", isSystemRole: false, isActive: true, permissions: [] },
-  { _id: ID.ord2, tenantId: A, code: "IO", isSystemRole: false, isActive: true, permissions: [] },
-  { _id: ID.inactive, tenantId: A, code: "OLD", isSystemRole: false, isActive: false, permissions: [] },
-  { _id: ID.otherTenantOrd, tenantId: B, code: "BRO", isSystemRole: false, isActive: true, permissions: [] },
+  { _id: ID.su, tenantId: A, code: "SU", category: "CRM", isSystemRole: false, isActive: true, permissions: [] },
+  { _id: ID.asu, tenantId: A, code: " asu ", category: "CRM", isSystemRole: false, isActive: true, permissions: [] },
+  { _id: ID.sys, tenantId: A, code: "GS", category: "CRM", isSystemRole: true, isActive: true, permissions: [] },
+  { _id: ID.ord1, tenantId: A, code: "BRO", category: "CRM", isSystemRole: false, isActive: true, permissions: [] },
+  { _id: ID.ord2, tenantId: A, code: "IO", category: "CRM", isSystemRole: false, isActive: true, permissions: [] },
+  { _id: ID.inactive, tenantId: A, code: "OLD", category: "CRM", isSystemRole: false, isActive: false, permissions: [] },
+  { _id: ID.otherTenantOrd, tenantId: B, code: "BRO", category: "CRM", isSystemRole: false, isActive: true, permissions: [] },
 ];
 const mockUsers = {};
 const mockUserQueries = [];
@@ -107,9 +107,9 @@ afterAll(() => new Promise((r) => server.close(r)));
 
 const resetUsers = () => {
   for (const id of [ID.actor, ID.other]) {
-    mockUsers[id] = { _id: id, tenantId: A, roles: [ID.ord2], save: jest.fn(async function () { return this; }) };
+    mockUsers[id] = { _id: id, tenantId: A, userType: "CRM", roles: [ID.ord2], save: jest.fn(async function () { return this; }) };
   }
-  mockUsers[ID.otherTenantUser] = { _id: ID.otherTenantUser, tenantId: B, roles: [], save: jest.fn(async function () { return this; }) };
+  mockUsers[ID.otherTenantUser] = { _id: ID.otherTenantUser, tenantId: B, userType: "CRM", roles: [], save: jest.fn(async function () { return this; }) };
 };
 beforeEach(() => {
   resetUsers();

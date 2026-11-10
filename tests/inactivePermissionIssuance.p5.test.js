@@ -148,6 +148,9 @@ describe("token issuance paths are consistent", () => {
     mockState.user = userWith(MIXED, "ASU");
     mockState.refreshUser = mockState.user;
     const res = await RefreshTokenHelper.validateAndRefresh("rt-opaque");
-    expect(jwt.verify(res.accessToken, SECRET).permissions).toEqual(["*"]);
+    // Refresh serves PORTAL users only, so this holder is PORTAL + ASU: under P7
+    // ROLE_CLASS_MODE=enforce the SYSTEM-class ASU is left out of a PORTAL token and "*" with it.
+    const enforce = require("../helpers/roleClass").roleClassMode() === "enforce";
+    expect(jwt.verify(res.accessToken, SECRET).permissions).toEqual(enforce ? [] : ["*"]);
   });
 });

@@ -29,12 +29,12 @@ const ID = {
 };
 
 const mockRoleRows = [
-  { _id: ID.su, tenantId: A, code: "SU", isSystemRole: false, isActive: true, permissions: [] },
-  { _id: ID.asu, tenantId: A, code: " asu ", isSystemRole: false, isActive: true, permissions: [] },
-  { _id: ID.sys, tenantId: A, code: "GS", isSystemRole: true, isActive: true, permissions: [] },
-  { _id: ID.ord1, tenantId: A, code: "BRO", isSystemRole: false, isActive: true, permissions: [] },
-  { _id: ID.ord2, tenantId: A, code: "IO", isSystemRole: false, isActive: true, permissions: [] },
-  { _id: ID.otherTenantOrd, tenantId: B, code: "BRO", isSystemRole: false, isActive: true, permissions: [] },
+  { _id: ID.su, tenantId: A, code: "SU", category: "CRM", isSystemRole: false, isActive: true, permissions: [] },
+  { _id: ID.asu, tenantId: A, code: " asu ", category: "CRM", isSystemRole: false, isActive: true, permissions: [] },
+  { _id: ID.sys, tenantId: A, code: "GS", category: "CRM", isSystemRole: true, isActive: true, permissions: [] },
+  { _id: ID.ord1, tenantId: A, code: "BRO", category: "CRM", isSystemRole: false, isActive: true, permissions: [] },
+  { _id: ID.ord2, tenantId: A, code: "IO", category: "CRM", isSystemRole: false, isActive: true, permissions: [] },
+  { _id: ID.otherTenantOrd, tenantId: B, code: "BRO", category: "CRM", isSystemRole: false, isActive: true, permissions: [] },
 ];
 const mockUsers = {};
 const mockRoleQueries = [];
@@ -70,7 +70,7 @@ const TenantScopedController = require("../controllers/tenantScoped.controller")
 
 function resetUsers() {
   for (const id of [ID.self, ID.other]) {
-    mockUsers[id] = { _id: id, tenantId: A, roles: [ID.ord2], save: jest.fn(async function () { return this; }) };
+    mockUsers[id] = { _id: id, tenantId: A, userType: "CRM", roles: [ID.ord2], save: jest.fn(async function () { return this; }) };
   }
 }
 beforeEach(() => {
@@ -143,7 +143,7 @@ describe.each([["assignRolesToUser"], ["syncRolesForUser"]])("%s — non-admin (
       userId: ID.other,
       roleIds: [ID.su],
       roleCodes: ["BRO"],
-      roles: [{ _id: ID.su, code: "BRO", isSystemRole: false }],
+      roles: [{ _id: ID.su, code: "BRO", category: "CRM", isSystemRole: false }],
     });
     expect(err).toMatchObject({ status: 403, code: "ROLE_PRIVILEGE_VIOLATION" });
     unchanged(ID.other);

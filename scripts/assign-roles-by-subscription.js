@@ -9,6 +9,12 @@
  * - If user has profile but no active subscription → NON-MEMBER
  *
  * Usage: NODE_ENV=staging node scripts/assign-roles-by-subscription.js
+ *
+ * RETIRE BEFORE ROLE_CLASS_MODE=enforce (P7). Not safe to use: it connects directly to the
+ * profile-service and subscription-service databases and reads their env files (database-per-service
+ * rule), outside the membership listeners (rabbitMQ/listeners) that now keep MEMBER / NON-MEMBER in
+ * step. Each assignment goes through the shared role-class guard meanwhile, but it should be
+ * deleted, not run.
  */
 
 require("dotenv").config({ path: ".env.staging" });
@@ -16,6 +22,7 @@ require("dotenv").config({ path: ".env.staging" });
 const mongoose = require("mongoose");
 const path = require("path");
 const fs = require("fs");
+const { roleClassAllows } = require("../helpers/roleClass");
 
 // Normalize email helper
 function normalizeEmail(email) {
@@ -391,6 +398,12 @@ async function assignRolesBySubscription() {
 
         // Update if needed
         if (currentRoleCode !== targetRoleCode) {
+          // P7 role-class guard: refused under enforce -> user unchanged, counted as an error.
+          if (!roleClassAllows({ user, role: targetRole, tenantId, path: "script:assign-roles-by-subscription" })) {
+            console.log(`❌ ${user._id}: ${targetRoleCode} not assigned, role class does not fit the user type`);
+            errors++;
+            continue;
+          }
           user.roles = [targetRole._id];
           await user.save();
 

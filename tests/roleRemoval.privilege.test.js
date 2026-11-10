@@ -31,13 +31,13 @@ const ID = {
 };
 
 const mockRoleRows = [
-  { _id: ID.su, tenantId: A, code: "SU", isSystemRole: false, isActive: true, permissions: [] },
-  { _id: ID.asu, tenantId: A, code: " asu ", isSystemRole: false, isActive: false, permissions: [] }, // inactive still protected
-  { _id: ID.sys, tenantId: A, code: "GS", isSystemRole: true, isActive: true, permissions: [] },
-  { _id: ID.ord1, tenantId: A, code: "BRO", isSystemRole: false, isActive: true, permissions: [] },
-  { _id: ID.ord2, tenantId: A, code: "IO", isSystemRole: false, isActive: true, permissions: [] },
-  { _id: ID.ord3, tenantId: A, code: "MO", isSystemRole: false, isActive: true, permissions: [] },
-  { _id: ID.otherTenantOrd, tenantId: B, code: "BRO", isSystemRole: false, isActive: true, permissions: [] },
+  { _id: ID.su, tenantId: A, code: "SU", category: "CRM", isSystemRole: false, isActive: true, permissions: [] },
+  { _id: ID.asu, tenantId: A, code: " asu ", category: "CRM", isSystemRole: false, isActive: false, permissions: [] }, // inactive still protected
+  { _id: ID.sys, tenantId: A, code: "GS", category: "CRM", isSystemRole: true, isActive: true, permissions: [] },
+  { _id: ID.ord1, tenantId: A, code: "BRO", category: "CRM", isSystemRole: false, isActive: true, permissions: [] },
+  { _id: ID.ord2, tenantId: A, code: "IO", category: "CRM", isSystemRole: false, isActive: true, permissions: [] },
+  { _id: ID.ord3, tenantId: A, code: "MO", category: "CRM", isSystemRole: false, isActive: true, permissions: [] },
+  { _id: ID.otherTenantOrd, tenantId: B, code: "BRO", category: "CRM", isSystemRole: false, isActive: true, permissions: [] },
 ];
 const mockUsers = {};
 const mockRoleQueries = [];
@@ -74,7 +74,7 @@ const TenantScopedController = require("../controllers/tenantScoped.controller")
 const START = [ID.su, ID.asu, ID.sys, ID.ord1, ID.ord2];
 function resetUsers() {
   for (const id of [ID.self, ID.other]) {
-    mockUsers[id] = { _id: id, tenantId: A, roles: [...START], save: jest.fn(async function () { return this; }) };
+    mockUsers[id] = { _id: id, tenantId: A, userType: "CRM", roles: [...START], save: jest.fn(async function () { return this; }) };
   }
 }
 beforeEach(() => {
@@ -147,7 +147,7 @@ describe("POST /users/remove-role — non-admin (GS)", () => {
       userId: ID.other,
       roleId: ID.su,
       roleCode: "BRO",
-      role: { _id: ID.su, code: "BRO", isSystemRole: false },
+      role: { _id: ID.su, code: "BRO", category: "CRM", isSystemRole: false },
     });
     expect403(err);
     untouched(ID.other);

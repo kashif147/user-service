@@ -3,12 +3,14 @@
  * save-time checks, the CRM role picker and Entra / B2C just-in-time sign-in all use
  * defaultRoleIneligibility.
  *
- *  - off and shadow: today's category rule decides (Entra: category CRM; B2C: category PORTAL +
- *    NON-MEMBER). shadow logs each role whose eligibility the class rule would flip.
- *  - enforce: Entra is decided by role class (standard staff roles qualify whatever their stored
- *    category; custom roles by category, missing/unknown -> refused); B2C keeps today's rule and
- *    result, then also requires class PORTAL. Protected-role, reserved-permission and NON-MEMBER rules
- *    are unchanged.
+ * Today's rule always decides first (Entra: category CRM; B2C: category PORTAL + NON-MEMBER; then
+ * protected-role, verifiable and reserved-permission checks). The class check is ONLY an additional
+ * restriction (owner decision 2026-11-10: today's automatic default-role eligibility is preserved;
+ * any expansion is a separate decision):
+ *  - off: today's rule only.
+ *  - shadow: today's result; a role the class check would additionally refuse is logged.
+ *  - enforce: today's rule AND class (Entra default must be class CRM, B2C class PORTAL).
+ * So enforce can only remove eligibility, never add it.
  */
 const ORG_A = "68cbf7806080b4621d469d34";
 const ENTRA = "Entra ID (Azure AD)";
@@ -56,6 +58,7 @@ const ROLES = {
   nonMember: [10, { code: "NON-MEMBER", category: "PORTAL" }],
   nonMemberCrm: [11, { code: "NON-MEMBER", category: "CRM", tenantId: "6acd6119b28a863c61361ae0" }],
   reoReserved: [12, { code: "AMO", category: "PORTAL", permissions: ["profile:read", "*"] }],
+  amoCrmReserved: [13, { code: "AMO", category: "CRM", permissions: ["profile:read", "*"] }],
 };
 
 const savedMode = process.env.ROLE_CLASS_MODE;
@@ -85,18 +88,19 @@ const check = (key, connectionType = ENTRA) => {
 // [role, connection, today (off/shadow), enforce]
 const MATRIX = [
   ["reoCrm", ENTRA, null, null],
-  ["moPortal", ENTRA, "WRONG_TYPE", null],
-  ["dirPortal", ENTRA, "WRONG_TYPE", null],
+  ["moPortal", ENTRA, "WRONG_TYPE", "WRONG_TYPE"], // standard staff role stored PORTAL: still out
+  ["dirPortal", ENTRA, "WRONG_TYPE", "WRONG_TYPE"],
   ["customCrm", ENTRA, null, null],
   ["customPortal", ENTRA, "WRONG_TYPE", "WRONG_TYPE"],
-  ["customNoCategory", ENTRA, "WRONG_TYPE", "CATEGORY_MISSING"],
-  ["customBadCategory", ENTRA, "WRONG_TYPE", "CATEGORY_UNKNOWN"],
-  ["memberCrm", ENTRA, null, "WRONG_TYPE"],
+  ["customNoCategory", ENTRA, "WRONG_TYPE", "WRONG_TYPE"],
+  ["customBadCategory", ENTRA, "WRONG_TYPE", "WRONG_TYPE"],
+  ["memberCrm", ENTRA, null, "WRONG_TYPE"], // the one restriction: portal role stored CRM
   ["asu", ENTRA, "PROTECTED", "PROTECTED"],
-  ["reoReserved", ENTRA, "WRONG_TYPE", "RESERVED_PERMISSION"],
+  ["reoReserved", ENTRA, "WRONG_TYPE", "WRONG_TYPE"],
+  ["amoCrmReserved", ENTRA, "RESERVED_PERMISSION", "RESERVED_PERMISSION"],
   ["nonMember", B2C, null, null],
   ["nonMemberCrm", B2C, "WRONG_TYPE", "WRONG_TYPE"],
-  ["moPortal", B2C, "NOT_PORTAL_DEFAULT", "NOT_PORTAL_DEFAULT"], // B2C: today's reason kept
+  ["moPortal", B2C, "NOT_PORTAL_DEFAULT", "NOT_PORTAL_DEFAULT"],
   ["customPortal", B2C, "NOT_PORTAL_DEFAULT", "NOT_PORTAL_DEFAULT"],
   ["memberCrm", B2C, "WRONG_TYPE", "WRONG_TYPE"],
 ];
@@ -114,22 +118,40 @@ describe("checkDefaultRole by mode", () => {
     expect(await check(key, conn)).toBe(enforced);
   });
 
-  test("shadow logs only eligibility flips, with both reasons", async () => {
+  test("enforce never makes a role eligible that is not eligible today (every role, both connection types)", async () => {
+    for (const key of Object.keys(ROLES)) {
+      for (const conn of [ENTRA, B2C]) {
+        setMode("off");
+        const today = await check(key, conn);
+        setMode("enforce");
+        const enforced = await check(key, conn);
+        if (today) expect(enforced).toBe(today); // ineligible today -> same reason under enforce
+      }
+    }
+  });
+
+  test("shadow logs only roles the class check would additionally refuse", async () => {
     setMode("shadow");
     for (const [key, conn] of MATRIX) await check(key, conn);
     const logs = classLogs();
-    const flips = MATRIX.filter(([, , t, e]) => !t !== !e).map(([k, c]) => `${ROLES[k][1].code}@${c}`);
-    expect(logs.map((l) => `${l.roleCode}@${l.connectionType}`).sort()).toEqual(flips.sort());
-    expect(logs.find((l) => l.roleCode === "MO")).toMatchObject({
+    const refused = MATRIX.filter(([, , t, e]) => !t && e).map(([k, c]) => `${ROLES[k][1].code}@${c}`);
+    expect(logs.map((l) => `${l.roleCode}@${l.connectionType}`).sort()).toEqual(refused.sort());
+    expect(logs[0]).toMatchObject({
       event: "role.class.shadow",
       path: "connection-default-role",
-      outcome: "default_role_newly_eligible",
-      category: "PORTAL",
-      roleClass: "CRM",
-      categoryReason: "WRONG_TYPE",
-      classReason: null,
+      outcome: "default_role_would_be_refused",
+      roleCode: "MEMBER",
+      category: "CRM",
+      roleClass: "PORTAL",
+      classReason: "WRONG_TYPE",
+      tenantId: "68cb..9d34",
     });
-    expect(logs.find((l) => l.roleCode === "MEMBER")).toMatchObject({ outcome: "default_role_no_longer_eligible", classReason: "WRONG_TYPE" });
+  });
+
+  test("enforce logs the refusal as default_role_refused", async () => {
+    setMode("enforce");
+    await check("memberCrm", ENTRA);
+    expect(classLogs()).toEqual([expect.objectContaining({ event: "role.class.enforce", outcome: "default_role_refused", roleCode: "MEMBER" })]);
   });
 
   test("off logs nothing", async () => {
@@ -151,7 +173,7 @@ test("B2C under enforce returns today's reason for every role (only an extra cla
 describe("eligibleDefaultRoles (CRM role picker)", () => {
   const codes = async (conn) => (await H.eligibleDefaultRoles(ORG_A, conn)).map((r) => r.code).sort();
 
-  test("Entra: off == shadow == today's list; enforce adds standard staff roles, drops mis-stored MEMBER", async () => {
+  test("Entra: off == shadow == today's list; enforce only removes the mis-stored MEMBER, adds nothing", async () => {
     setMode(undefined);
     const today = await codes(ENTRA);
     expect(today).toEqual(["MEMBER", "PSG-CRM", "REO"]);
@@ -161,7 +183,9 @@ describe("eligibleDefaultRoles (CRM role picker)", () => {
     expect(await codes(ENTRA)).toEqual(today);
     expect(classLogs()).toHaveLength(0); // the picker never logs
     setMode("enforce");
-    expect(await codes(ENTRA)).toEqual(["DIR", "MO", "PSG-CRM", "REO"]);
+    const enforced = await codes(ENTRA);
+    expect(enforced).toEqual(["PSG-CRM", "REO"]);
+    expect(enforced.every((c) => today.includes(c))).toBe(true);
   });
 
   test("B2C: NON-MEMBER only, in every mode", async () => {
@@ -176,14 +200,9 @@ describe("just-in-time sign-in (resolveJitDefaultRoleId)", () => {
   const jit = (key, connectionType = ENTRA) =>
     H.resolveJitDefaultRoleId({ tenantId: ORG_A, connection: { _id: "c1", connectionType, defaultRoleId: id(ROLES[key][0]) } });
 
-  test.each([["off"], ["shadow"]])("%s: an Entra connection whose default is MO (stored PORTAL) refuses JIT as today", async (m) => {
+  test.each([["off"], ["shadow"], ["enforce"]])("%s: an Entra connection whose default is MO (stored PORTAL) refuses JIT as today", async (m) => {
     setMode(m);
     await expect(jit("moPortal")).rejects.toMatchObject({ code: "DEFAULT_ROLE_INVALID", reason: "WRONG_TYPE" });
-  });
-
-  test("enforce: the same connection provisions with MO", async () => {
-    setMode("enforce");
-    await expect(jit("moPortal")).resolves.toBe(id(ROLES.moPortal[0]));
   });
 
   test.each([["off"], ["shadow"], ["enforce"]])("%s: REO (stored CRM) provisions; B2C NON-MEMBER provisions", async (m) => {
@@ -192,8 +211,13 @@ describe("just-in-time sign-in (resolveJitDefaultRoleId)", () => {
     await expect(jit("nonMember", B2C)).resolves.toBe(id(ROLES.nonMember[0]));
   });
 
-  test("enforce: a custom role without a category is refused (CATEGORY_MISSING)", async () => {
+  test.each([["off"], ["shadow"]])("%s: an Entra default of MEMBER stored CRM provisions as today", async (m) => {
+    setMode(m);
+    await expect(jit("memberCrm")).resolves.toBe(id(ROLES.memberCrm[0]));
+  });
+
+  test("enforce: the same MEMBER-stored-CRM default is refused (class PORTAL on an Entra connection)", async () => {
     setMode("enforce");
-    await expect(jit("customNoCategory")).rejects.toMatchObject({ reason: "CATEGORY_MISSING" });
+    await expect(jit("memberCrm")).rejects.toMatchObject({ code: "DEFAULT_ROLE_INVALID", reason: "WRONG_TYPE" });
   });
 });

@@ -7,8 +7,10 @@
  *  - enforce: incompatible roles are dropped from `roles` and permissions are REBUILT from the
  *    compatible roles only: "*" only when a compatible ASU remains; a permission an incompatible role
  *    also grants is kept when a compatible role grants it.
- *  - missing / unknown user type: enforce refuses issuance (throws; no token, not even the role-less
- *    fallback); shadow issues today's token and logs.
+ *  - stored assignments are never changed by issuance (incompatible roles are only left out).
+ *  - missing / unknown STORED user type (including a Mongoose-defaulted PORTAL): enforce refuses
+ *    issuance with a 403 AppError USER_TYPE_INVALID (no token, not even the role-less fallback);
+ *    shadow issues today's token and logs. Controller-level sign-in / refresh: roleClass.p7.signin.test.js.
  */
 const jwt = require("jsonwebtoken");
 
@@ -51,7 +53,7 @@ const mockCatalogue = CATALOGUE;
 
 const RoleHandler = require("../handlers/role.handler");
 const { generateToken } = require("../helpers/jwt");
-const { RoleClassError } = require("../helpers/roleClass");
+const { AppError } = require("../errors/AppError");
 
 const USERS = {
   crmMoMember: { userType: "CRM", roles: [R.mo, R.member] },
@@ -204,6 +206,14 @@ describe("enforce rebuilds roles and permissions from compatible roles only", ()
     }
   );
 
+  test("issuance leaves the stored assignment untouched (incompatible roles stay in storage)", async () => {
+    const user = seed("portalMemberAsu");
+    const before = mockStore.users[user._id].roles.map((r) => r.code);
+    await issue("enforce", user);
+    expect(mockStore.users[user._id].roles.map((r) => r.code)).toEqual(before);
+    expect(before).toEqual(["MEMBER", "ASU"]);
+  });
+
   test("roles claim keeps today's {id, code, name} shape", async () => {
     const p = await issue("enforce", seed("crmMoMember"));
     expect(p.roles).toEqual([{ id: R.mo._id, code: "MO", name: "MO" }]);
@@ -214,18 +224,32 @@ describe("missing and unknown user types", () => {
   const sign = () => jest.spyOn(jwt, "sign");
 
   test.each([["missing", undefined], ["unknown", "ADMIN"], ["blank", ""]])(
-    "%s user type: enforce refuses issuance (no token, no role-less fallback)",
+    "%s user type: enforce refuses issuance with 403 USER_TYPE_INVALID (no token, no role-less fallback)",
     async (_l, userType) => {
       const user = seed("crmMo", { userType });
       if (userType === "") user.userType = "";
       setMode("enforce");
       const s = sign();
-      await expect(generateToken(user)).rejects.toBeInstanceOf(RoleClassError);
-      await expect(generateToken(user)).rejects.toMatchObject({ status: 409, code: "ROLE_CLASS_INCOMPATIBLE" });
+      const err = await generateToken(user).catch((e) => e);
+      expect(err).toBeInstanceOf(AppError);
+      expect(err).toMatchObject({ name: "AppError", status: 403, code: "USER_TYPE_INVALID" });
+      expect(err.message).toBe("Sign-in is not available for this account");
       expect(s).not.toHaveBeenCalled();
-      expect(classLogs()[0]).toMatchObject({ event: "role.class.enforce", outcome: "issuance_refused" });
+      expect(classLogs()[0]).toMatchObject({ event: "role.class.enforce", outcome: "issuance_refused", reason: userType ? "USER_TYPE_UNKNOWN" : "USER_TYPE_MISSING" });
     }
   );
+
+  test("a Mongoose-defaulted userType (stored value absent) counts as missing, not PORTAL", async () => {
+    const user = seed("portalMember");
+    user.$isDefault = (path) => path === "userType"; // what a hydrated document without userType reports
+    setMode("enforce");
+    const s = sign();
+    await expect(generateToken(user)).rejects.toMatchObject({ status: 403, code: "USER_TYPE_INVALID" });
+    expect(s).not.toHaveBeenCalled();
+    expect(classLogs()[0]).toMatchObject({ reason: "USER_TYPE_MISSING", userType: null });
+    // off: today's token (PORTAL as the schema default says)
+    expect(codes(await issue("off", user))).toEqual(["MEMBER"]);
+  });
 
   test.each([["missing", undefined], ["unknown", "ADMIN"]])(
     "%s user type: shadow issues today's token and logs issuance_would_be_refused",

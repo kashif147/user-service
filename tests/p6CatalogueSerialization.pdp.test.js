@@ -118,7 +118,14 @@ describe("current evaluator (P2 claim d)", () => {
 
   test.each(PERMISSIONS.map((p) => [p.code, p]))("%s: PORTAL holder DENY", async (_c, p) => {
     const { permissions } = await issuedClaim([p.code], "PORTAL");
-    expect(await decide(p, "PORTAL", permissions, ["MEMBER"])).toMatchObject({ decision: "DENY", reason: "INVALID_USER_TYPE" });
+    // P7 ROLE_CLASS_MODE=enforce: the CRM-class MO role is left out of a PORTAL user's token, so the
+    // claim carries no permission at all and the PDP denies one step earlier (still DENY).
+    const enforce = require("../helpers/roleClass").roleClassMode() === "enforce";
+    if (enforce) expect(permissions).toEqual([]);
+    expect(await decide(p, "PORTAL", permissions, ["MEMBER"])).toMatchObject({
+      decision: "DENY",
+      reason: enforce ? "INSUFFICIENT_RESOURCE_PERMISSION" : "INVALID_USER_TYPE",
+    });
   });
 
   test("ACCOUNTS.MEMBER_READ: non-ASU CRM holder DENY until P5 (category ACCOUNT)", async () => {

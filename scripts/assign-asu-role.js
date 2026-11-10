@@ -1,7 +1,14 @@
+/**
+ * RETIRE BEFORE ROLE_CLASS_MODE=enforce (P7). Not safe to use: the ASU role is looked up without a
+ * tenant and users by email across all tenants, and it bypasses the role-assignment API's privilege,
+ * freeze and audit guards (Z9: ASU is assigned through the API only). It now refuses a cross-tenant
+ * pairing and goes through the shared role-class guard, but it should be deleted, not run.
+ */
 require("dotenv").config({ path: ".env.staging" });
 const mongoose = require("mongoose");
 const User = require("../models/user.model");
 const Role = require("../models/role.model");
+const { assertRoleClassAssignment } = require("../helpers/roleClass");
 
 // Configuration
 const TARGET_EMAILS = [
@@ -65,6 +72,15 @@ async function assignASURoleToUsers() {
           alreadyHadRole++;
           continue;
         }
+
+        // Never another tenant's ASU role.
+        if (String(asuRole.tenantId) !== String(user.tenantId)) {
+          console.log(`❌ ${email}: ASU role belongs to another tenant; not assigned`);
+          errors++;
+          continue;
+        }
+        // P7 role-class guard: throws under enforce (caught below; user unchanged).
+        assertRoleClassAssignment({ user, roles: [asuRole], tenantId: user.tenantId, path: "script:assign-asu-role" });
 
         // Add ASU role to user's roles
         user.roles.push(asuRole._id);

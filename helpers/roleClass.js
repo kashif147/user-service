@@ -19,13 +19,16 @@
  *   shadow        - today's outcome; every case enforce would change is logged as role.class.shadow.
  *   enforce       - assignment of an incompatible role is refused (409 ROLE_CLASS_INCOMPATIBLE), with
  *                   no partial change; token issuance drops incompatible roles and rebuilds permissions
- *                   from the compatible roles; issuance is refused when the user type is missing or
- *                   unknown; Entra/B2C default roles are judged by class.
+ *                   from the compatible roles (stored assignments are left as they are); issuance is
+ *                   refused (403 USER_TYPE_INVALID, no token) when the stored user type is missing or
+ *                   unknown; an Entra/B2C default role must pass today's rule AND fit by class.
  *   Any other value is treated as off (rollback-safe) and warned once.
  *
  * Log lines carry the event, path, mode, outcome, masked tenant/user ids, user type, role codes,
  * classes and reasons. Never emails, names, tokens or permission lists.
  */
+
+const { AppError } = require("../errors/AppError");
 
 const ROLE_CLASS_MODES = Object.freeze(["off", "shadow", "enforce"]);
 const ROLE_CLASSES = Object.freeze(["CRM", "PORTAL", "SYSTEM"]);
@@ -92,6 +95,17 @@ function roleClassOf(role) {
   return { roleClass: category, source: "category", problem: null };
 }
 
+/**
+ * The user type as STORED. A Mongoose user document fills a missing userType with the schema
+ * default (PORTAL); that filled-in value is not trusted and reads as missing. Plain objects (lean
+ * reads, tests) are taken as they are.
+ */
+function storedUserType(user) {
+  if (!user) return undefined;
+  if (typeof user.$isDefault === "function" && user.$isDefault("userType")) return undefined;
+  return user.userType;
+}
+
 /** null when the user type is CRM or PORTAL, else USER_TYPE_MISSING / USER_TYPE_UNKNOWN. */
 function userTypeProblem(userType) {
   const t = upper(userType);
@@ -155,7 +169,8 @@ class RoleClassError extends Error {
 function assertRoleClassAssignment({ user, roles, tenantId, path }) {
   const mode = roleClassMode();
   if (mode === "off") return;
-  const { incompatible } = partitionRoles(user?.userType, roles);
+  const userType = storedUserType(user);
+  const { incompatible } = partitionRoles(userType, roles);
   if (incompatible.length === 0) return;
   const details = incompatible.map(({ role, reason }) => ({
     roleCode: roleCodeOf(role),
@@ -168,10 +183,21 @@ function assertRoleClassAssignment({ user, roles, tenantId, path }) {
     outcome: mode === "enforce" ? "assignment_refused" : "assignment_would_be_refused",
     tenantId: tenantId ?? user?.tenantId,
     userId: user?._id,
-    userType: user?.userType ?? null,
+    userType: userType ?? null,
     roles: details,
   });
   if (mode === "enforce") throw new RoleClassError(details);
+}
+
+/**
+ * Sign-in / refresh refusal for a user whose stored type is missing or unknown (enforce only). A
+ * plain AppError so every sign-in controller and the app error handler return it as a stable 403
+ * with code USER_TYPE_INVALID; the specific reason is logged, not returned.
+ */
+function userTypeRefusal(reason) {
+  const error = new AppError("Sign-in is not available for this account", 403, "USER_TYPE_INVALID");
+  error.userTypeReason = reason;
+  return error;
 }
 
 /** Boolean form for helpers that report failure by returning false (roleAssignment.js). */
@@ -192,12 +218,14 @@ module.exports = {
   ROLE_CLASS_BY_CODE,
   roleClassMode,
   roleClassOf,
+  storedUserType,
   userTypeProblem,
   incompatibility,
   partitionRoles,
   logRoleClass,
   mask,
   RoleClassError,
+  userTypeRefusal,
   assertRoleClassAssignment,
   roleClassAllows,
 };

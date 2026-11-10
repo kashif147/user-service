@@ -126,52 +126,46 @@ function categoryTypeIneligibility(role, connectionType) {
   return !category || role.category !== category ? "WRONG_TYPE" : null;
 }
 
-// P7 provider fit by role class (helpers/roleClass.js), Entra only: class CRM (a standard staff
-// role qualifies whatever its stored category; a custom role by its category).
-function classTypeIneligibility(role) {
+// P7 class restriction, applied only on top of today's rule (never widens it): an Entra default
+// must also be class CRM, a B2C default class PORTAL (helpers/roleClass.js; a standard role's class
+// comes from its code, a custom role's from its category, missing/unknown category -> refused).
+function classRestriction(role, connectionType) {
   const { roleClass, problem } = roleClassOf(role);
   if (problem) return problem;
-  return roleClass === "CRM" ? null : "WRONG_TYPE";
+  const wanted = connectionType === B2C ? "PORTAL" : "CRM";
+  return roleClass === wanted ? null : "WRONG_TYPE";
 }
 
 /**
  * Why `role` cannot be the default role of a connection of `connectionType` (null = eligible).
- * ROLE_CLASS_MODE: off = category rule only; shadow = category rule, and a role whose eligibility
- * the class rule would flip is logged (unless `quiet`); enforce = class rule.
+ * Today's rule always decides first. ROLE_CLASS_MODE: off = today's rule only; shadow = today's
+ * result, and a role the class restriction would additionally refuse is logged (unless `quiet`);
+ * enforce = today's rule AND the class restriction. No role becomes eligible that is not eligible
+ * today: any expansion of eligible defaults is a separate decision.
  */
 async function defaultRoleIneligibility(role, connectionType, { quiet = false } = {}) {
   if (!role) return "NOT_FOUND";
   if (role.isActive !== true) return "INACTIVE";
   if (isProtectedRole(role) || String(role.category || "").toUpperCase() === "SYSTEM") return "PROTECTED";
+  const todayReason =
+    categoryTypeIneligibility(role, connectionType) || (await commonDefaultRoleIneligibility(role, connectionType));
   const mode = roleClassMode();
-  const byCategory = categoryTypeIneligibility(role, connectionType);
-  const entraByClass = mode !== "off" && connectionType === ENTRA;
-  const byClass = entraByClass ? classTypeIneligibility(role) : byCategory;
-  // The remaining checks run once, and only when some type rule lets the role through.
-  const rest = byCategory && byClass ? null : await commonDefaultRoleIneligibility(role, connectionType);
-  const todayReason = byCategory || rest;
-  if (mode === "off") return todayReason;
-  // B2C keeps today's rule and result; the class check only adds a refusal after it (NON-MEMBER is
-  // class PORTAL, so in practice it never changes a B2C outcome).
-  const classReason = entraByClass
-    ? byClass || rest
-    : todayReason || (roleClassOf(role).roleClass === "PORTAL" ? null : "WRONG_TYPE");
-  // Logged only when the class rule flips eligibility (a changed reason alone changes nothing).
-  if (!todayReason !== !classReason && !quiet) {
+  if (mode === "off" || todayReason) return todayReason;
+  const classReason = classRestriction(role, connectionType);
+  if (classReason && !quiet) {
     logRoleClass(mode === "enforce" ? "role.class.enforce" : "role.class.shadow", {
       path: "connection-default-role",
       mode,
-      outcome: classReason ? "default_role_no_longer_eligible" : "default_role_newly_eligible",
+      outcome: mode === "enforce" ? "default_role_refused" : "default_role_would_be_refused",
       tenantId: role.tenantId,
       connectionType,
       roleCode: role.code == null ? null : String(role.code),
       category: role.category ?? null,
       roleClass: roleClassOf(role).roleClass,
-      categoryReason: todayReason,
       classReason,
     });
   }
-  return mode === "enforce" ? classReason : todayReason;
+  return mode === "enforce" ? classReason : null;
 }
 
 // Today's remaining checks after the provider fit: NON-MEMBER for B2C, verifiable and
@@ -198,11 +192,9 @@ async function eligibleDefaultRoles(tenantId, connectionType) {
   if (!ROLE_CATEGORY_BY_CONNECTION[connectionType]) {
     throw new ConnectionValidationError("Unknown connection type");
   }
-  // P7 enforce: Entra eligibility is by role class, so the category filter is not applied there.
-  const byClass = roleClassMode() === "enforce" && connectionType !== B2C;
   const roles = await Role.find({
     tenantId: String(tenantId),
-    ...(byClass ? {} : { category: ROLE_CATEGORY_BY_CONNECTION[connectionType] }),
+    category: ROLE_CATEGORY_BY_CONNECTION[connectionType],
     isActive: true,
     ...(connectionType === B2C ? { code: PORTAL_DEFAULT_ROLE_CODE } : {}),
   })

@@ -2,10 +2,11 @@ const jwt = require("jsonwebtoken");
 const RoleHandler = require("../handlers/role.handler");
 const {
   roleClassMode,
+  storedUserType,
   userTypeProblem,
   partitionRoles,
   logRoleClass,
-  RoleClassError,
+  userTypeRefusal,
 } = require("./roleClass");
 
 // CODE_FORMAT (PORTAL_CREATE) -> canonical resource:action, applied once at token generation.
@@ -28,7 +29,8 @@ const roleSummary = ({ role, reason }) => ({
  */
 async function logIssuanceShadow(user, roles, permissions) {
   try {
-    const { compatible, incompatible } = partitionRoles(user.userType, roles);
+    const userType = storedUserType(user);
+    const { compatible, incompatible } = partitionRoles(userType, roles);
     if (incompatible.length === 0) return;
     const enforced = (await RoleHandler.permissionsForRoles(compatible)).map(normalizePermission);
     const kept = new Set(enforced);
@@ -38,7 +40,7 @@ async function logIssuanceShadow(user, roles, permissions) {
       outcome: "roles_would_be_dropped",
       tenantId: user.tenantId,
       userId: user._id,
-      userType: user.userType ?? null,
+      userType: userType ?? null,
       dropped: incompatible.map(roleSummary),
       rolesBefore: roles.length,
       rolesAfter: compatible.length,
@@ -61,10 +63,12 @@ async function logIssuanceShadow(user, roles, permissions) {
  * @returns {Object} - Token and user data
  */
 module.exports.generateToken = async (user, options = {}) => {
-  // P7: a user whose type is missing or unknown fits no role. Under enforce no token is issued at
-  // all (thrown before the try, so the role-less fallback token below is NOT issued either).
+  // P7: a user whose STORED type is missing or unknown fits no role. Under enforce no token is
+  // issued at all: a 403 USER_TYPE_INVALID is thrown before the try, so the role-less fallback token
+  // below is NOT issued either. Sign-in (Entra, B2C) and /auth/refresh all issue through here.
   const classMode = roleClassMode();
-  const typeProblem = classMode === "off" ? null : userTypeProblem(user?.userType);
+  const userType = classMode === "off" ? undefined : storedUserType(user);
+  const typeProblem = classMode === "off" ? null : userTypeProblem(userType);
   if (typeProblem) {
     logRoleClass(classMode === "enforce" ? "role.class.enforce" : "role.class.shadow", {
       path: "token-issuance",
@@ -72,12 +76,10 @@ module.exports.generateToken = async (user, options = {}) => {
       outcome: classMode === "enforce" ? "issuance_refused" : "issuance_would_be_refused",
       tenantId: user?.tenantId,
       userId: user?._id,
-      userType: user?.userType ?? null,
+      userType: userType ?? null,
       reason: typeProblem,
     });
-    if (classMode === "enforce") {
-      throw new RoleClassError([{ reason: typeProblem }], "User type is missing or unknown; no token issued");
-    }
+    if (classMode === "enforce") throw userTypeRefusal(typeProblem);
   }
   try {
     console.log("=== JWT Generation: Starting ===");
@@ -95,11 +97,11 @@ module.exports.generateToken = async (user, options = {}) => {
     let permissions;
     let roles;
     if (classMode === "enforce") {
-      // P7 enforce: roles that do not fit the user's type are dropped, and permissions (including
-      // "*") are rebuilt from the compatible roles only. A permission an incompatible role also
-      // grants stays when a compatible role grants it too.
+      // P7 enforce: roles that do not fit the user's type are left out of the token, and permissions
+      // (including "*") are rebuilt from the compatible roles only. A permission an incompatible role
+      // also grants stays when a compatible role grants it too. The stored assignment is NOT changed.
       const allRoles = await RoleHandler.getUserRoles(user._id, user.tenantId);
-      const { compatible, incompatible } = partitionRoles(user.userType, allRoles);
+      const { compatible, incompatible } = partitionRoles(userType, allRoles);
       if (incompatible.length > 0) {
         logRoleClass("role.class.enforce", {
           path: "token-issuance",
@@ -107,7 +109,7 @@ module.exports.generateToken = async (user, options = {}) => {
           outcome: "roles_dropped",
           tenantId: user.tenantId,
           userId: user._id,
-          userType: user.userType ?? null,
+          userType: userType ?? null,
           dropped: incompatible.map(roleSummary),
           rolesBefore: allRoles.length,
           rolesAfter: compatible.length,
