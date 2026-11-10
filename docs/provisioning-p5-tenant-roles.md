@@ -20,8 +20,9 @@ content decisions are complete. Without it, `ensureTenantRoles` fails closed (`M
 
 ## 1a. Canonical content — `config/tenantRoles.v1.json` (PROVISIONAL, HELD — do not merge)
 
-- sha256 **434da7d6ab25f7ad81a1cfe36038d775675c6a415d131a33b08159b974bede9e** (P8 draft, 2026-11-10) — **provisional,
-  not the frozen hash**: it changes until the owner's remaining P8 decisions close. Earlier: `93b75171…` (b33fc00).
+- sha256 **8d99a184856a633b802075cde607b96013c5050e7c002c49304ae427542471ab** (P8 draft, 2026-11-10) — **provisional,
+  not the frozen hash**: it changes until the owner's remaining P8 decisions close. Earlier: `434da7d6…` (draft before
+  the case-role grants), `93b75171…` (b33fc00).
 - 24 roles (NOTIFIER and AI excluded, no SU). Categories:
 
   | Roles | Category |
@@ -53,8 +54,15 @@ content decisions are complete. Without it, `ensureTenantRoles` fails closed (`M
       visible (issue lookups and issue saved views only); CRM_MEMBER_READ / CRM_ACCESS and the legacy report codes removed.
     - MEMBER 10 = NON-MEMBER 10: ACCOUNTS.MEMBER_READ, EVENTS_READ, LOOKUP_READ, PORTAL_CREATE / _READ / _WRITE,
       PRODUCT_READ, REGISTRATIONS_CREATE / _READ / _WRITE.
-    - Not yet frozen: REO 23 vs the 21 / 25 options, case-role base issue codes, IRO own-cases, AM/DAM finance grants,
-      the MO Change of Category create button, and the CRM Summary links gated on `crm:member_read` / `crm:access`.
+    - Case roles IO, IRE, ADIR, DIR, AMO, DPO: + ISSUES_READ, ISSUES_WRITE, ISSUES_TEMPLATES_READ (issues launcher,
+      list / detail / create / update, grid views). Their team codes are unchanged, so each stays within its own case
+      types (issue-service per-role matrix: `tests/issueRoleMatrix.p8.test.js` in issue-service).
+    - IRO: **no base codes** until "own" (cases assigned to the caller, `owner.userId`) is enforced on list, detail and
+      update; today only `GET /issues/mine` scopes by it, so a base grant would expose the tenant's whole C / FTP / IR
+      caseload.
+    - Kept out / separate: MO Change of Category create (workflow and backend authorization not agreed), AM/DAM bank
+      and finance-report grants (O7), REO team reads (O10). The CRM Summary links move to `profile:read` in a separate
+      CRM PR.
   - **MEMBER / NON-MEMBER (history before the P8 draft): NOT FROZEN** — carried with dead legacy codes dropped, pending the portal
     tenant/object authorization security remediation. 2026-11-08: EVENTS_CREATE / EVENTS_WRITE / EVENTS_DELETE removed
     from both (EVENTS_READ kept), REGISTRATIONS_CREATE / REGISTRATIONS_READ / REGISTRATIONS_WRITE added to both, and

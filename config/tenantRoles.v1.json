@@ -1,7 +1,7 @@
 {
   "kind": "user-service:tenant-roles",
   "version": 1,
-  "source": "P8 DRAFT (PROVISIONAL, HELD - hash not frozen), 2026-11-10: the #39 manifest (P5 canonical tenant roles, 2026-11-01, DEV MULTIAUTH export with owner decisions D1-D8) with the bounded-PDP P8 target sets for MO / REO / MEMBER / NON-MEMBER (proposal 2026-11-04, v2): MO 53 (ISSUES_WRITE per the 2026-11-04 Q1 approval: complaints-only, team write codes unchanged), REO 23 (draft target: the 21 + ISSUES_READ + ISSUES_TEMPLATES_READ, no team codes), MEMBER 10, NON-MEMBER 10. Duplicate merge stays ASU-only (no PROFILE.MERGE_WRITE / PROFILE_DELETE for MO). Other 20 roles unchanged. Never a live clone source.",
+  "source": "P8 DRAFT (PROVISIONAL, HELD - hash not frozen), 2026-11-10: the #39 manifest (P5 canonical tenant roles, 2026-11-01, DEV MULTIAUTH export with owner decisions D1-D8) with the bounded-PDP P8 target sets for MO / REO / MEMBER / NON-MEMBER (proposal 2026-11-04, v2): MO 53 (ISSUES_WRITE per the 2026-11-04 Q1 approval: complaints-only, team write codes unchanged), REO 23 (draft target: the 21 + ISSUES_READ + ISSUES_TEMPLATES_READ, no team codes), MEMBER 10, NON-MEMBER 10. Duplicate merge stays ASU-only (no PROFILE.MERGE_WRITE / PROFILE_DELETE for MO). Case roles IO, IRE, ADIR, DIR, AMO, DPO gain the base ISSUES_READ / ISSUES_WRITE / ISSUES_TEMPLATES_READ (team codes unchanged, so each stays within its own case types); IRO stays without base codes until 'own' (owner.userId) is enforced on list / detail / update. Other 14 roles unchanged. Never a live clone source.",
   "invariants": {
     "tenantScoped": true,
     "noTenantlessRoles": true,
@@ -44,6 +44,9 @@
         "ISSUES_FTP_WRITE",
         "ISSUES_IR_READ",
         "ISSUES_IR_WRITE",
+        "ISSUES_READ",
+        "ISSUES_TEMPLATES_READ",
+        "ISSUES_WRITE",
         "LOOKUPTYPE_READ",
         "LOOKUP_READ",
         "NOTIFICATION_READ"
@@ -78,6 +81,9 @@
         "EVENTS_READ",
         "ISSUES_COMPLAINTS_READ",
         "ISSUES_COMPLAINTS_WRITE",
+        "ISSUES_READ",
+        "ISSUES_TEMPLATES_READ",
+        "ISSUES_WRITE",
         "LOOKUPTYPE_READ",
         "LOOKUP_READ",
         "NOTIFICATION_READ"
@@ -205,6 +211,9 @@
         "ISSUES_FTP_WRITE",
         "ISSUES_IR_READ",
         "ISSUES_IR_WRITE",
+        "ISSUES_READ",
+        "ISSUES_TEMPLATES_READ",
+        "ISSUES_WRITE",
         "LOOKUPTYPE_READ",
         "LOOKUP_READ",
         "NOTIFICATION_READ"
@@ -220,7 +229,10 @@
       "tenantAdmin": false,
       "permissions": [
         "ISSUES_DATAPROTECTION_READ",
-        "ISSUES_DATAPROTECTION_WRITE"
+        "ISSUES_DATAPROTECTION_WRITE",
+        "ISSUES_READ",
+        "ISSUES_TEMPLATES_READ",
+        "ISSUES_WRITE"
       ]
     },
     {
@@ -298,6 +310,9 @@
         "ISSUES_COMPLAINTS_WRITE",
         "ISSUES_IR_READ",
         "ISSUES_IR_WRITE",
+        "ISSUES_READ",
+        "ISSUES_TEMPLATES_READ",
+        "ISSUES_WRITE",
         "LOOKUPTYPE_READ",
         "LOOKUP_READ",
         "NOTIFICATION_READ"
@@ -318,6 +333,9 @@
         "ISSUES_FTP_WRITE",
         "ISSUES_IR_READ",
         "ISSUES_IR_WRITE",
+        "ISSUES_READ",
+        "ISSUES_TEMPLATES_READ",
+        "ISSUES_WRITE",
         "LOOKUPTYPE_READ",
         "LOOKUP_READ",
         "NOTIFICATION_READ"

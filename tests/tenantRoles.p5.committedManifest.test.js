@@ -83,12 +83,30 @@ describe("P8 draft target sets (2026-11-10, PROVISIONAL - hash not frozen)", () 
   test("portal roles carry only PORTAL / BOTH audience codes (no CRM-audience code)", () => {
     expect(P8_DRAFT.MEMBER.filter((p) => /^(PROFILE|PAYMENTS|APPLICATION|ACCOUNTS\.REPORTS)_?/.test(p))).toEqual([]);
   });
-  test("the other 20 roles are unchanged from #39 b33fc00 (P8 changes only MO / REO / MEMBER / NON-MEMBER)", () => {
-    // Committed snapshot of b33fc00's other 20 roles (no git history needed at test time).
-    const base = require("./fixtures/p8-unchanged-roles-b33fc00.json");
-    const others = (roles) => roles.filter((r) => !(r.code in P8_DRAFT)).map((r) => JSON.stringify(r)).sort();
-    expect(base.roles).toHaveLength(20);
-    expect(others(manifest.roles)).toEqual(others(base.roles));
+  // Committed snapshot of b33fc00's other 20 roles (no git history needed at test time).
+  const BASE20 = require("./fixtures/p8-unchanged-roles-b33fc00.json").roles;
+  const CASE_ROLES = ["IO", "IRE", "ADIR", "DIR", "AMO", "DPO"];
+  const CASE_BASE = ["ISSUES_READ", "ISSUES_TEMPLATES_READ", "ISSUES_WRITE"];
+
+  test("14 roles are unchanged from #39 b33fc00 (P8 changes MO / REO / MEMBER / NON-MEMBER and the six case roles)", () => {
+    expect(BASE20).toHaveLength(20);
+    const untouched = (roles) => roles.filter((r) => !(r.code in P8_DRAFT) && !CASE_ROLES.includes(r.code)).map((r) => JSON.stringify(r)).sort();
+    expect(untouched(BASE20)).toHaveLength(14);
+    expect(untouched(manifest.roles)).toEqual(untouched(BASE20));
+  });
+
+  test.each(CASE_ROLES)("%s = its b33fc00 role + exactly the base ISSUES_READ / ISSUES_WRITE / ISSUES_TEMPLATES_READ; team codes unchanged", (code) => {
+    const before = BASE20.find((r) => r.code === code);
+    const now = byCode[code];
+    expect(now.permissions).toEqual([...new Set([...before.permissions, ...CASE_BASE])].sort());
+    expect(now.permissions.filter((p) => /^ISSUES_[A-Z]+_(READ|WRITE)$/.test(p) && !CASE_BASE.includes(p))).toEqual(before.permissions.filter((p) => /^ISSUES_[A-Z]+_(READ|WRITE)$/.test(p)));
+    const { permissions, ...rest } = now; const { permissions: _p, ...restBefore } = before;
+    expect(rest).toEqual(restBefore);
+  });
+
+  test("IRO stays without base issue codes (owner.userId not yet enforced on list / detail / update)", () => {
+    expect(byCode.IRO.permissions.filter((p) => CASE_BASE.includes(p))).toEqual([]);
+    expect(byCode.IRO.permissions).toEqual(BASE20.find((r) => r.code === "IRO").permissions);
   });
 });
 
