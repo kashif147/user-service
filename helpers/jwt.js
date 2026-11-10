@@ -1,5 +1,58 @@
 const jwt = require("jsonwebtoken");
 const RoleHandler = require("../handlers/role.handler");
+const {
+  roleClassMode,
+  storedUserType,
+  userTypeProblem,
+  partitionRoles,
+  logRoleClass,
+  userTypeRefusal,
+} = require("./roleClass");
+
+// CODE_FORMAT (PORTAL_CREATE) -> canonical resource:action, applied once at token generation.
+const normalizePermission = (perm) => {
+  if (!perm || typeof perm !== "string") return perm;
+  // If already normalized (contains colon), return as-is
+  if (perm.includes(":")) return perm.toLowerCase();
+  // Convert CODE_FORMAT to resource:action
+  return perm.toLowerCase().replace(/_/g, ":");
+};
+
+const roleSummary = ({ role, reason }) => ({
+  roleCode: role?.code == null ? null : String(role.code),
+  reason,
+});
+
+/**
+ * P7 issuance, ROLE_CLASS_MODE=shadow: what enforce would issue, logged only. Never changes the
+ * token and never fails issuance (its own errors are logged and swallowed).
+ */
+async function logIssuanceShadow(user, roles, permissions) {
+  try {
+    const userType = storedUserType(user);
+    const { compatible, incompatible } = partitionRoles(userType, roles);
+    if (incompatible.length === 0) return;
+    const enforced = (await RoleHandler.permissionsForRoles(compatible)).map(normalizePermission);
+    const kept = new Set(enforced);
+    logRoleClass("role.class.shadow", {
+      path: "token-issuance",
+      mode: "shadow",
+      outcome: "roles_would_be_dropped",
+      tenantId: user.tenantId,
+      userId: user._id,
+      userType: userType ?? null,
+      dropped: incompatible.map(roleSummary),
+      rolesBefore: roles.length,
+      rolesAfter: compatible.length,
+      permissionsBefore: permissions.length,
+      permissionsAfter: enforced.length,
+      permissionsLost: permissions.filter((p) => !kept.has(p)).length,
+      wildcardLost: permissions.includes("*") && !kept.has("*"),
+    });
+  } catch (error) {
+    console.warn("[ROLE_CLASS] issuance shadow evaluation failed:", error.message);
+  }
+}
 
 /**
  * Generate JWT access token for user
@@ -10,6 +63,24 @@ const RoleHandler = require("../handlers/role.handler");
  * @returns {Object} - Token and user data
  */
 module.exports.generateToken = async (user, options = {}) => {
+  // P7: a user whose STORED type is missing or unknown fits no role. Under enforce no token is
+  // issued at all: a 403 USER_TYPE_INVALID is thrown before the try, so the role-less fallback token
+  // below is NOT issued either. Sign-in (Entra, B2C) and /auth/refresh all issue through here.
+  const classMode = roleClassMode();
+  const userType = classMode === "off" ? undefined : storedUserType(user);
+  const typeProblem = classMode === "off" ? null : userTypeProblem(userType);
+  if (typeProblem) {
+    logRoleClass(classMode === "enforce" ? "role.class.enforce" : "role.class.shadow", {
+      path: "token-issuance",
+      mode: classMode,
+      outcome: classMode === "enforce" ? "issuance_refused" : "issuance_would_be_refused",
+      tenantId: user?.tenantId,
+      userId: user?._id,
+      userType: userType ?? null,
+      reason: typeProblem,
+    });
+    if (classMode === "enforce") throw userTypeRefusal(typeProblem);
+  }
   try {
     console.log("=== JWT Generation: Starting ===");
     console.log("User ID:", user._id);
@@ -23,31 +94,51 @@ module.exports.generateToken = async (user, options = {}) => {
       throw new Error("User tenantId is required for JWT generation");
     }
 
-    // Get user permissions based on their roles
-    console.log("Fetching user permissions...");
-    const rawPermissions = await RoleHandler.getUserPermissions(
-      user._id,
-      user.tenantId
-    );
-    console.log("Raw permissions fetched:", rawPermissions);
+    let permissions;
+    let roles;
+    if (classMode === "enforce") {
+      // P7 enforce: roles that do not fit the user's type are left out of the token, and permissions
+      // (including "*") are rebuilt from the compatible roles only. A permission an incompatible role
+      // also grants stays when a compatible role grants it too. The stored assignment is NOT changed.
+      const allRoles = await RoleHandler.getUserRoles(user._id, user.tenantId);
+      const { compatible, incompatible } = partitionRoles(userType, allRoles);
+      if (incompatible.length > 0) {
+        logRoleClass("role.class.enforce", {
+          path: "token-issuance",
+          mode: "enforce",
+          outcome: "roles_dropped",
+          tenantId: user.tenantId,
+          userId: user._id,
+          userType: userType ?? null,
+          dropped: incompatible.map(roleSummary),
+          rolesBefore: allRoles.length,
+          rolesAfter: compatible.length,
+        });
+      }
+      roles = compatible;
+      permissions = (await RoleHandler.permissionsForRoles(compatible)).map(normalizePermission);
+      console.log("Roles fetched:", roles.length, "roles");
+    } else {
+      // Get user permissions based on their roles
+      console.log("Fetching user permissions...");
+      const rawPermissions = await RoleHandler.getUserPermissions(
+        user._id,
+        user.tenantId
+      );
+      console.log("Raw permissions fetched:", rawPermissions);
 
-    // CRITICAL: Normalize permissions ONCE at token generation
-    // Convert CODE_FORMAT (PORTAL_CREATE) to canonical format (portal:create)
-    // This ensures all downstream systems use the same format
-    const normalizePermission = (perm) => {
-      if (!perm || typeof perm !== "string") return perm;
-      // If already normalized (contains colon), return as-is
-      if (perm.includes(":")) return perm.toLowerCase();
-      // Convert CODE_FORMAT to resource:action
-      return perm.toLowerCase().replace(/_/g, ":");
-    };
+      // CRITICAL: Normalize permissions ONCE at token generation
+      // This ensures all downstream systems use the same format
+      permissions = rawPermissions.map(normalizePermission);
+      console.log("Normalized permissions:", permissions);
 
-    const permissions = rawPermissions.map(normalizePermission);
-    console.log("Normalized permissions:", permissions);
+      console.log("Fetching user roles...");
+      roles = await RoleHandler.getUserRoles(user._id, user.tenantId);
+      console.log("Roles fetched:", roles.length, "roles");
 
-    console.log("Fetching user roles...");
-    const roles = await RoleHandler.getUserRoles(user._id, user.tenantId);
-    console.log("Roles fetched:", roles.length, "roles");
+      // An untyped user is already logged above as issuance_would_be_refused (once, not per role).
+      if (classMode === "shadow" && !typeProblem) await logIssuanceShadow(user, roles, permissions);
+    }
 
     // CRITICAL: Enforce payload invariants before signing
     // This prevents silent bad tokens from being issued

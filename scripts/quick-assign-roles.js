@@ -3,12 +3,18 @@
 /**
  * Quick script to assign default roles to existing users
  * Usage: node scripts/quick-assign-roles.js
+ *
+ * P7: each assignment goes through the shared role-class guard (helpers/roleClass.js), so under
+ * ROLE_CLASS_MODE=enforce an incompatible role is not assigned (the user is left unchanged) and in
+ * shadow it is logged. The user type read is the STORED one: a user stored without userType is
+ * skipped, not treated as PORTAL by the schema default.
  */
 
 require("dotenv").config({ path: ".env.development" });
 const mongoose = require("mongoose");
 const User = require("../models/user.model");
 const Role = require("../models/role.model");
+const { roleClassAllows, storedUserType } = require("../helpers/roleClass");
 
 async function quickAssignRoles() {
   try {
@@ -36,13 +42,14 @@ async function quickAssignRoles() {
       try {
         // Determine default role code
         let defaultRoleCode;
-        if (user.userType === "CRM") {
+        const userType = storedUserType(user);
+        if (userType === "CRM") {
           defaultRoleCode = "REO";
-        } else if (user.userType === "PORTAL") {
+        } else if (userType === "PORTAL") {
           defaultRoleCode = "MEMBER";
         } else {
           console.log(
-            `⚠️  Unknown user type: ${user.userType}, skipping ${user.userEmail}`
+            `⚠️  Unknown user type: ${userType}, skipping ${user.userEmail}`
           );
           continue;
         }
@@ -58,6 +65,13 @@ async function quickAssignRoles() {
           console.log(
             `❌ Role "${defaultRoleCode}" not found for tenant ${user.tenantId}`
           );
+          errors++;
+          continue;
+        }
+
+        // P7: refused under enforce -> user unchanged, counted as an error.
+        if (!roleClassAllows({ user, role: defaultRole, tenantId: user.tenantId, path: "script:quick-assign-roles" })) {
+          console.log(`❌ ${user._id}: ${defaultRoleCode} not assigned, role class does not fit the user type`);
           errors++;
           continue;
         }

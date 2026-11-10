@@ -230,7 +230,7 @@ describe("source guard: no runtime SU authority can come back", () => {
   });
 
   test("no seed / template / provisioning path creates SU; the fallback hierarchy has no SU", () => {
-    for (const f of ["scripts/migrate-constants-to-db.js", "scripts/migrate-constants-to-staging.js", "services/roleHierarchyService.js"]) {
+    for (const f of ["services/roleHierarchyService.js"]) { // the constants migrations are retired (P7)
       expect({ f, su: /["'`]SU["'`]|\bSU\s*:/.test(src[f]) }).toEqual({ f, su: false });
     }
     expect(src["handlers/tenant.handler.js"]).toMatch(/code: \{ \$ne: "SU" \}/);

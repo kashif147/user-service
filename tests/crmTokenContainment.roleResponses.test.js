@@ -17,8 +17,8 @@ const ID = { ord1: "a00000000000000000000004", ord2: "a00000000000000000000005",
 const SECRET = { id: "STORED-MS-ID-TOKEN", refresh: "STORED-MS-REFRESH-TOKEN", password: "STORED-PASSWORD-HASH" };
 
 const mockRoleRows = [
-  { _id: "a00000000000000000000004", tenantId: "68cbf7806080b4621d469d34", code: "BRO", isSystemRole: false, isActive: true, permissions: [] },
-  { _id: "a00000000000000000000005", tenantId: "68cbf7806080b4621d469d34", code: "IO", isSystemRole: false, isActive: true, permissions: [] },
+  { _id: "a00000000000000000000004", tenantId: "68cbf7806080b4621d469d34", code: "BRO", category: "CRM", isSystemRole: false, isActive: true, permissions: [] },
+  { _id: "a00000000000000000000005", tenantId: "68cbf7806080b4621d469d34", code: "IO", category: "CRM", isSystemRole: false, isActive: true, permissions: [] },
 ];
 const mockUsers = {};
 jest.mock("../models/role.model", () => ({

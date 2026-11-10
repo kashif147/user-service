@@ -30,7 +30,7 @@ jest.mock("../services/membershipCheck.service", () => ({
 
 const { syncPortalUserRolesFromMembership } = require("../helpers/portalRoleSync");
 
-const user = (roles) => ({ roles, saved: 0, save: async function () { this.saved++; return this; } });
+const user = (roles) => ({ userType: "PORTAL", roles, saved: 0, save: async function () { this.saved++; return this; } });
 
 beforeEach(() => {
   mockMembership.active = false;

@@ -1,0 +1,33 @@
+{
+  "source": "kashif147/user-service PR #39 config/tenantRoles.v1.json",
+  "commit": "b33fc00",
+  "sha256": "93b75171b7d7b8686e550b4175b32c70024f7910838197554de739ef0b879ca7",
+  "kind": "user-service:tenant-roles",
+  "version": 1,
+  "classes": {
+    "ACC": "CRM",
+    "ADIR": "CRM",
+    "AM": "CRM",
+    "AMO": "CRM",
+    "ASU": "SYSTEM",
+    "BO": "CRM",
+    "CC": "CRM",
+    "DAM": "CRM",
+    "DGS": "CRM",
+    "DIR": "CRM",
+    "DPO": "CRM",
+    "DPRS": "CRM",
+    "GS": "CRM",
+    "HLS": "CRM",
+    "IO": "CRM",
+    "IRE": "CRM",
+    "IRO": "CRM",
+    "LA": "CRM",
+    "LS": "CRM",
+    "MEMBER": "PORTAL",
+    "MO": "CRM",
+    "NON-MEMBER": "PORTAL",
+    "REO": "CRM",
+    "RO": "CRM"
+  }
+}

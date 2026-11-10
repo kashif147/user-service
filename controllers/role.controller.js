@@ -1,6 +1,7 @@
 const RoleHandler = require("../handlers/role.handler");
 const User = require("../models/user.model");
 const { AppError } = require("../errors/AppError");
+const { RoleClassError } = require("../helpers/roleClass");
 
 // Initialize roles
 module.exports.initializeRoles = async (req, res, next) => {
@@ -178,6 +179,9 @@ module.exports.assignRolesToUser = async (req, res, next) => {
     if (error instanceof RoleHandler.RolePrivilegeError) {
       return next(AppError.forbidden(error.message, { code: error.code }));
     }
+    if (error instanceof RoleClassError) {
+      return next(AppError.conflict(error.message, { code: error.code, details: error.details }));
+    }
     console.error("[assignRolesToUser]", error.message);
     const message =
       error.message?.includes("Error assigning roles")
@@ -223,6 +227,9 @@ module.exports.syncRolesForUser = async (req, res, next) => {
   } catch (error) {
     if (error instanceof RoleHandler.RolePrivilegeError) {
       return next(AppError.forbidden(error.message, { code: error.code }));
+    }
+    if (error instanceof RoleClassError) {
+      return next(AppError.conflict(error.message, { code: error.code, details: error.details }));
     }
     const message =
       error.message?.includes("Error syncing roles")

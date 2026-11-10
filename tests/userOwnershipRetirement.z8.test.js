@@ -120,10 +120,8 @@ describe("source guard: User ownership-mutation patterns cannot come back", () =
     expect(hits(/tenantId\s*[:=]\s*["'`](default|unknown|legacy|global|system|main|placeholder)["'`]/gi)).toEqual([]);
   });
 
-  test("the User model is defined once, in models/ (one allow-listed legacy script, roles only - owner review)", () => {
-    expect(hits(/\.model\(\s*["'`]User["'`]/g, ["models/user.model.js", "scripts/assign-roles-by-subscription.js"])).toEqual([]);
-    // the allow-listed script must never touch ownership itself
-    expect(src["scripts/assign-roles-by-subscription.js"]).not.toMatch(/\.tenantId\s*=(?!=)|\$set\s*:\s*\{[^}]*\btenantId\b/);
+  test("the User model is defined once, in models/ (the legacy assign-roles-by-subscription script is retired, P7)", () => {
+    expect(hits(/\.model\(\s*["'`]User["'`]/g, ["models/user.model.js"])).toEqual([]);
   });
 
   test("raw `users` collection access only in the index migration, and only index / read operations", () => {
@@ -140,11 +138,11 @@ describe("source guard: User ownership-mutation patterns cannot come back", () =
     expect(hits(/require\([^)]*(microsoftAuthHelper|assign-tenant-to-users|migrate-tenant-isolation)[^)]*\)/g)).toEqual([]);
   });
 
-  test("the constants migrations skip a tenantless user instead of assigning one", () => {
+  test("the constants migrations (which assigned users' roles directly) are retired (P7) and not required anywhere", () => {
     for (const f of ["scripts/migrate-constants-to-db.js", "scripts/migrate-constants-to-staging.js"]) {
-      expect(src[f]).toMatch(/if \(!user\.tenantId\) \{\s*console\.warn\([^;]*\);\s*continue;\s*\}/);
-      expect(src[f]).not.toMatch(/user\.tenantId\s*=(?!=)/);
+      expect({ f, exists: fs.existsSync(path.join(ROOT, f)) }).toEqual({ f, exists: false });
     }
+    expect(hits(/require\([^)]*migrate-constants-to-(db|staging)[^)]*\)/g)).toEqual([]);
   });
 
   test("no platform permission can move a User (platform authority never changes User ownership)", () => {
