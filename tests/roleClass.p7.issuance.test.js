@@ -258,6 +258,7 @@ describe("missing and unknown user types", () => {
       const today = await issue("off", user);
       expect(await issue("shadow", user)).toEqual(today);
       const logs = classLogs();
+      expect(logs).toHaveLength(1); // one line, not one more per held role
       expect(logs[0]).toMatchObject({ event: "role.class.shadow", outcome: "issuance_would_be_refused", reason: userType ? "USER_TYPE_UNKNOWN" : "USER_TYPE_MISSING" });
     }
   );

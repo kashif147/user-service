@@ -136,7 +136,8 @@ module.exports.generateToken = async (user, options = {}) => {
       roles = await RoleHandler.getUserRoles(user._id, user.tenantId);
       console.log("Roles fetched:", roles.length, "roles");
 
-      if (classMode === "shadow") await logIssuanceShadow(user, roles, permissions);
+      // An untyped user is already logged above as issuance_would_be_refused (once, not per role).
+      if (classMode === "shadow" && !typeProblem) await logIssuanceShadow(user, roles, permissions);
     }
 
     // CRITICAL: Enforce payload invariants before signing

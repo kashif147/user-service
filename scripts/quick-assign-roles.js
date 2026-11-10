@@ -71,7 +71,7 @@ async function quickAssignRoles() {
 
         // P7: refused under enforce -> user unchanged, counted as an error.
         if (!roleClassAllows({ user, role: defaultRole, tenantId: user.tenantId, path: "script:quick-assign-roles" })) {
-          console.log(`❌ ${defaultRoleCode} not assigned to ${user.userEmail}: role class does not fit the user type`);
+          console.log(`❌ ${user._id}: ${defaultRoleCode} not assigned, role class does not fit the user type`);
           errors++;
           continue;
         }
