@@ -1,4 +1,5 @@
 const Role = require("../models/role.model");
+const { roleClassAllows } = require("./roleClass");
 
 /**
  * Sets portal user to NON-MEMBER only (replaces role list).
@@ -17,6 +18,8 @@ module.exports.assignNonMemberRole = async (user, tenantId) => {
       );
       return false;
     }
+    // P7: refused (false, user untouched) when ROLE_CLASS_MODE=enforce and the role does not fit.
+    if (!roleClassAllows({ user, role: nonMemberRole, tenantId, path: "assign-non-member" })) return false;
     user.roles = [nonMemberRole._id];
     console.log(
       `Assigned NON-MEMBER role to portal user in tenant ${tenantId} (membership ended)`
@@ -47,6 +50,8 @@ module.exports.assignMemberRole = async (user, tenantId) => {
       );
       return false;
     }
+    // P7: refused (false, user untouched) when ROLE_CLASS_MODE=enforce and the role does not fit.
+    if (!roleClassAllows({ user, role: memberRole, tenantId, path: "assign-member" })) return false;
     user.roles = [memberRole._id];
     console.log(
       `Assigned MEMBER role to portal user in tenant ${tenantId} (approved membership)`
@@ -84,7 +89,11 @@ module.exports.assignDefaultRole = async (user, userType, tenantId) => {
       isActive: true,
     });
 
-    if (defaultRole) {
+    // P7: the user's stored type is checked (not the `userType` argument): refused under enforce
+    // leaves the user without the role, as when the role is missing.
+    if (defaultRole && !roleClassAllows({ user, role: defaultRole, tenantId, path: "assign-default-role" })) {
+      console.log(`Default role ${defaultRoleCode} not assigned: role class does not fit the user`);
+    } else if (defaultRole) {
       user.roles = [defaultRole._id];
       console.log(
         `Assigned ${defaultRoleCode} role to new ${userType} user in tenant ${tenantId}`

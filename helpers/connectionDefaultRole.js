@@ -21,6 +21,7 @@ const mongoose = require("mongoose");
 const Role = require("../models/role.model");
 const Permission = require("../models/permission.model");
 const { isProtectedRole, isReservedPermission } = require("../handlers/role.handler");
+const { roleClassMode, roleClassOf, logRoleClass } = require("./roleClass");
 
 const ENTRA = "Entra ID (Azure AD)";
 const B2C = "Azure B2C";
@@ -119,13 +120,63 @@ async function canonicalRolePermissions(role) {
   return entries.map((e) => (OBJECT_ID_RE.test(e) ? byId.get(e) || null : toCanonical(e)));
 }
 
-/** Why `role` cannot be the default role of a connection of `connectionType` (null = eligible). */
-async function defaultRoleIneligibility(role, connectionType) {
+// Today's provider fit: the stored role category must equal the connection's user type.
+function categoryTypeIneligibility(role, connectionType) {
+  const category = ROLE_CATEGORY_BY_CONNECTION[connectionType];
+  return !category || role.category !== category ? "WRONG_TYPE" : null;
+}
+
+// P7 provider fit by role class (helpers/roleClass.js), Entra only: class CRM (a standard staff
+// role qualifies whatever its stored category; a custom role by its category).
+function classTypeIneligibility(role) {
+  const { roleClass, problem } = roleClassOf(role);
+  if (problem) return problem;
+  return roleClass === "CRM" ? null : "WRONG_TYPE";
+}
+
+/**
+ * Why `role` cannot be the default role of a connection of `connectionType` (null = eligible).
+ * ROLE_CLASS_MODE: off = category rule only; shadow = category rule, and a role whose eligibility
+ * the class rule would flip is logged (unless `quiet`); enforce = class rule.
+ */
+async function defaultRoleIneligibility(role, connectionType, { quiet = false } = {}) {
   if (!role) return "NOT_FOUND";
   if (role.isActive !== true) return "INACTIVE";
   if (isProtectedRole(role) || String(role.category || "").toUpperCase() === "SYSTEM") return "PROTECTED";
-  const category = ROLE_CATEGORY_BY_CONNECTION[connectionType];
-  if (!category || role.category !== category) return "WRONG_TYPE";
+  const mode = roleClassMode();
+  const byCategory = categoryTypeIneligibility(role, connectionType);
+  const entraByClass = mode !== "off" && connectionType === ENTRA;
+  const byClass = entraByClass ? classTypeIneligibility(role) : byCategory;
+  // The remaining checks run once, and only when some type rule lets the role through.
+  const rest = byCategory && byClass ? null : await commonDefaultRoleIneligibility(role, connectionType);
+  const todayReason = byCategory || rest;
+  if (mode === "off") return todayReason;
+  // B2C keeps today's rule and result; the class check only adds a refusal after it (NON-MEMBER is
+  // class PORTAL, so in practice it never changes a B2C outcome).
+  const classReason = entraByClass
+    ? byClass || rest
+    : todayReason || (roleClassOf(role).roleClass === "PORTAL" ? null : "WRONG_TYPE");
+  // Logged only when the class rule flips eligibility (a changed reason alone changes nothing).
+  if (!todayReason !== !classReason && !quiet) {
+    logRoleClass(mode === "enforce" ? "role.class.enforce" : "role.class.shadow", {
+      path: "connection-default-role",
+      mode,
+      outcome: classReason ? "default_role_no_longer_eligible" : "default_role_newly_eligible",
+      tenantId: role.tenantId,
+      connectionType,
+      roleCode: role.code == null ? null : String(role.code),
+      category: role.category ?? null,
+      roleClass: roleClassOf(role).roleClass,
+      categoryReason: todayReason,
+      classReason,
+    });
+  }
+  return mode === "enforce" ? classReason : todayReason;
+}
+
+// Today's remaining checks after the provider fit: NON-MEMBER for B2C, verifiable and
+// non-reserved permissions.
+async function commonDefaultRoleIneligibility(role, connectionType) {
   if (connectionType === B2C && roleCode(role) !== PORTAL_DEFAULT_ROLE_CODE) return "NOT_PORTAL_DEFAULT";
   const perms = await canonicalRolePermissions(role);
   if (perms.some((p) => p === null)) return "UNVERIFIABLE_PERMISSION";
@@ -147,9 +198,11 @@ async function eligibleDefaultRoles(tenantId, connectionType) {
   if (!ROLE_CATEGORY_BY_CONNECTION[connectionType]) {
     throw new ConnectionValidationError("Unknown connection type");
   }
+  // P7 enforce: Entra eligibility is by role class, so the category filter is not applied there.
+  const byClass = roleClassMode() === "enforce" && connectionType !== B2C;
   const roles = await Role.find({
     tenantId: String(tenantId),
-    category: ROLE_CATEGORY_BY_CONNECTION[connectionType],
+    ...(byClass ? {} : { category: ROLE_CATEGORY_BY_CONNECTION[connectionType] }),
     isActive: true,
     ...(connectionType === B2C ? { code: PORTAL_DEFAULT_ROLE_CODE } : {}),
   })
@@ -157,7 +210,7 @@ async function eligibleDefaultRoles(tenantId, connectionType) {
     .lean();
   const eligible = [];
   for (const role of roles) {
-    if (!(await defaultRoleIneligibility(role, connectionType))) {
+    if (!(await defaultRoleIneligibility(role, connectionType, { quiet: true }))) {
       eligible.push({ _id: String(role._id), code: role.code, name: role.name, category: role.category });
     }
   }
@@ -170,6 +223,8 @@ const DEFAULT_ROLE_MESSAGES = {
   INACTIVE: "Default role is inactive",
   PROTECTED: "Privileged or system roles cannot be a default role",
   WRONG_TYPE: "Default role does not match the connection's user type",
+  CATEGORY_MISSING: "Default role has no category, so its user type is unknown",
+  CATEGORY_UNKNOWN: "Default role has an unrecognised category, so its user type is unknown",
   NOT_PORTAL_DEFAULT: "Portal (Azure B2C) connections must use this organisation's NON-MEMBER role as the default role",
   UNVERIFIABLE_PERMISSION: "Default role has permissions that cannot be verified",
   RESERVED_PERMISSION: "Default role includes reserved system permissions",

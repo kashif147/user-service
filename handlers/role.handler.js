@@ -4,6 +4,7 @@ const Tenant = require("../models/tenant.model");
 const Permission = require("../models/permission.model");
 const mongoose = require("mongoose");
 const { RolePrivilegeError } = require("../errors/RolePrivilegeError");
+const { RoleClassError, assertRoleClassAssignment } = require("../helpers/roleClass");
 const {
   canonicalPermission,
   isPlatformNamespace,
@@ -366,6 +367,7 @@ const assertImplicitRoleRemovalAllowed = async (actor, tenantId, removedIds) => 
 };
 
 module.exports.RolePrivilegeError = RolePrivilegeError;
+module.exports.RoleClassError = RoleClassError;
 module.exports.assertRoleChangeAllowed = assertRoleChangeAllowed;
 module.exports.assertRoleAssignmentAllowed = assertRoleAssignmentAllowed;
 module.exports.assertRequestedRoleRemovalAllowed = assertRequestedRoleRemovalAllowed;
@@ -579,6 +581,15 @@ module.exports.assignRolesToUser = async (userId, roleIds, tenantId, actor) => {
       throw new Error("User already has all the specified roles");
     }
 
+    // P7: every NEWLY assigned role must fit the user's type (ROLE_CLASS_MODE). Checked before the
+    // user is touched, so an incompatible role in a batch refuses the whole request.
+    assertRoleClassAssignment({
+      user,
+      roles: roles.filter((r) => newRoleIds.includes(String(r._id))),
+      tenantId,
+      path: "assign-roles",
+    });
+
     // Add new roles to user (convert strings to ObjectIds)
     const objectIdRoleIds = [];
     for (const id of newRoleIds) {
@@ -605,7 +616,7 @@ module.exports.assignRolesToUser = async (userId, roleIds, tenantId, actor) => {
       alreadyAssignedRoleIds: alreadyAssignedRoleIds,
     };
   } catch (error) {
-    if (error instanceof RolePrivilegeError) throw error;
+    if (error instanceof RolePrivilegeError || error instanceof RoleClassError) throw error;
     throw new Error(`Error assigning roles to user: ${error.message}`);
   }
 };
@@ -669,7 +680,10 @@ module.exports.syncRolesForUser = async (userId, roleIds, tenantId, actor) => {
     // Phase 1C-2C: only NEWLY added roles are assignments; protected roles the user already holds and
     // keeps are not re-assigned, so they do not block the sync.
     const heldRoleIds = new Set((user.roles || []).map(String));
-    assertRoleAssignmentAllowed(actor, roles.filter((r) => !heldRoleIds.has(String(r._id))));
+    const addedRoles = roles.filter((r) => !heldRoleIds.has(String(r._id)));
+    assertRoleAssignmentAllowed(actor, addedRoles);
+    // P7: newly added roles must fit the user's type; refused before the user is touched.
+    assertRoleClassAssignment({ user, roles: addedRoles, tenantId, path: "sync-roles" });
 
     user.roles = ids.map((id) => new mongoose.Types.ObjectId(id));
     await user.save();
@@ -679,7 +693,7 @@ module.exports.syncRolesForUser = async (userId, roleIds, tenantId, actor) => {
     );
     return { user: safeUserResponse(updatedUser) };
   } catch (error) {
-    if (error instanceof RolePrivilegeError) throw error;
+    if (error instanceof RolePrivilegeError || error instanceof RoleClassError) throw error;
     throw new Error(`Error syncing roles for user: ${error.message}`);
   }
 };
@@ -762,71 +776,82 @@ module.exports.getUserPermissions = async (userId, tenantId) => {
       throw new Error("User not found");
     }
 
-    const permissions = new Set();
-
-    // Phase B / Z9: ASU = full administrator of its OWN tenant -> the tenant wildcard "*" (computed, never
-    // stored on the role; the PDP never lets "*" cover the platform namespace). The retired SU role grants
-    // nothing (a user still holding it is migrated by scripts/migrate-su-to-asu.js).
-    const isTenantAdmin = user.roles.some((role) => String(role.code || "").trim().toUpperCase() === "ASU");
-    if (isTenantAdmin) {
-      return ["*"]; // Full own-tenant access (tenant scope only)
-    }
-
-    // Collect permissions from all roles
-    for (const role of user.roles) {
-      // Handle both ObjectId and string permissions
-      const objectIdPermissions = role.permissions.filter(
-        (p) => typeof p === "string" && p.match(/^[0-9a-fA-F]{24}$/)
-      );
-      const stringPermissions = role.permissions.filter(
-        (p) => typeof p === "string" && !p.match(/^[0-9a-fA-F]{24}$/)
-      );
-
-      // Resolve every permission (whether stored as an ObjectId or a CODE string
-      // like "ISSUES_COMPLAINTS_READ") against the Permission collection and emit
-      // the canonical `${resource}:${action}` form using its actual resource/action
-      // fields. A regex like s/_/:/g on the CODE string can't recover the correct
-      // resource/action boundary for multi-word resources or actions (e.g.
-      // "ISSUES_COMPLAINTS_READ" -> resource "issues-complaints", action "read", vs
-      // "USER_MANAGE_ROLES" -> resource "user", action "manage_roles" - the same
-      // regex can't produce both correctly), so downstream consumers (policy
-      // checks in every service, jwt.js's token permissions) must receive the
-      // resolved form, not a heuristic guess.
-      const permissionDocs = [];
-      if (objectIdPermissions.length > 0) {
-        permissionDocs.push(
-          ...(await Permission.find({ _id: { $in: objectIdPermissions } }))
-        );
-      }
-      if (stringPermissions.length > 0) {
-        permissionDocs.push(
-          ...(await Permission.find({ code: { $in: stringPermissions } }))
-        );
-      }
-      // P5: only ACTIVE catalogue permissions are issued (isActive !== false; the model defaults it to
-      // true). The lookups above deliberately do NOT filter on isActive, so an inactive entry is still
-      // recognised as "resolved by the catalogue" and is dropped here - it must never fall through to
-      // the unresolved-literal branch below and be issued as a lower-cased literal.
-      permissionDocs.forEach((perm) => {
-        if (perm.isActive === false) return;
-        permissions.add(`${perm.resource}:${perm.action}`.toLowerCase());
-      });
-
-      // A string permission that doesn't match any known Permission code (active
-      // or inactive) is assumed to already be a literal `resource:action` string
-      // (legacy data predating the CODE convention) - pass it through unchanged.
-      // (Behaviour for non-catalogue literals is intentionally unchanged here.)
-      const resolvedCodes = new Set(permissionDocs.map((p) => p.code));
-      stringPermissions
-        .filter((p) => !resolvedCodes.has(p))
-        .forEach((perm) => permissions.add(perm.toLowerCase()));
-    }
-
-    return Array.from(permissions);
+    return await permissionsForRoles(user.roles);
   } catch (error) {
     throw new Error(`Error fetching user permissions: ${error.message}`);
   }
 };
+
+/**
+ * Effective permissions of a set of populated roles (the body of getUserPermissions). P7 token
+ * issuance under ROLE_CLASS_MODE=enforce calls it with only the roles compatible with the user's
+ * type, so "*" and every permission come only from roles the user may hold.
+ */
+async function permissionsForRoles(roleDocs) {
+  const roles = Array.isArray(roleDocs) ? roleDocs : [];
+  const permissions = new Set();
+
+  // Phase B / Z9: ASU = full administrator of its OWN tenant -> the tenant wildcard "*" (computed, never
+  // stored on the role; the PDP never lets "*" cover the platform namespace). The retired SU role grants
+  // nothing (a user still holding it is migrated by scripts/migrate-su-to-asu.js).
+  const isTenantAdmin = roles.some((role) => String(role.code || "").trim().toUpperCase() === "ASU");
+  if (isTenantAdmin) {
+    return ["*"]; // Full own-tenant access (tenant scope only)
+  }
+
+  // Collect permissions from all roles
+  for (const role of roles) {
+    // Handle both ObjectId and string permissions
+    const objectIdPermissions = role.permissions.filter(
+      (p) => typeof p === "string" && p.match(/^[0-9a-fA-F]{24}$/)
+    );
+    const stringPermissions = role.permissions.filter(
+      (p) => typeof p === "string" && !p.match(/^[0-9a-fA-F]{24}$/)
+    );
+
+    // Resolve every permission (whether stored as an ObjectId or a CODE string
+    // like "ISSUES_COMPLAINTS_READ") against the Permission collection and emit
+    // the canonical `${resource}:${action}` form using its actual resource/action
+    // fields. A regex like s/_/:/g on the CODE string can't recover the correct
+    // resource/action boundary for multi-word resources or actions (e.g.
+    // "ISSUES_COMPLAINTS_READ" -> resource "issues-complaints", action "read", vs
+    // "USER_MANAGE_ROLES" -> resource "user", action "manage_roles" - the same
+    // regex can't produce both correctly), so downstream consumers (policy
+    // checks in every service, jwt.js's token permissions) must receive the
+    // resolved form, not a heuristic guess.
+    const permissionDocs = [];
+    if (objectIdPermissions.length > 0) {
+      permissionDocs.push(
+        ...(await Permission.find({ _id: { $in: objectIdPermissions } }))
+      );
+    }
+    if (stringPermissions.length > 0) {
+      permissionDocs.push(
+        ...(await Permission.find({ code: { $in: stringPermissions } }))
+      );
+    }
+    // P5: only ACTIVE catalogue permissions are issued (isActive !== false; the model defaults it to
+    // true). The lookups above deliberately do NOT filter on isActive, so an inactive entry is still
+    // recognised as "resolved by the catalogue" and is dropped here - it must never fall through to
+    // the unresolved-literal branch below and be issued as a lower-cased literal.
+    permissionDocs.forEach((perm) => {
+      if (perm.isActive === false) return;
+      permissions.add(`${perm.resource}:${perm.action}`.toLowerCase());
+    });
+
+    // A string permission that doesn't match any known Permission code (active
+    // or inactive) is assumed to already be a literal `resource:action` string
+    // (legacy data predating the CODE convention) - pass it through unchanged.
+    // (Behaviour for non-catalogue literals is intentionally unchanged here.)
+    const resolvedCodes = new Set(permissionDocs.map((p) => p.code));
+    stringPermissions
+      .filter((p) => !resolvedCodes.has(p))
+      .forEach((perm) => permissions.add(perm.toLowerCase()));
+  }
+
+  return Array.from(permissions);
+}
+module.exports.permissionsForRoles = permissionsForRoles;
 
 module.exports.getUserRoles = async (userId, tenantId) => {
   try {

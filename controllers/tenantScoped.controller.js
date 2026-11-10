@@ -1,5 +1,6 @@
 const RoleHandler = require("../handlers/role.handler");
 const PermissionHandler = require("../handlers/permission.handler");
+const { RoleClassError } = require("../helpers/roleClass");
 
 // Tenant-scoped role assignment (ASU can only manage within their tenant)
 module.exports.assignRoleToUserInTenant = async (req, res) => {
@@ -32,6 +33,9 @@ module.exports.assignRoleToUserInTenant = async (req, res) => {
   } catch (error) {
     if (error instanceof RoleHandler.RolePrivilegeError) {
       return res.status(403).json({ status: "fail", code: error.code, message: error.message });
+    }
+    if (error instanceof RoleClassError) {
+      return res.status(409).json({ status: "fail", code: error.code, message: error.message, details: error.details });
     }
     // Phase 1C-2N: map errors like RoleController.assignRolesToUser (response.mw.js helpers only).
     const message = (error.message || "Failed to assign role to user").replace(
