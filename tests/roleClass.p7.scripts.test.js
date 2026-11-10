@@ -1,12 +1,13 @@
 /**
- * P7: the three older role-assignment scripts go through the shared role-class guard
- * (helpers/roleClass.js) before any role write.
+ * P7: role-assignment scripts go through the shared role-class guard (helpers/roleClass.js) before
+ * any role write, or are retired.
  *  - scripts/quick-assign-roles.js: behaviour (runs against mocked models): off/shadow assign as
  *    today, enforce refuses an incompatible role and leaves the user unsaved; a user stored without
  *    userType is skipped (not treated as PORTAL by the schema default).
- *  - scripts/assign-asu-role.js and scripts/assign-roles-by-subscription.js: flagged RETIRE BEFORE
- *    ROLE_CLASS_MODE=enforce (unscoped ASU lookup / direct reads of other services' databases); the
- *    guard precedes their role write (source checks: both run against live databases on load).
+ *  - the other role-writing scripts (assign-asu-role, assign-roles-by-subscription,
+ *    assign-default-roles-to-existing-users, migrate-constants-to-db / -to-staging and
+ *    full-staging-migration) are retired: absent, not required, and no script assigns roles outside
+ *    the guard.
  */
 const fs = require("fs");
 const path = require("path");
@@ -82,39 +83,39 @@ describe("quick-assign-roles", () => {
   });
 });
 
-describe("retired-before-enforce scripts: guard precedes the role write", () => {
-  test("assign-asu-role: flagged, tenant-matched, guarded before push", () => {
-    const s = src("scripts/assign-asu-role.js");
-    expect(s).toMatch(/RETIRE BEFORE ROLE_CLASS_MODE=enforce/);
-    const guard = s.indexOf("assertRoleClassAssignment({");
-    const tenant = s.indexOf("String(asuRole.tenantId) !== String(user.tenantId)");
-    const write = s.indexOf("user.roles.push(asuRole._id)");
-    expect(guard).toBeGreaterThan(0);
-    expect(tenant).toBeGreaterThan(0);
-    expect(tenant).toBeLessThan(write);
-    expect(guard).toBeLessThan(write);
+describe("retired role-writing scripts (P7, before enforce)", () => {
+  // Bypassed the role-assignment API and the role-class guard; no npm script, CI, cron or code path
+  // ran them. Replacements: ASU via the role-assignment API (Z9 own-tenant ASU rule, privilege /
+  // freeze / audit / role-class guards); MEMBER / NON-MEMBER via the membership listeners and the
+  // B2C sign-in membership check (helpers/portalRoleSync.js); default roles via the guarded
+  // helpers/roleAssignment.js (scripts/assign-default-roles-enhanced.js).
+  const RETIRED = [
+    "assign-asu-role",
+    "assign-roles-by-subscription",
+    "assign-default-roles-to-existing-users",
+    "migrate-constants-to-db",
+    "migrate-constants-to-staging",
+    "full-staging-migration", // only ran migrate-constants-to-staging
+  ];
+
+  test.each(RETIRED)("%s is gone and not required anywhere", (name) => {
+    expect(fs.existsSync(path.join(__dirname, "..", "scripts", `${name}.js`))).toBe(false);
+    const roots = ["scripts", "handlers", "helpers", "controllers", "services", "routes", "rabbitMQ"];
+    const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) =>
+      e.isDirectory() ? (e.name === "node_modules" ? [] : walk(path.join(d, e.name))) : e.name.endsWith(".js") ? [path.join(d, e.name)] : []);
+    const users = roots.flatMap((r) => walk(path.join(__dirname, "..", r)))
+      .filter((f) => new RegExp(`require\\([^)]*${name}[^)]*\\)`).test(fs.readFileSync(f, "utf8")));
+    expect(users).toEqual([]);
+    const pkg = JSON.stringify(require("../package.json").scripts || {});
+    expect(pkg.includes(name)).toBe(false);
   });
 
-  test("assign-roles-by-subscription: flagged, guarded before the role write", () => {
-    const s = src("scripts/assign-roles-by-subscription.js");
-    expect(s).toMatch(/RETIRE BEFORE ROLE_CLASS_MODE=enforce/);
-    const guard = s.indexOf("roleClassAllows({ user, role: targetRole");
-    const write = s.indexOf("user.roles = [targetRole._id]");
-    expect(guard).toBeGreaterThan(0);
-    expect(guard).toBeLessThan(write);
-  });
-
-  test("scripts that assign roles directly outside the guard are exactly the known, reported set", () => {
+  test("no script assigns roles to users directly outside the role-class guard", () => {
     const dir = path.join(__dirname, "..", "scripts");
     const assigns = /user\.roles\s*=\s*\[\s*[^\]\s]|user\.roles\.push\(/; // a non-empty assignment (removal excluded)
     const unguarded = fs.readdirSync(dir)
       .filter((f) => f.endsWith(".js") && assigns.test(src(`scripts/${f}`)))
       .filter((f) => !/roleClassAllows|assertRoleClassAssignment/.test(src(`scripts/${f}`)));
-    // Outside the owner's list of three: reported for a decision (route or retire), unchanged here.
-    expect(unguarded.sort()).toEqual([
-      "assign-default-roles-to-existing-users.js",
-      "migrate-constants-to-db.js",
-      "migrate-constants-to-staging.js",
-    ]);
+    expect(unguarded).toEqual([]);
   });
 });
