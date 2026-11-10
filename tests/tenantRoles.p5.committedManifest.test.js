@@ -84,10 +84,11 @@ describe("P8 draft target sets (2026-11-10, PROVISIONAL - hash not frozen)", () 
     expect(P8_DRAFT.MEMBER.filter((p) => /^(PROFILE|PAYMENTS|APPLICATION|ACCOUNTS\.REPORTS)_?/.test(p))).toEqual([]);
   });
   test("the other 20 roles are unchanged from #39 b33fc00 (P8 changes only MO / REO / MEMBER / NON-MEMBER)", () => {
-    const { execFileSync } = require("child_process");
-    const base = JSON.parse(execFileSync("git", ["show", "b33fc00:config/tenantRoles.v1.json"], { cwd: require("path").join(__dirname, "..") }).toString());
-    const others = (m) => m.roles.filter((r) => !(r.code in P8_DRAFT)).map((r) => JSON.stringify(r)).sort();
-    expect(others(manifest)).toEqual(others(base));
+    // Committed snapshot of b33fc00's other 20 roles (no git history needed at test time).
+    const base = require("./fixtures/p8-unchanged-roles-b33fc00.json");
+    const others = (roles) => roles.filter((r) => !(r.code in P8_DRAFT)).map((r) => JSON.stringify(r)).sort();
+    expect(base.roles).toHaveLength(20);
+    expect(others(manifest.roles)).toEqual(others(base.roles));
   });
 });
 

@@ -35,9 +35,11 @@ content decisions are complete. Without it, `ensureTenantRoles` fails closed (`M
   - REO: mutation-free; additions PRODUCT_READ, APPLICATION_READ, CRM_MEMBER_READ, CRM_ACCESS approved;
     **TENANT_READ is conditional** — do not rely on it until the PDP category rule is fixed (today the category rule
     denies `tenant:read` to every non-ASU CRM role).
-  - MO (2026-11-01; ISSUES_WRITE superseded by the P8 draft above): ISSUES_READ, PRODUCT_READ, PRODUCT_TYPE_READ, PRICING_READ approved; **ISSUES_WRITE not approved** (it would
-    allow any issue type; complaint creation needs a narrower design); USER_READ removed and DIRECTORY_READ added (owner 2026-11-02);
-    PAYMENTS_WRITE stays removed.
+  - MO (2026-11-01): ISSUES_READ, PRODUCT_READ, PRODUCT_TYPE_READ, PRICING_READ approved; ISSUES_WRITE was withheld on
+    2026-11-01 (it would allow any issue type) and **approved on 2026-11-04 (Q1) for complaints only**: issue-service
+    requires the team write code on create (since 7b3411f, 2026-11-02) and on update / status / delete / activities /
+    attachments, and MO's only team codes are ISSUES_COMPLAINTS_READ / _WRITE. USER_READ removed and DIRECTORY_READ
+    added (owner 2026-11-02); PAYMENTS_WRITE stays removed.
   - **P8 draft (2026-11-10, PROVISIONAL)** — the bounded-PDP P8 target sets for four roles; the other 20 roles are
     unchanged:
     - MO 53: + ACCOUNTS.MEMBER_READ, CONTACT_READ, ISSUES_TEMPLATES_READ, ISSUES_WRITE, REPORTING.LISTINGS_READ /
@@ -133,3 +135,18 @@ content decisions are complete. Without it, `ensureTenantRoles` fails closed (`M
 - **`createTenant`:** stops calling the live MAIN clone and `ensureTenantAdminOnNewTenant`; roles then come from provisioning.
 - **Tests:** update `tenantAdminParity.mongo` and the Z9 source-guard regex, without weakening the SU guard.
 - **Existing tenants:** not normalised (migration debt). DEVDIRB receiving ASU needs explicit approval.
+
+## P8 status (draft; mirrors the PR #39 description to publish with the draft)
+
+- **Done on DEV:** P2(b), P3, P4, P5, P6 and P7.
+- **Still gating the freeze:** the owner's remaining content decisions; retiring the events portal registration
+  fallback (events-service `LEGACY_PORTAL_EVENTS_PERMISSION_FALLBACK`); recording the frozen hash.
+- **P6b is separate and does not block this manifest.** P6b removes the transitional CRM user path for payment
+  capture, cancel and manual post/void. It changes how those mutations are authorised (bound service commands), not
+  any permission code in this file, so it blocks neither preparing nor merging this manifest, nor freezing its
+  content. Until P6b closes, any MO, in an existing tenant or one later provisioned from this manifest, can still use
+  the transitional direct payment path with its existing `application:write`, `events:write` and `events:create`
+  business codes. The direct CRM payment gate stays open and tenant provisioning stays held; both are decided
+  separately from the freeze.
+- **Separate, unapproved:** existing-tenant migration (X); first-ASU provisioning for new tenants; the
+  membership-role backfill.
