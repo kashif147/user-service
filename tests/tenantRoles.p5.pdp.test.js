@@ -60,8 +60,12 @@ describe("REO (proposed canonical) at the PDP", () => {
     for (const [res, act] of REO_READS) if ((await decide("REO", reo(), res, act)) === "PERMIT") permitted.push(`${res}:${act}`);
     expect(permitted).toEqual(expect.arrayContaining(["lookup:read", "lookuptype:read", "events:read", "issues:read", "issues-templates:read", "pricing:read", "product-type:read", "application-payment-links:read"]));
   });
+  test("P8 draft: REO no longer holds portal:read (PORTAL-audience code); it stays DENY", async () => {
+    expect(reo()).not.toContain("portal:read");
+    expect(await decide("REO", reo(), "portal", "read")).toBe("DENY");
+  });
   test("FINDING (not role content): the PDP category rule denies CRM staff these reads whatever the role holds", async () => {
-    for (const [res, act] of [["payments", "read"], ["portal", "read"], ["tenant", "read"]]) {
+    for (const [res, act] of [["payments", "read"], ["tenant", "read"]]) {
       expect({ res, d: await decision("REO", reo(), res, act) }).toEqual({ res, d: { decision: "DENY", reason: "INVALID_USER_TYPE", error: expect.any(String), allowedCategories: expect.any(Array), userTypeCategory: "CRM" } });
     }
   });
@@ -88,9 +92,15 @@ describe("MO (proposed canonical) at the PDP", () => {
     expect(await decide("MO", mo(), "issues", "read")).toBe("PERMIT");
     expect(await decide("MO", live(), "issues", "read")).toBe("DENY");
   });
-  test("ISSUES_WRITE not approved (owner 2026-11-01): MO issues:write DENY - generic issue creation of any type is withheld pending a narrower complaint-only design", async () => {
-    expect(await decide("MO", mo(), "issues", "write")).toBe("DENY");
-    expect(mo()).not.toContain("issues:write");
+  test("ISSUES_WRITE (2026-11-04 Q1, complaints-only): the base issues:write route floor PERMITs, but only the complaints team write does", async () => {
+    // The PDP decides the route floor; issue-service then requires issues-<team>:write for the case type (create, update,
+    // status, delete, activities, attachments), so FTP / IR / DP cases stay unwritable for MO.
+    expect(await decide("MO", mo(), "issues", "write")).toBe("PERMIT");
+    expect(await decide("MO", mo(), "issues-complaints", "write")).toBe("PERMIT");
+    for (const team of ["issues-ftp", "issues-ir", "issues-dataprotection"]) {
+      expect(await decide("MO", mo(), team, "write")).toBe("DENY");
+      expect(await decide("MO", mo(), team, "read")).toBe("DENY");
+    }
   });
   test.each([["role", "write"], ["role", "delete"], ["role", "admin"], ["role", "read"], ["user", "delete"], ["user", "write"], ["tenant", "delete"], ["tenant", "admin"], ["lookup", "write"], ["lookup", "delete"], ["lookuptype", "delete"], ["portal", "delete"]])("DENY %s:%s", async (res, act) => {
     expect(await decide("MO", mo(), res, act)).toBe("DENY");

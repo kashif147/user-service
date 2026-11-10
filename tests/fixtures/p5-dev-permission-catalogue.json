@@ -1,6 +1,13 @@
 {
- "source": "DEV user-service permission catalogue (code/resource/action/category only) + DEV MULTIAUTH live REO/MO sets, read-only export 2026-11-01; REGISTRATIONS_CREATE/READ/WRITE and DIRECTORY_READ rows added from the DEV catalogue after user-service #41 (2026-11-02)",
+ "source": "DEV user-service permission catalogue (code/resource/action/category only) + DEV MULTIAUTH live REO/MO sets, read-only export 2026-11-01; REGISTRATIONS_CREATE/READ/WRITE and DIRECTORY_READ rows added from the DEV catalogue after user-service #41 (2026-11-02); the nine P1 rows (ACCOUNTS.MEMBER_READ, CONTACT_READ, PAYMENTS.BANK_READ, REPORTING.FINANCE/LISTINGS/STATISTICS/TEMPLATES_READ, REPORTING.TEMPLATES_WRITE, TENANT.AUTH_READ) added from the DEV catalogue read-only 2026-11-10 (DEV total 155)",
  "catalogue": [
+  {
+   "code": "ACCOUNTS.MEMBER_READ",
+   "resource": "accounts.member",
+   "action": "read",
+   "category": "ACCOUNT",
+   "isActive": true
+  },
   {
    "code": "ACCOUNTS.REPORTS_READ",
    "resource": "accounts.reports",
@@ -174,6 +181,13 @@
    "resource": "REPORT.COMPARISON",
    "action": "read",
    "category": "PROFILE",
+   "isActive": true
+  },
+  {
+   "code": "CONTACT_READ",
+   "resource": "contact",
+   "action": "read",
+   "category": "CRM",
    "isActive": true
   },
   {
@@ -576,6 +590,13 @@
    "isActive": true
   },
   {
+   "code": "PAYMENTS.BANK_READ",
+   "resource": "payments.bank",
+   "action": "read",
+   "category": "CRM",
+   "isActive": true
+  },
+  {
    "code": "PAYMENTS_CREATE",
    "resource": "payments",
    "action": "create",
@@ -765,6 +786,41 @@
    "isActive": true
   },
   {
+   "code": "REPORTING.FINANCE_READ",
+   "resource": "reporting.finance",
+   "action": "read",
+   "category": "CRM",
+   "isActive": true
+  },
+  {
+   "code": "REPORTING.LISTINGS_READ",
+   "resource": "reporting.listings",
+   "action": "read",
+   "category": "CRM",
+   "isActive": true
+  },
+  {
+   "code": "REPORTING.STATISTICS_READ",
+   "resource": "reporting.statistics",
+   "action": "read",
+   "category": "CRM",
+   "isActive": true
+  },
+  {
+   "code": "REPORTING.TEMPLATES_READ",
+   "resource": "reporting.templates",
+   "action": "read",
+   "category": "CRM",
+   "isActive": true
+  },
+  {
+   "code": "REPORTING.TEMPLATES_WRITE",
+   "resource": "reporting.templates",
+   "action": "write",
+   "category": "CRM",
+   "isActive": true
+  },
+  {
    "code": "RESOURCES_CREATE",
    "resource": "resources",
    "action": "create",
@@ -860,6 +916,13 @@
    "resource": "templates",
    "action": "read",
    "category": "COMMUNICATION",
+   "isActive": true
+  },
+  {
+   "code": "TENANT.AUTH_READ",
+   "resource": "tenant.auth",
+   "action": "read",
+   "category": "CRM",
    "isActive": true
   },
   {

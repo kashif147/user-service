@@ -20,8 +20,8 @@ content decisions are complete. Without it, `ensureTenantRoles` fails closed (`M
 
 ## 1a. Canonical content — `config/tenantRoles.v1.json` (PROVISIONAL, HELD — do not merge)
 
-- sha256 **93b75171b7d7b8686e550b4175b32c70024f7910838197554de739ef0b879ca7** — provisional: it changes until the
-  portal authorization remediation and the owner's content decisions close.
+- sha256 **434da7d6ab25f7ad81a1cfe36038d775675c6a415d131a33b08159b974bede9e** (P8 draft, 2026-11-10) — **provisional,
+  not the frozen hash**: it changes until the owner's remaining P8 decisions close. Earlier: `93b75171…` (b33fc00).
 - 24 roles (NOTIFIER and AI excluded, no SU). Categories:
 
   | Roles | Category |
@@ -35,10 +35,25 @@ content decisions are complete. Without it, `ensureTenantRoles` fails closed (`M
   - REO: mutation-free; additions PRODUCT_READ, APPLICATION_READ, CRM_MEMBER_READ, CRM_ACCESS approved;
     **TENANT_READ is conditional** — do not rely on it until the PDP category rule is fixed (today the category rule
     denies `tenant:read` to every non-ASU CRM role).
-  - MO: ISSUES_READ, PRODUCT_READ, PRODUCT_TYPE_READ, PRICING_READ approved; **ISSUES_WRITE not approved** (it would
+  - MO (2026-11-01; ISSUES_WRITE superseded by the P8 draft above): ISSUES_READ, PRODUCT_READ, PRODUCT_TYPE_READ, PRICING_READ approved; **ISSUES_WRITE not approved** (it would
     allow any issue type; complaint creation needs a narrower design); USER_READ removed and DIRECTORY_READ added (owner 2026-11-02);
     PAYMENTS_WRITE stays removed.
-  - **MEMBER / NON-MEMBER: NOT FROZEN** — carried with dead legacy codes dropped, pending the portal
+  - **P8 draft (2026-11-10, PROVISIONAL)** — the bounded-PDP P8 target sets for four roles; the other 20 roles are
+    unchanged:
+    - MO 53: + ACCOUNTS.MEMBER_READ, CONTACT_READ, ISSUES_TEMPLATES_READ, ISSUES_WRITE, REPORTING.LISTINGS_READ /
+      STATISTICS_READ / TEMPLATES_READ / TEMPLATES_WRITE; − ACCOUNTS.REPORTS_READ, CHANGEOFCATEGORY_CREATE / _WRITE, the
+      legacy report / CRM_* / NOTIFICATION_SEND / _UPDATE_STATUS codes, PORTAL_CREATE / _READ / _WRITE,
+      SUBSCRIPTIONS_CREATE, TRANSFERREQUESTS_CREATE. **ISSUES_WRITE supersedes the 2026-11-01 "not approved" below**
+      (owner Q1 approval 2026-11-04, complaints-only): MO's only team codes are ISSUES_COMPLAINTS_READ / _WRITE, and
+      issue-service requires the team write code per case type on create, update, status, delete, activities and
+      attachments. Duplicate merge stays ASU-only (no PROFILE_DELETE, no PROFILE.MERGE_WRITE).
+    - REO 23 (draft target): the P8 21 + ISSUES_READ + ISSUES_TEMPLATES_READ, no team code, so no case of any type is
+      visible (issue lookups and issue saved views only); CRM_MEMBER_READ / CRM_ACCESS and the legacy report codes removed.
+    - MEMBER 10 = NON-MEMBER 10: ACCOUNTS.MEMBER_READ, EVENTS_READ, LOOKUP_READ, PORTAL_CREATE / _READ / _WRITE,
+      PRODUCT_READ, REGISTRATIONS_CREATE / _READ / _WRITE.
+    - Not yet frozen: REO 23 vs the 21 / 25 options, case-role base issue codes, IRO own-cases, AM/DAM finance grants,
+      the MO Change of Category create button, and the CRM Summary links gated on `crm:member_read` / `crm:access`.
+  - **MEMBER / NON-MEMBER (history before the P8 draft): NOT FROZEN** — carried with dead legacy codes dropped, pending the portal
     tenant/object authorization security remediation. 2026-11-08: EVENTS_CREATE / EVENTS_WRITE / EVENTS_DELETE removed
     from both (EVENTS_READ kept), REGISTRATIONS_CREATE / REGISTRATIONS_READ / REGISTRATIONS_WRITE added to both, and
     COMMUNICATION_CREATE / _WRITE / _DELETE / _READ removed from MEMBER (no member flow uses a user session on
@@ -47,8 +62,8 @@ content decisions are complete. Without it, `ensureTenantRoles` fails closed (`M
     UNSAFE_FOR_PORTAL) removed from both (owner 2026-11-02): MEMBER 24, NON-MEMBER 22.
   - No inactive, test-like or duplicate/dead catalogue code is referenced.
 - Tests: `tests/tenantRoles.p5.committedManifest.test.js`, `tests/tenantRoles.p5.pdp.test.js` (fixture
-  `tests/fixtures/p5-dev-permission-catalogue.json`: DEV catalogue codes/categories + live REO/MO/MEMBER/NON-MEMBER
-  code sets only, no data).
+  `tests/fixtures/p5-dev-permission-catalogue.json`: DEV catalogue codes/categories, 155 rows including the nine P1
+  codes, + live REO/MO/MEMBER/NON-MEMBER code sets only, no data).
 
 ## 2. `ensureTenantRoles(targetTenantId, { version, sha256 })` — `services/tenantRoleProvisioning.js`
 

@@ -59,27 +59,65 @@ describe("committed tenantRoles.v1.json", () => {
 });
 
 
+const P8_DRAFT = {
+  MO: ["ACCOUNTS.MEMBER_READ", "APPLICATION_CREATE", "APPLICATION_PAYMENT_LINKS_READ", "APPLICATION_PAYMENT_LINKS_WRITE", "APPLICATION_READ", "APPLICATION_WRITE", "AUDIT_READ", "CHANGEOFCATEGORY_READ", "COMMUNICATION_CREATE", "COMMUNICATION_DELETE", "COMMUNICATION_READ", "COMMUNICATION_WRITE", "CONTACT_READ", "CORN_MARKET_NEW_GRADUATE_READ", "CORN_MARKET_REWARDS_READ", "DASHBOARD_READ", "DIRECTORY_READ", "EVENTS_CREATE", "EVENTS_READ", "EVENTS_WRITE", "ISSUES_COMPLAINTS_READ", "ISSUES_COMPLAINTS_WRITE", "ISSUES_READ", "ISSUES_TEMPLATES_READ", "ISSUES_WRITE", "LOOKUPTYPE_READ", "LOOKUP_READ", "MENU_CONFIGURATION_ACCESS", "MENU_CORRESPONDENCE_ACCESS", "MENU_EVENTS_ACCESS", "MENU_FINANCE_ACCESS", "MENU_MEMBERSHIP_ACCESS", "MENU_REPORTS_ACCESS", "NOTIFICATION_CREATE", "NOTIFICATION_READ", "PAYMENTS_READ", "PRICING_READ", "PRODUCT_READ", "PRODUCT_TYPE_READ", "PROFILE_CREATE", "PROFILE_READ", "PROFILE_WRITE", "RECRUIT_FRIEND_READ", "REPORTING.LISTINGS_READ", "REPORTING.STATISTICS_READ", "REPORTING.TEMPLATES_READ", "REPORTING.TEMPLATES_WRITE", "SUBSCRIPTIONS_READ", "SUBSCRIPTIONS_WRITE", "TEMPLATE_READ", "TENANT_READ", "TRANSFERREQUESTS_READ", "TRANSFERREQUESTS_WRITE"],
+  REO: ["APPLICATION_PAYMENT_LINKS_READ", "APPLICATION_READ", "CHANGEOFCATEGORY_READ", "EVENTS_READ", "ISSUES_READ", "ISSUES_TEMPLATES_READ", "LOOKUPTYPE_READ", "LOOKUP_READ", "MENU_FINANCE_ACCESS", "MENU_MEMBERSHIP_ACCESS", "MENU_REPORTS_ACCESS", "NOTIFICATION_READ", "PAYMENTS_READ", "PRICING_READ", "PRODUCT_READ", "PRODUCT_TYPE_READ", "PROFILE_READ", "REPORTING.LISTINGS_READ", "REPORTING.STATISTICS_READ", "REPORTING.TEMPLATES_READ", "SUBSCRIPTIONS_READ", "TENANT_READ", "TRANSFERREQUESTS_READ"],
+  MEMBER: ["ACCOUNTS.MEMBER_READ", "EVENTS_READ", "LOOKUP_READ", "PORTAL_CREATE", "PORTAL_READ", "PORTAL_WRITE", "PRODUCT_READ", "REGISTRATIONS_CREATE", "REGISTRATIONS_READ", "REGISTRATIONS_WRITE"],
+};
+P8_DRAFT["NON-MEMBER"] = P8_DRAFT.MEMBER;
+
+describe("P8 draft target sets (2026-11-10, PROVISIONAL - hash not frozen)", () => {
+  test.each(Object.keys(P8_DRAFT))("%s is exactly the P8 draft set", (code) => {
+    expect(byCode[code].permissions).toEqual(P8_DRAFT[code]);
+  });
+  test("counts: MO 53, REO 23 (draft target), MEMBER 10, NON-MEMBER 10", () => {
+    expect(Object.fromEntries(Object.keys(P8_DRAFT).map((c) => [c, byCode[c].permissions.length]))).toEqual({ MO: 53, REO: 23, MEMBER: 10, "NON-MEMBER": 10 });
+  });
+  test("REO 23: the two retained issue reads are base-only - no team code, so no case of any type is visible", () => {
+    expect(byCode.REO.permissions.filter((p) => p.startsWith("ISSUES_"))).toEqual(["ISSUES_READ", "ISSUES_TEMPLATES_READ"]);
+  });
+  test("duplicate merge stays ASU-only: no role but ASU-by-wildcard can merge (no PROFILE_DELETE / PROFILE.MERGE_WRITE on MO)", () => {
+    for (const p of ["PROFILE_DELETE", "PROFILE.MERGE_WRITE"]) expect(byCode.MO.permissions).not.toContain(p);
+    expect(manifest.roles.flatMap((r) => r.permissions)).not.toContain("PROFILE.MERGE_WRITE");
+  });
+  test("portal roles carry only PORTAL / BOTH audience codes (no CRM-audience code)", () => {
+    expect(P8_DRAFT.MEMBER.filter((p) => /^(PROFILE|PAYMENTS|APPLICATION|ACCOUNTS\.REPORTS)_?/.test(p))).toEqual([]);
+  });
+  test("the other 20 roles are unchanged from #39 b33fc00 (P8 changes only MO / REO / MEMBER / NON-MEMBER)", () => {
+    const { execFileSync } = require("child_process");
+    const base = JSON.parse(execFileSync("git", ["show", "b33fc00:config/tenantRoles.v1.json"], { cwd: require("path").join(__dirname, "..") }).toString());
+    const others = (m) => m.roles.filter((r) => !(r.code in P8_DRAFT)).map((r) => JSON.stringify(r)).sort();
+    expect(others(manifest)).toEqual(others(base));
+  });
+});
+
 describe("2026-11-01 owner content decisions", () => {
   test("ASU canonical description (no environment wording)", () => {
     expect(byCode.ASU.description).toBe("Assistant Super User: highest administrator of its own tenant");
     expect(manifest.roles.filter((r) => /staging|\bdev\b|\buat\b|\bprod\b/i.test(`${r.name} ${r.description}`)).map((r) => r.code)).toEqual([]);
   });
   test("REO approved additions present (TENANT_READ conditional on the PDP category fix); REO mutation-free", () => {
-    expect(byCode.REO.permissions).toEqual(expect.arrayContaining(["PRODUCT_READ", "APPLICATION_READ", "CRM_MEMBER_READ", "CRM_ACCESS", "TENANT_READ"]));
+    // P8 draft (2026-11-10): the legacy CRM_MEMBER_READ / CRM_ACCESS codes leave REO (no backend consumer; CRM UI gap noted).
+    expect(byCode.REO.permissions).toEqual(expect.arrayContaining(["PRODUCT_READ", "APPLICATION_READ", "TENANT_READ"]));
     expect(byCode.REO.permissions.filter((p) => !/_(READ|ACCESS)$/.test(p))).toEqual([]);
   });
-  test("MO: approved reads present; ISSUES_WRITE NOT approved; PAYMENTS_WRITE stays removed; USER_READ removed, DIRECTORY_READ added (2026-11-02)", () => {
+  test("MO: approved reads present; PAYMENTS_WRITE stays removed; USER_READ removed, DIRECTORY_READ added (2026-11-02)", () => {
     expect(byCode.MO.permissions).toEqual(expect.arrayContaining(["ISSUES_READ", "PRODUCT_READ", "PRODUCT_TYPE_READ", "PRICING_READ", "DIRECTORY_READ"]));
     expect(byCode.MO.permissions).not.toContain("USER_READ");
-    expect(byCode.MO.permissions).not.toContain("ISSUES_WRITE");
     expect(byCode.MO.permissions).not.toContain("PAYMENTS_WRITE");
+  });
+  test("MO ISSUES_WRITE (2026-11-04 Q1, supersedes the 2026-11-01 withholding): complaints-only - the only team codes are COMPLAINTS", () => {
+    // issue-service enforces the team: every case route needs the base issues:read/write AND, per case type, the team
+    // issues-<team>:read (visibility) / issues-<team>:write (create, update, status, delete, activities, attachments).
+    expect(byCode.MO.permissions).toEqual(expect.arrayContaining(["ISSUES_READ", "ISSUES_WRITE", "ISSUES_TEMPLATES_READ", "ISSUES_COMPLAINTS_READ", "ISSUES_COMPLAINTS_WRITE"]));
+    expect(byCode.MO.permissions.filter((p) => /^ISSUES_(FTP|IR|DATAPROTECTION)_/.test(p))).toEqual([]);
   });
   test("portal roles: none of the 23 reviewed family codes (QUERIES / VOTING / RESOURCES / TRANSFERREQUESTS / CHANGEOFCATEGORY / SUBSCRIPTIONS); MEMBER 24, NON-MEMBER 22", () => {
     for (const r of ["MEMBER", "NON-MEMBER"]) {
       expect(byCode[r].permissions.filter((p) => /^(QUERIES|VOTING|RESOURCES|TRANSFERREQUESTS|CHANGEOFCATEGORY|SUBSCRIPTIONS)_/.test(p))).toEqual([]);
     }
-    expect(byCode.MEMBER.permissions).toHaveLength(24);
-    expect(byCode["NON-MEMBER"].permissions).toHaveLength(22);
+    expect(byCode.MEMBER.permissions).toHaveLength(10); // P8 draft 2026-11-10 (was 24 / 22 at b33fc00)
+    expect(byCode["NON-MEMBER"].permissions).toHaveLength(10);
   });
   test("portal roles (2026-11-08): no staff events / communication codes; EVENTS_READ kept; REGISTRATIONS_* on both", () => {
     for (const r of ["MEMBER", "NON-MEMBER"]) {
