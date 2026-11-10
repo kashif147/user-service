@@ -5,8 +5,8 @@
  *    today, enforce refuses an incompatible role and leaves the user unsaved; a user stored without
  *    userType is skipped (not treated as PORTAL by the schema default).
  *  - the other role-writing scripts (assign-asu-role, assign-roles-by-subscription,
- *    assign-default-roles-to-existing-users, migrate-constants-to-db / -to-staging and
- *    full-staging-migration) are retired: absent, not required, and no script assigns roles outside
+ *    assign-default-roles-to-existing-users, migrate-constants-to-db / -to-staging,
+ *    full-staging-migration and cleanup-staging-db) are retired: absent, not required, and no script assigns roles outside
  *    the guard.
  */
 const fs = require("fs");
@@ -96,6 +96,7 @@ describe("retired role-writing scripts (P7, before enforce)", () => {
     "migrate-constants-to-db",
     "migrate-constants-to-staging",
     "full-staging-migration", // only ran migrate-constants-to-staging
+    "cleanup-staging-db", // only run by full-staging-migration; stripped every user's roles, deleted roles / permissions / tenants
   ];
 
   test.each(RETIRED)("%s is gone and not required anywhere", (name) => {
